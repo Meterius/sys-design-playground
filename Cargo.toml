@@ -3,4 +3,18 @@ name = "jlh-sys-design-playground"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
 [dependencies]
+bevy = { version = "0.18.1", features = ["dynamic_linking"] }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+wasm-bindgen = "0.2.116"
+
+[profile.dev]
+opt-level = 0
+
+[profile.dev.package."*"]
+opt-level = 3

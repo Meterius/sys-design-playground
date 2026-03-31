@@ -1,7 +1,10 @@
 <script setup lang="ts">
   import { initialize } from "jlh-sys-design-playground";
+  import {onMounted} from "vue";
 
-  initialize();
+  onMounted(() => {
+    initialize();
+  })
 </script>
 
 <template>

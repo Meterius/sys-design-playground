@@ -7,11 +7,14 @@ edition = "2024"
 crate-type = ["cdylib", "rlib"]
 path = "src/lib.rs"
 
+[features]
+default = []
+debug = []
+
 [dependencies]
 bevy = { version = "0.18.1", features = ["dynamic_linking"] }
-
-[target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen = "0.2.116"
+web-sys = { version = "0.3.93", features = ["Window"] }
 
 [profile.dev]
 opt-level = 0

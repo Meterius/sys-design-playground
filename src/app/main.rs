@@ -3,10 +3,6 @@ use bevy::DefaultPlugins;
 use bevy::app::{App, PluginGroup, Startup};
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
-use bevy::render::RenderPlugin;
-use bevy::render::render_resource::WgpuFeatures;
-use bevy::render::settings::{RenderCreation, WgpuSettings};
-use bevy::window::{WindowResolution, WindowTheme};
 use bevy_pancam::{PanCam, PanCamPlugin};
 use bevy_prototype_lyon::plugin::ShapePlugin;
 
@@ -22,7 +18,7 @@ pub fn initialize(width: usize, height: usize) {
             },
             ..default()
         }))
-        .add_plugins((GeoMapPlugin {}, PanCamPlugin::default(), ShapePlugin))
+        .add_plugins((GeoMapPlugin {}, PanCamPlugin, ShapePlugin))
         .add_systems(Startup, setup)
         .run();
 }

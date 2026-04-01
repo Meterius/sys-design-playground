@@ -16,9 +16,14 @@ default = []
 debug = ["bevy/debug"]
 
 [dependencies]
-bevy = { version = "0.18.1", features = ["dynamic_linking"] }
+bevy = { version = "0.18.1", features = ["dynamic_linking", "jpeg"] }
 bevy_pancam = "0.20.0"
 bevy_prototype_lyon = "0.16.0"
+geojson = "1.0.0"
+osmpbf = "0.3.8"
+serde_json = "1.0.149"
+tokio = { version = "1.50.0", features = ["sync"] }
+walkdir = "2.5.0"
 
 [profile.dev]
 opt-level = 0

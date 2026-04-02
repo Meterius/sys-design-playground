@@ -1,12 +1,19 @@
-use crate::app::boundaries::load_all_shape_paths;
+use crate::app::geo::boundaries::load_all_shape_paths;
+use crate::geo::sub_division::SubDivision2d;
+use bevy::asset::ErasedAssetLoader;
+use bevy::math::USizeVec2;
 use bevy::prelude::*;
 use bevy::tasks::AsyncComputeTaskPool;
 use bevy_prototype_lyon::geometry::ShapeBuilderBase;
 use bevy_prototype_lyon::path::ShapePath;
 use bevy_prototype_lyon::prelude::ShapeBuilder;
+use bevy_vector_shapes::painter::ShapePainter;
+use bevy_vector_shapes::prelude::*;
 use osmpbf::{Element, ElementReader};
 use std::f32::consts::PI;
 use tokio::sync::mpsc::Receiver;
+
+pub mod boundaries;
 
 pub struct GeoMapPlugin {}
 
@@ -16,12 +23,11 @@ impl Plugin for GeoMapPlugin {
             Update,
             (
                 apply_transform,
-                process_markers,
                 geo_map_plane_setup,
                 geo_map_tile_setup,
+                geo_map_plane_update,
             ),
-        )
-        .add_systems(Startup, geo_map_startup);
+        );
     }
 }
 
@@ -231,20 +237,15 @@ fn geo_map_startup(world: &mut World) {
                     info!("Processed {count} elements");
                 }
 
-                if let Element::DenseNode(node) = el {
-                    if let Some((_, name)) = node.tags().find(|(key, _)| *key == "name") {
+                if let Element::DenseNode(node) = el
+                    && let Some((_, name)) = node.tags().find(|(key, _)| *key == "name") {
                         added_count += 1;
-                        tx.blocking_send((
-                            node.lon() as f32,
-                            node.lat() as f32,
-                            name.to_owned(),
-                        ))
-                        .unwrap();
+                        tx.blocking_send((node.lon() as f32, node.lat() as f32, name.to_owned()))
+                            .unwrap();
                         if added_count.is_multiple_of(1000) {
                             info!("Added {added_count} elements")
                         }
                     }
-                }
                 count += 1;
             })
             .unwrap();
@@ -252,6 +253,53 @@ fn geo_map_startup(world: &mut World) {
         info!("Processed {count} elements in total!");
     })
     .detach();
+}
+
+fn geo_map_plane_update(
+    mut painter: ShapePainter,
+    planes: Query<(&GlobalTransform, &GeoMapPlane)>,
+    camera: Query<(&GlobalTransform, &Camera)>,
+) {
+    if let Ok((camera_transform, camera)) = camera.single() {
+        for (plane_transform, plane) in planes {
+            let plane_bottom_left = plane.projection.convert_gcs(LonLatPos::SOUTH_WEST);
+            let plane_top_right = plane.projection.convert_gcs(LonLatPos::NORTH_EAST);
+
+            let cam_bottom_left = camera
+                .ndc_to_world(camera_transform, Vec2::NEG_ONE.extend(0.0))
+                .map(Vec3::xy);
+            let cam_top_right = camera
+                .ndc_to_world(camera_transform, Vec2::ONE.extend(0.0))
+                .map(Vec3::xy);
+
+            if let Some(cam_bottom_left) = cam_bottom_left
+                && let Some(cam_top_right) = cam_top_right
+            {
+                let cam_area = (cam_bottom_left, cam_top_right);
+                let sub_division = SubDivision2d::from_corners(plane_bottom_left, plane_top_right);
+
+                let target_depth = sub_division.min_depth_for_tile_count(cam_area, USizeVec2::new(10, 10));
+
+                for offset in [-1, 0, 1].into_iter() {
+                    let depth = target_depth as isize + offset;
+
+                    if depth >= 1 {
+                        for tile in sub_division.tile_covering(cam_area, depth as usize) {
+                            painter.set_translation((tile.bb_min + tile.bb_max).extend(0.0) / 2.0);
+                            painter.hollow = true;
+                            painter.color = match offset {
+                                -1 => Color::srgba(1.0, 0.0, 1.0, 0.5),
+                                1 => Color::srgba(1.0, 1.0, 0.0, 0.5),
+                                _ => Color::srgba(0.0, 1.0, 0.0, 0.8),
+                            };
+                            painter.thickness = tile.bb_size.max_element() * 0.01;
+                            painter.rect(tile.bb_size);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn geo_map_plane_setup(
@@ -298,10 +346,9 @@ fn geo_map_plane_setup(
                 .build(),
         ));
 
-        for path in load_all_shape_paths(
-            "assets/datasets/geojson",
-            |pos| plane.projection.convert_gcs(LonLatPos::from_degrees(pos))
-        ) {
+        for path in load_all_shape_paths("assets/datasets/geojson", |pos| {
+            plane.projection.convert_gcs(LonLatPos::from_degrees(pos))
+        }) {
             commands.entity(entity).with_child((
                 Transform::from_xyz(0.0, 0.0, 2.0),
                 ShapeBuilder::with(&path)

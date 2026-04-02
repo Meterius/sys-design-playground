@@ -11,7 +11,8 @@ pub fn load_all_shape_paths<P: AsRef<Path>>(
     convert_pos: impl Fn(Vec2) -> Vec2,
 ) -> Vec<ShapePath> {
     let paths: Vec<PathBuf> = WalkDir::new(root)
-        .into_iter() .filter_map(Result::ok)
+        .into_iter()
+        .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_file())
         .filter(|entry| {
             entry
@@ -23,7 +24,9 @@ pub fn load_all_shape_paths<P: AsRef<Path>>(
         .map(|entry| entry.into_path())
         .collect();
 
-    paths.into_iter().flat_map(|path| load_shape_paths(path, &convert_pos))
+    paths
+        .into_iter()
+        .flat_map(|path| load_shape_paths(path, &convert_pos))
         .collect()
 }
 
@@ -40,14 +43,13 @@ fn load_shape_paths<P: AsRef<Path>>(
         _ => panic!("Expected FeatureCollection"),
     };
 
-    features.into_iter().flat_map(|feature| feature_to_paths(feature, convert_pos))
+    features
+        .into_iter()
+        .flat_map(|feature| feature_to_paths(feature, convert_pos))
 }
 
 /// Convert a GeoJSON feature into one or more ShapePaths
-fn feature_to_paths(
-    feature: Feature,
-    convert_pos: &impl Fn(Vec2) -> Vec2,
-) -> Vec<ShapePath> {
+fn feature_to_paths(feature: Feature, convert_pos: &impl Fn(Vec2) -> Vec2) -> Vec<ShapePath> {
     match feature.geometry {
         Some(geom) => geometry_to_paths(&geom, convert_pos),
         None => vec![],
@@ -55,24 +57,19 @@ fn feature_to_paths(
 }
 
 /// Convert GeoJSON geometry into ShapePaths
-fn geometry_to_paths(
-    geom: &Geometry,
-    convert_pos: &impl Fn(Vec2) -> Vec2,
-) -> Vec<ShapePath> {
+fn geometry_to_paths(geom: &Geometry, convert_pos: &impl Fn(Vec2) -> Vec2) -> Vec<ShapePath> {
     match &geom.value {
         GeometryValue::Polygon { coordinates } => vec![polygon_to_path(coordinates, convert_pos)],
-        GeometryValue::MultiPolygon { coordinates } => {
-            coordinates.iter().map(|x| polygon_to_path(x, convert_pos)).collect()
-        }
+        GeometryValue::MultiPolygon { coordinates } => coordinates
+            .iter()
+            .map(|x| polygon_to_path(x, convert_pos))
+            .collect(),
         _ => vec![], // ignore non-polygon geometries
     }
 }
 
 /// Convert a single polygon (with rings) into a ShapePath
-fn polygon_to_path(
-    polygon: &Vec<Vec<Position>>,
-    convert_pos: &impl Fn(Vec2) -> Vec2,
-) -> ShapePath {
+fn polygon_to_path(polygon: &Vec<Vec<Position>>, convert_pos: &impl Fn(Vec2) -> Vec2) -> ShapePath {
     let mut path = ShapePath::new();
 
     for ring in polygon {
@@ -98,9 +95,6 @@ fn polygon_to_path(
 }
 
 /// Convert [lon, lat] → Vec2
-fn lonlat_to_vec2(
-    coord: &Position,
-    convert_pos: impl Fn(Vec2) -> Vec2,
-) -> Vec2 {
+fn lonlat_to_vec2(coord: &Position, convert_pos: impl Fn(Vec2) -> Vec2) -> Vec2 {
     convert_pos(Vec2::new(coord[0] as f32, coord[1] as f32))
 }

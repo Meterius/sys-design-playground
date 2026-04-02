@@ -1,10 +1,11 @@
-use crate::app::geo_map::{GeoMapPlane, GeoMapPlugin, MercatorProjection};
+use crate::app::geo::{GeoMapPlane, GeoMapPlugin, MercatorProjection};
 use bevy::DefaultPlugins;
 use bevy::app::{App, PluginGroup, Startup};
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use bevy_pancam::{PanCam, PanCamPlugin};
 use bevy_prototype_lyon::plugin::ShapePlugin;
+use bevy_vector_shapes::Shape2dPlugin;
 
 pub fn initialize(width: usize, height: usize) {
     App::new()
@@ -18,7 +19,12 @@ pub fn initialize(width: usize, height: usize) {
             },
             ..default()
         }))
-        .add_plugins((GeoMapPlugin {}, PanCamPlugin, ShapePlugin))
+        .add_plugins((
+            GeoMapPlugin {},
+            PanCamPlugin,
+            ShapePlugin,
+            Shape2dPlugin::default(),
+        ))
         .add_systems(Startup, setup)
         .run();
 }

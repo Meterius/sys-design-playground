@@ -1,2 +1,2 @@
 pub mod app;
-mod geo;
+pub mod geo;

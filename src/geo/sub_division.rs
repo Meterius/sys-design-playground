@@ -1,7 +1,6 @@
 use bevy::math::USizeVec2;
-use bevy::prelude::Vec2;
+use bevy::prelude::{info, Vec2};
 use itertools::Itertools;
-use serde::de::value::UsizeDeserializer;
 
 pub struct SubDivision2d {
     pub bb_min: Vec2,
@@ -9,21 +8,20 @@ pub struct SubDivision2d {
     pub bb_size: Vec2,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub enum SubDivisionKey {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
 #[derive(Debug, Clone)]
 pub struct Tile2d {
+    pub path: Vec<SubDivisionKey>,
     pub bb_min: Vec2,
     pub bb_max: Vec2,
     pub bb_size: Vec2,
-}
-
-impl Tile2d {
-    pub fn subdivided(&self) -> impl Iterator<Item = Tile2d> {
-        [0.0, 0.5].into_iter().cartesian_product([0.0, 0.5].into_iter()).map(|(a, b)| Tile2d {
-            bb_min: self.bb_min + (self.bb_max - self.bb_min) * Vec2::new(a, b),
-            bb_max: self.bb_max + (self.bb_max - self.bb_min) * Vec2::new(a + 0.5, b + 0.5),
-            bb_size: self.bb_size / 2.0,
-        })
-    }
 }
 
 impl SubDivision2d {
@@ -47,14 +45,35 @@ impl SubDivision2d {
             .log2()
             .ceil() as usize;
 
-       x_depth.max(y_depth).max(1)
+        x_depth.max(y_depth).max(1)
     }
 
-    pub fn tile_covering(
-        &self, area: (Vec2, Vec2), depth: usize
-    ) -> impl Iterator<Item = Tile2d> {
-        let area_bb_min = area.0.min(area.1);
-        let area_bb_max = area.0.max(area.1);
+    pub fn tile_path(&self, pos: Vec2, depth: usize) -> Vec<SubDivisionKey> {
+        let mut path = Vec::with_capacity(depth);
+        let mut rem = pos - self.bb_min;
+
+        for idx in 0..depth {
+            let tile_size = self.bb_size / 2.0f32.powf(idx as f32);
+            let hor_bucket = rem.x >= tile_size.x / 2.0;
+            let ver_bucket = rem.y >= tile_size.y / 2.0;
+
+            rem.x %= tile_size.x / 2.0;
+            rem.y %= tile_size.y / 2.0;
+
+            path.push(match (hor_bucket, ver_bucket) {
+                (true, true) => SubDivisionKey::TopRight,
+                (true, false) => SubDivisionKey::BottomRight,
+                (false, true) => SubDivisionKey::TopLeft,
+                (false, false) => SubDivisionKey::BottomLeft,
+            });
+        }
+
+        path
+    }
+
+    pub fn tile_covering(&self, area: (Vec2, Vec2), depth: usize) -> impl Iterator<Item = Tile2d> {
+        let area_bb_min = area.0.min(area.1).max(self.bb_min);
+        let area_bb_max = area.0.max(area.1).min(self.bb_max);
 
         let tile_size = self.bb_size / 2.0f32.powf(depth as f32);
 
@@ -62,11 +81,13 @@ impl SubDivision2d {
         let end = self.bb_min + tile_size * ((area_bb_max - self.bb_min) / tile_size).ceil();
         let count = ((end - start) / tile_size).ceil().as_usizevec2();
 
+
         (0..count.x).flat_map(move |x| {
             (0..count.y).map(move |y| {
                 let tile_bb_min = start + tile_size * Vec2::new(x as f32, y as f32);
                 let tile_bb_max = tile_bb_min + tile_size;
                 Tile2d {
+                    path: self.tile_path((tile_bb_max + tile_bb_min) / 2.0, depth),
                     bb_max: tile_bb_max,
                     bb_min: tile_bb_min,
                     bb_size: tile_size,

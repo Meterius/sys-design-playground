@@ -1,4 +1,5 @@
-use crate::app::geo::{GeoMapPlane, GeoMapPlugin, MercatorProjection};
+use std::f32::consts::PI;
+use crate::app::geo::{GeoMapElementOf, GeoMapPlane, GeoMapPlugin};
 use bevy::DefaultPlugins;
 use bevy::app::{App, PluginGroup, Startup};
 use bevy::log::{Level, LogPlugin};
@@ -6,6 +7,8 @@ use bevy::prelude::*;
 use bevy_pancam::{PanCam, PanCamPlugin};
 use bevy_prototype_lyon::plugin::ShapePlugin;
 use bevy_vector_shapes::Shape2dPlugin;
+use crate::app::geo::tiling::GeoMapPlaneTiling;
+use crate::geo::coords::BoundedMercatorProjection;
 
 pub fn initialize(width: usize, height: usize) {
     App::new()
@@ -24,6 +27,7 @@ pub fn initialize(width: usize, height: usize) {
             PanCamPlugin,
             ShapePlugin,
             Shape2dPlugin::default(),
+            bevy_tokio_tasks::TokioTasksPlugin::default(),
         ))
         .add_systems(Startup, setup)
         .run();
@@ -32,11 +36,15 @@ pub fn initialize(width: usize, height: usize) {
 fn setup(mut commands: Commands) {
     commands.spawn((Camera2d, PanCam::default()));
 
-    commands.spawn((
+    let mut plane_commands = commands.spawn((
         Transform::default().with_scale(Vec3::ONE),
         Visibility::default(),
         GeoMapPlane {
-            projection: MercatorProjection { scale: 5000.0 },
+            projection: BoundedMercatorProjection { lat_min: -0.45 * PI, lat_max: 0.45 * PI, scale: 5000.0 },
         },
+    ));
+
+    plane_commands.with_child((
+        GeoMapPlaneTiling::new(8), Transform::default(), Visibility::default(), GeoMapElementOf(plane_commands.id())
     ));
 }

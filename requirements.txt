@@ -1,0 +1,10 @@
+jupyterlab
+OWSLib
+scikit-image
+matplotlib
+cartopy
+folium
+mapbox_vector_tile
+pandas
+geopandas
+rasterio

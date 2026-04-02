@@ -1,0 +1,25 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgis/postgis:15-3.4
+    container_name: postgres_postgis
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: app_db
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      # Persist database data
+      - postgres_data:/var/lib/postgresql/data
+
+      # Run initialization SQL on first startup
+      - ./init/:/docker-entrypoint-initdb.d/
+
+volumes:
+  postgres_data:

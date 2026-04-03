@@ -1,6 +1,8 @@
 use bevy::math::USizeVec2;
 use bevy::prelude::{info, Vec2};
-use itertools::Itertools;
+use smallvec::SmallVec;
+
+pub type TileKey = SmallVec<[SubDivisionKey; 10]>;
 
 pub struct SubDivision2d {
     pub bb_min: Vec2,
@@ -18,7 +20,7 @@ pub enum SubDivisionKey {
 
 #[derive(Debug, Clone)]
 pub struct Tile2d {
-    pub path: Vec<SubDivisionKey>,
+    pub key: TileKey,
     pub bb_min: Vec2,
     pub bb_max: Vec2,
     pub bb_size: Vec2,
@@ -48,8 +50,8 @@ impl SubDivision2d {
         x_depth.max(y_depth).max(1)
     }
 
-    pub fn tile_path(&self, pos: Vec2, depth: usize) -> Vec<SubDivisionKey> {
-        let mut path = Vec::with_capacity(depth);
+    pub fn tile_path(&self, pos: Vec2, depth: usize) -> TileKey {
+        let mut path = TileKey::with_capacity(depth);
         let mut rem = pos - self.bb_min;
 
         for idx in 0..depth {
@@ -71,6 +73,23 @@ impl SubDivision2d {
         path
     }
 
+    pub fn tile_bbox(&self, key: &TileKey) -> (Vec2, Vec2) {
+        let mut bb_min = self.bb_min;
+
+        let mut rem_tile_size = self.bb_size;
+        for sub_key in key.iter() {
+            bb_min += rem_tile_size * match sub_key {
+                SubDivisionKey::TopRight => Vec2::new(0.5, 0.5),
+                SubDivisionKey::TopLeft => Vec2::new(0.0, 0.5),
+                SubDivisionKey::BottomRight => Vec2::new(0.5, 0.0),
+                SubDivisionKey::BottomLeft => Vec2::new(0.0, 0.0),
+            };
+            rem_tile_size /= 2.0;
+        }
+
+        (bb_min, bb_min + rem_tile_size)
+    }
+
     pub fn tile_covering(&self, area: (Vec2, Vec2), depth: usize) -> impl Iterator<Item = Tile2d> {
         let area_bb_min = area.0.min(area.1).max(self.bb_min);
         let area_bb_max = area.0.max(area.1).min(self.bb_max);
@@ -87,7 +106,7 @@ impl SubDivision2d {
                 let tile_bb_min = start + tile_size * Vec2::new(x as f32, y as f32);
                 let tile_bb_max = tile_bb_min + tile_size;
                 Tile2d {
-                    path: self.tile_path((tile_bb_max + tile_bb_min) / 2.0, depth),
+                    key: self.tile_path((tile_bb_max + tile_bb_min) / 2.0, depth),
                     bb_max: tile_bb_max,
                     bb_min: tile_bb_min,
                     bb_size: tile_size,

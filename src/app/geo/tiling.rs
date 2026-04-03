@@ -1,17 +1,20 @@
 use std::collections::{HashMap, HashSet};
+use std::f32::consts::PI;
 use std::fs;
+use std::path::PathBuf;
+use std::rc::Rc;
 use bevy::math::USizeVec2;
 use bevy::prelude::*;
 use bevy::tasks::AsyncComputeTaskPool;
 use bevy_prototype_lyon::prelude::{ShapeBuilder, ShapeBuilderBase};
 use crate::app::geo::{GeoMapElementOf, GeoMapPlane, GeoMapTransform};
-use crate::geo::coords::{LonLatVec2, RadLonLatVec2};
-use crate::geo::sub_division::{SubDivision2d, SubDivisionKey};
+use crate::geo::coords::{BoundedMercatorProjection, LonLatVec2, RadLonLatVec2};
+use crate::geo::sub_division::{SubDivision2d, SubDivisionKey, TileKey};
 use bevy_prototype_lyon::shapes;
 use bevy_tokio_tasks::TokioTasksRuntime;
 use futures::task::waker;
 use itertools::Itertools;
-use crate::geo::gibs::{fetch_epsg4326_image, GibsEpsg4326Params, LAYER_MODIS_TERRA_CORRECTED_REFLECTANCE_TRUE_COLOR};
+use crate::geo::tiling::TileServer;
 
 #[derive(Default)]
 pub struct GeoMapTilingPlugin { }
@@ -29,50 +32,31 @@ fn startup(
     let runtime = world.get_resource_mut::<TokioTasksRuntime>().unwrap();
 
     let (tile_data_sender, tile_data_receiver) = async_channel::unbounded();
-    let (tile_request_sender, mut tile_request_receiver) = async_channel::unbounded::<(Vec<SubDivisionKey>, (RadLonLatVec2, RadLonLatVec2))>();
+    let (tile_request_sender, mut tile_request_receiver) = async_channel::unbounded::<(TileKey, (RadLonLatVec2, RadLonLatVec2))>();
+
+    let tile_server = TileServer {
+        client: reqwest::Client::new(),
+        cache_dir: PathBuf::from_iter(["assets", "cache"].into_iter())
+    };
 
     for _ in 0..32 {
         let tile_request_receiver = tile_request_receiver.clone();
         let tile_data_sender = tile_data_sender.clone();
+        let tile_server = tile_server.clone();
+        let projection = BoundedMercatorProjection {
+            lat_min: -0.45 * PI, lat_max: 0.45 * PI, scale: 5000.0
+        };
 
         runtime.spawn_background_task(|_| async move {
-            let client = reqwest::Client::new();
+            while let Ok((tile_key, _)) = tile_request_receiver.recv().await {
+                let tile_res = tile_server.load_tile(
+                    &projection, &tile_key
+                ).await.inspect_err(|err| error!("{err}"));
 
-            while let Ok((path, bb_gcs)) = tile_request_receiver.recv().await {
-                let layers = LAYER_MODIS_TERRA_CORRECTED_REFLECTANCE_TRUE_COLOR.to_owned();
-                let path_key = path.iter().map(|key| match key {
-                    SubDivisionKey::BottomLeft => "BL",
-                    SubDivisionKey::BottomRight => "BR",
-                    SubDivisionKey::TopLeft => "TL",
-                    SubDivisionKey::TopRight => "TR",
-                }).join("_");
-
-                let cache_key = format!("cache/gibs/{layers}_{path_key}.png");
-                let asset_key = format!("assets/{cache_key}");
-
-                let bb_gcs_min_deg = LonLatVec2::from(bb_gcs.0.clone());
-                let bb_gcs_max_deg = LonLatVec2::from(bb_gcs.1.clone());
-
-                info!("{path:?} {bb_gcs_min_deg:?} {bb_gcs_max_deg:?}");
-
-                if !fs::exists(&asset_key).inspect_err(|err| error!("Looking up cache key error: {err:?}")).unwrap_or(false) {
-                    info!("Fetching {cache_key}");
-
-                    if let Ok(data) = fetch_epsg4326_image(&client, GibsEpsg4326Params {
-                        layers: layers.clone(),
-                        bbox: (bb_gcs_min_deg.x, bb_gcs_min_deg.y, bb_gcs_max_deg.x, bb_gcs_max_deg.y),
-                        size: (256, 256),
-                    })
-                        .await
-                        .inspect_err(|err| error!("Fetching image error: {err:?}")) {
-                        data.save(&asset_key).unwrap();
-                        info!("Fetched {cache_key}");
-                    }
-                } else {
-                    info!("Found cached {cache_key}");
+                if let Ok(tile_img_path) = tile_res {
+                    let rel_tile_img_path = PathBuf::from_iter(tile_img_path.iter().skip(1));
+                    let _ = tile_data_sender.send((tile_key, rel_tile_img_path)).await.inspect_err(|err| error!("{err:?}"));
                 }
-
-                let _ = tile_data_sender.send((path, cache_key)).await.inspect_err(|err| error!("{err:?}"));
             }
         });
     }
@@ -86,10 +70,10 @@ fn startup(
 }
 
 pub struct GeoMapTileImageStore {
-    requested: HashSet<Vec<SubDivisionKey>>,
-    tiles: HashMap<Vec<SubDivisionKey>, Handle<Image>>,
-    tile_data_receiver: async_channel::Receiver<(Vec<SubDivisionKey>, String)>,
-    tile_request_sender: async_channel::Sender<(Vec<SubDivisionKey>, (RadLonLatVec2, RadLonLatVec2))>,
+    requested: HashSet<TileKey>,
+    tiles: HashMap<TileKey, Handle<Image>>,
+    tile_data_receiver: async_channel::Receiver<(TileKey, PathBuf)>,
+    tile_request_sender: async_channel::Sender<(TileKey, (RadLonLatVec2, RadLonLatVec2))>,
 }
 
 fn geo_map_plane_tile_image_store_update(
@@ -98,7 +82,7 @@ fn geo_map_plane_tile_image_store_update(
 ) {
     let mut max_recv = 10;
     while max_recv >= 1 && let Ok((key, image_key)) = store.tile_data_receiver.try_recv() {
-        store.tiles.insert(key, asset_server.load(&image_key));
+        store.tiles.insert(key, asset_server.load(image_key));
         max_recv -= 1;
     }
 }
@@ -110,33 +94,17 @@ fn geo_map_plane_tiling_update_sprite(
     asset_server: Res<AssetServer>,
 ) {
     for (tile_id, tile) in tiles_without_sprite {
-        if let Some(handle) = store.tiles.get(&tile.path) {
+        if let Some(handle) = store.tiles.get(&tile.key) {
             commands.entity(tile_id).insert(Sprite {
                 image: handle.clone(),
                 custom_size: Some(tile.bb_abs.1 - tile.bb_abs.0),
                 ..default()
             });
-        } else if !store.requested.contains(&tile.path) {
-            store.requested.insert(tile.path.clone());
+        } else if !store.requested.contains(&tile.key) {
+            store.requested.insert(tile.key.clone());
 
-            let path_key = tile.path.iter().map(|key| match key {
-                SubDivisionKey::BottomLeft => "BL",
-                SubDivisionKey::BottomRight => "BR",
-                SubDivisionKey::TopLeft => "TL",
-                SubDivisionKey::TopRight => "TR",
-            }).join("_");
-
-            let layers = LAYER_MODIS_TERRA_CORRECTED_REFLECTANCE_TRUE_COLOR.to_owned();
-            let cache_key = format!("cache/gibs/{layers}_{path_key}.png");
-            let asset_key = format!("assets/{cache_key}");
-
-            if fs::exists(&asset_key).inspect_err(|err| error!("Looking up cache key error: {err:?}")).unwrap_or(false) {
-                store.tiles.insert(tile.path.clone(), asset_server.load(&cache_key));
-            } else {
-                let _ = store.tile_request_sender.try_send((tile.path.clone(), tile.bb_gcs.clone()))
-                    .inspect_err(|err| error!("{err:?}"));
-            }
-
+            let _ = store.tile_request_sender.try_send((tile.key.clone(), tile.bb_gcs.clone()))
+                .inspect_err(|err| error!("{err:?}"));
         }
     }
 }
@@ -144,7 +112,7 @@ fn geo_map_plane_tiling_update_sprite(
 #[derive(Component)]
 pub struct GeoMapPlaneTiling {
     pub target_count: usize,
-    tile_map: HashMap<Vec<SubDivisionKey>, Entity>,
+    tile_map: HashMap<TileKey, Entity>,
 }
 
 impl GeoMapPlaneTiling {
@@ -158,7 +126,7 @@ impl GeoMapPlaneTiling {
 
 #[derive(Component)]
 pub struct GeoMapPlaneTile {
-    pub path: Vec<SubDivisionKey>,
+    pub key: TileKey,
     pub bb_gcs: (RadLonLatVec2, RadLonLatVec2),
     pub bb_abs: (Vec2, Vec2),
 }
@@ -175,7 +143,7 @@ fn geo_map_plane_tiling_update(
         };
 
         commands.entity(tile_id).insert((
-            Transform::from_translation(((tile.bb_abs.0 + tile.bb_abs.1) / 2.0).extend(1.0 + tile.path.len() as f32 * 0.0001)),
+            Transform::from_translation(((tile.bb_abs.0 + tile.bb_abs.1) / 2.0).extend(1.0 + tile.key.len() as f32 * 0.0001)),
             Visibility::default(),
         ));
     }
@@ -211,17 +179,17 @@ fn geo_map_plane_tiling_tile_management(
 
                     let target_depth = sub_division.min_depth_for_tile_count(cam_area, USizeVec2::new(tiling.target_count, tiling.target_count));
 
-                    for depth in 0..=target_depth.min(9) {
+                    for depth in 0..=target_depth.min(1) {
                         for tile in sub_division.tile_covering(cam_area, depth) {
-                            if !tiling.tile_map.contains_key(&tile.path) {
+                            if !tiling.tile_map.contains_key(&tile.key) {
                                 let bb_gcs = (plane.projection.abs_to_gcs(&tile.bb_min), plane.projection.abs_to_gcs(&tile.bb_max));
 
                                 let tile_id = commands.entity(plane_id).with_child((
                                     GeoMapElementOf(plane_id),
-                                    GeoMapPlaneTile { path: tile.path.clone(), bb_abs: (tile.bb_min, tile.bb_max), bb_gcs }
+                                    GeoMapPlaneTile { key: tile.key.clone(), bb_abs: (tile.bb_min, tile.bb_max), bb_gcs }
                                 )).id();
 
-                                tiling.tile_map.insert(tile.path, tile_id);
+                                tiling.tile_map.insert(tile.key, tile_id);
                             }
                         }
                     }

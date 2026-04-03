@@ -61,6 +61,7 @@ impl From<RadLonLatVec2> for LonLatVec2 {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct BoundedMercatorProjection {
     pub lat_max: f32,
     pub lat_min: f32,

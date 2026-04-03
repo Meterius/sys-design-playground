@@ -1,5 +1,6 @@
-use std::f32::consts::PI;
+use crate::app::geo::tiling::GeoMapPlaneTiling;
 use crate::app::geo::{GeoMapElementOf, GeoMapPlane, GeoMapPlugin};
+use crate::geo::coords::BoundedMercatorProjection;
 use bevy::DefaultPlugins;
 use bevy::app::{App, PluginGroup, Startup};
 use bevy::log::{Level, LogPlugin};
@@ -7,8 +8,7 @@ use bevy::prelude::*;
 use bevy_pancam::{PanCam, PanCamPlugin};
 use bevy_prototype_lyon::plugin::ShapePlugin;
 use bevy_vector_shapes::Shape2dPlugin;
-use crate::app::geo::tiling::GeoMapPlaneTiling;
-use crate::geo::coords::BoundedMercatorProjection;
+use std::f32::consts::PI;
 
 pub fn initialize(width: usize, height: usize) {
     App::new()
@@ -40,11 +40,18 @@ fn setup(mut commands: Commands) {
         Transform::default().with_scale(Vec3::ONE),
         Visibility::default(),
         GeoMapPlane {
-            projection: BoundedMercatorProjection { lat_min: -0.45 * PI, lat_max: 0.45 * PI, scale: 5000.0 },
+            projection: BoundedMercatorProjection {
+                lat_min: -0.45 * PI,
+                lat_max: 0.45 * PI,
+                scale: 5000.0,
+            },
         },
     ));
 
     plane_commands.with_child((
-        GeoMapPlaneTiling::new(8), Transform::default(), Visibility::default(), GeoMapElementOf(plane_commands.id())
+        GeoMapPlaneTiling::new(8),
+        Transform::default(),
+        Visibility::default(),
+        GeoMapElementOf(plane_commands.id()),
     ));
 }

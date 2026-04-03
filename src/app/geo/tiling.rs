@@ -1,42 +1,50 @@
+use crate::app::geo::{GeoMapElementOf, GeoMapPlane, GeoMapTransform};
+use crate::geo::coords::{BoundedMercatorProjection, LonLatVec2, RadLonLatVec2};
+use crate::geo::sub_division::{SubDivision2d, SubDivisionKey, TileKey};
+use crate::geo::tiling::TileServer;
+use bevy::math::USizeVec2;
+use bevy::prelude::*;
+use bevy::tasks::AsyncComputeTaskPool;
+use bevy_prototype_lyon::prelude::{ShapeBuilder, ShapeBuilderBase};
+use bevy_prototype_lyon::shapes;
+use bevy_tokio_tasks::TokioTasksRuntime;
+use futures::task::waker;
+use itertools::Itertools;
 use std::collections::{HashMap, HashSet};
 use std::f32::consts::PI;
 use std::fs;
 use std::path::PathBuf;
 use std::rc::Rc;
-use bevy::math::USizeVec2;
-use bevy::prelude::*;
-use bevy::tasks::AsyncComputeTaskPool;
-use bevy_prototype_lyon::prelude::{ShapeBuilder, ShapeBuilderBase};
-use crate::app::geo::{GeoMapElementOf, GeoMapPlane, GeoMapTransform};
-use crate::geo::coords::{BoundedMercatorProjection, LonLatVec2, RadLonLatVec2};
-use crate::geo::sub_division::{SubDivision2d, SubDivisionKey, TileKey};
-use bevy_prototype_lyon::shapes;
-use bevy_tokio_tasks::TokioTasksRuntime;
-use futures::task::waker;
-use itertools::Itertools;
-use crate::geo::tiling::TileServer;
 
 #[derive(Default)]
-pub struct GeoMapTilingPlugin { }
+pub struct GeoMapTilingPlugin {}
 
 impl Plugin for GeoMapTilingPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, startup);
-        app.add_systems(Update, (geo_map_plane_tiling_tile_management, geo_map_plane_tiling_update, geo_map_plane_tile_image_store_update, geo_map_plane_tiling_update_sprite).chain());
+        app.add_systems(
+            Update,
+            (
+                geo_map_plane_tiling_tile_management,
+                geo_map_plane_tiling_update,
+                geo_map_plane_tile_image_store_update,
+                geo_map_plane_tiling_update_sprite,
+            )
+                .chain(),
+        );
     }
 }
 
-fn startup(
-    world: &mut World,
-) {
+fn startup(world: &mut World) {
     let runtime = world.get_resource_mut::<TokioTasksRuntime>().unwrap();
 
     let (tile_data_sender, tile_data_receiver) = async_channel::unbounded();
-    let (tile_request_sender, mut tile_request_receiver) = async_channel::unbounded::<(TileKey, (RadLonLatVec2, RadLonLatVec2))>();
+    let (tile_request_sender, mut tile_request_receiver) =
+        async_channel::unbounded::<(TileKey, (RadLonLatVec2, RadLonLatVec2))>();
 
     let tile_server = TileServer {
         client: reqwest::Client::new(),
-        cache_dir: PathBuf::from_iter(["assets", "cache"].into_iter())
+        cache_dir: PathBuf::from_iter(["assets", "cache"].into_iter()),
     };
 
     for _ in 0..32 {
@@ -44,18 +52,24 @@ fn startup(
         let tile_data_sender = tile_data_sender.clone();
         let tile_server = tile_server.clone();
         let projection = BoundedMercatorProjection {
-            lat_min: -0.45 * PI, lat_max: 0.45 * PI, scale: 5000.0
+            lat_min: -0.45 * PI,
+            lat_max: 0.45 * PI,
+            scale: 5000.0,
         };
 
         runtime.spawn_background_task(|_| async move {
             while let Ok((tile_key, _)) = tile_request_receiver.recv().await {
-                let tile_res = tile_server.load_tile(
-                    &projection, &tile_key
-                ).await.inspect_err(|err| error!("{err}"));
+                let tile_res = tile_server
+                    .load_tile(&projection, &tile_key)
+                    .await
+                    .inspect_err(|err| error!("{err}"));
 
                 if let Ok(tile_img_path) = tile_res {
                     let rel_tile_img_path = PathBuf::from_iter(tile_img_path.iter().skip(1));
-                    let _ = tile_data_sender.send((tile_key, rel_tile_img_path)).await.inspect_err(|err| error!("{err:?}"));
+                    let _ = tile_data_sender
+                        .send((tile_key, rel_tile_img_path))
+                        .await
+                        .inspect_err(|err| error!("{err:?}"));
                 }
             }
         });
@@ -81,7 +95,9 @@ fn geo_map_plane_tile_image_store_update(
     asset_server: Res<AssetServer>,
 ) {
     let mut max_recv = 10;
-    while max_recv >= 1 && let Ok((key, image_key)) = store.tile_data_receiver.try_recv() {
+    while max_recv >= 1
+        && let Ok((key, image_key)) = store.tile_data_receiver.try_recv()
+    {
         store.tiles.insert(key, asset_server.load(image_key));
         max_recv -= 1;
     }
@@ -103,7 +119,9 @@ fn geo_map_plane_tiling_update_sprite(
         } else if !store.requested.contains(&tile.key) {
             store.requested.insert(tile.key.clone());
 
-            let _ = store.tile_request_sender.try_send((tile.key.clone(), tile.bb_gcs.clone()))
+            let _ = store
+                .tile_request_sender
+                .try_send((tile.key.clone(), tile.bb_gcs.clone()))
                 .inspect_err(|err| error!("{err:?}"));
         }
     }
@@ -143,7 +161,10 @@ fn geo_map_plane_tiling_update(
         };
 
         commands.entity(tile_id).insert((
-            Transform::from_translation(((tile.bb_abs.0 + tile.bb_abs.1) / 2.0).extend(1.0 + tile.key.len() as f32 * 0.0001)),
+            Transform::from_translation(
+                ((tile.bb_abs.0 + tile.bb_abs.1) / 2.0)
+                    .extend(1.0 + tile.key.len() as f32 * 0.0001),
+            ),
             Visibility::default(),
         ));
     }
@@ -175,19 +196,33 @@ fn geo_map_plane_tiling_tile_management(
                     && let Some(cam_top_right) = cam_top_right
                 {
                     let cam_area = (cam_bottom_left, cam_top_right);
-                    let sub_division = SubDivision2d::from_corners(plane_bottom_left, plane_top_right);
+                    let sub_division =
+                        SubDivision2d::from_corners(plane_bottom_left, plane_top_right);
 
-                    let target_depth = sub_division.min_depth_for_tile_count(cam_area, USizeVec2::new(tiling.target_count, tiling.target_count));
+                    let target_depth = sub_division.min_depth_for_tile_count(
+                        cam_area,
+                        USizeVec2::new(tiling.target_count, tiling.target_count),
+                    );
 
-                    for depth in 0..=target_depth.min(1) {
+                    for depth in 0..=target_depth.min(8) {
                         for tile in sub_division.tile_covering(cam_area, depth) {
                             if !tiling.tile_map.contains_key(&tile.key) {
-                                let bb_gcs = (plane.projection.abs_to_gcs(&tile.bb_min), plane.projection.abs_to_gcs(&tile.bb_max));
+                                let bb_gcs = (
+                                    plane.projection.abs_to_gcs(&tile.bb_min),
+                                    plane.projection.abs_to_gcs(&tile.bb_max),
+                                );
 
-                                let tile_id = commands.entity(plane_id).with_child((
-                                    GeoMapElementOf(plane_id),
-                                    GeoMapPlaneTile { key: tile.key.clone(), bb_abs: (tile.bb_min, tile.bb_max), bb_gcs }
-                                )).id();
+                                let tile_id = commands
+                                    .entity(plane_id)
+                                    .with_child((
+                                        GeoMapElementOf(plane_id),
+                                        GeoMapPlaneTile {
+                                            key: tile.key.clone(),
+                                            bb_abs: (tile.bb_min, tile.bb_max),
+                                            bb_gcs,
+                                        },
+                                    ))
+                                    .id();
 
                                 tiling.tile_map.insert(tile.key, tile_id);
                             }

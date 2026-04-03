@@ -1,5 +1,5 @@
 use bevy::math::USizeVec2;
-use bevy::prelude::{info, Vec2};
+use bevy::prelude::{Vec2, info};
 use smallvec::SmallVec;
 
 pub type TileKey = SmallVec<[SubDivisionKey; 10]>;
@@ -78,12 +78,13 @@ impl SubDivision2d {
 
         let mut rem_tile_size = self.bb_size;
         for sub_key in key.iter() {
-            bb_min += rem_tile_size * match sub_key {
-                SubDivisionKey::TopRight => Vec2::new(0.5, 0.5),
-                SubDivisionKey::TopLeft => Vec2::new(0.0, 0.5),
-                SubDivisionKey::BottomRight => Vec2::new(0.5, 0.0),
-                SubDivisionKey::BottomLeft => Vec2::new(0.0, 0.0),
-            };
+            bb_min += rem_tile_size
+                * match sub_key {
+                    SubDivisionKey::TopRight => Vec2::new(0.5, 0.5),
+                    SubDivisionKey::TopLeft => Vec2::new(0.0, 0.5),
+                    SubDivisionKey::BottomRight => Vec2::new(0.5, 0.0),
+                    SubDivisionKey::BottomLeft => Vec2::new(0.0, 0.0),
+                };
             rem_tile_size /= 2.0;
         }
 
@@ -99,7 +100,6 @@ impl SubDivision2d {
         let start = self.bb_min + tile_size * ((area_bb_min - self.bb_min) / tile_size).floor();
         let end = self.bb_min + tile_size * ((area_bb_max - self.bb_min) / tile_size).ceil();
         let count = ((end - start) / tile_size).ceil().as_usizevec2();
-
 
         (0..count.x).flat_map(move |x| {
             (0..count.y).map(move |y| {

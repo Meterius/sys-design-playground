@@ -1,11 +1,11 @@
 use crate::app::geo::boundaries::load_all_shape_paths;
+use crate::app::geo::tiling::GeoMapTilingPlugin;
 use crate::geo::coords::{BoundedMercatorProjection, LonLatVec2, RadLonLatVec2};
 use bevy::asset::ErasedAssetLoader;
 use bevy::prelude::*;
 use bevy_prototype_lyon::geometry::ShapeBuilderBase;
 use bevy_prototype_lyon::path::ShapePath;
 use bevy_prototype_lyon::prelude::ShapeBuilder;
-use crate::app::geo::tiling::GeoMapTilingPlugin;
 
 pub mod boundaries;
 pub mod tiling;

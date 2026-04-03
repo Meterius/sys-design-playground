@@ -1,12 +1,12 @@
 use crate::app::geo::{GeoMapElementOf, GeoMapPlane};
-use crate::geo::coords::{BoundedMercatorProjection, Projection2D, RadLonLatVec2};
+use crate::geo::coords::{Projection2D, RadLonLatVec2};
 use crate::geo::sub_division::{SubDivision2d, TileKey};
-use crate::geo::tiling::TileServer;
+use crate::geo::tiling::{TileServer, TileServerError};
+use bevy::ecs::system::RunSystemOnce;
 use bevy::math::USizeVec2;
 use bevy::prelude::*;
 use bevy_tokio_tasks::TokioTasksRuntime;
 use std::collections::{HashMap, HashSet};
-use std::f32::consts::PI;
 use std::path::PathBuf;
 
 #[derive(Default)]
@@ -19,7 +19,6 @@ impl Plugin for GeoMapTilingPlugin {
             Update,
             (
                 geo_map_plane_tiling_tile_management,
-                geo_map_plane_tile_image_store_update,
                 geo_map_plane_tiling_update_sprite,
             )
                 .chain(),
@@ -28,75 +27,40 @@ impl Plugin for GeoMapTilingPlugin {
 }
 
 fn startup(world: &mut World) {
-    let runtime = world.get_resource_mut::<TokioTasksRuntime>().unwrap();
-
-    let (tile_data_sender, tile_data_receiver) = async_channel::unbounded();
-    let (tile_request_sender, tile_request_receiver) =
-        async_channel::unbounded::<(TileKey, (RadLonLatVec2, RadLonLatVec2))>();
-
-    let tile_server = TileServer::new(PathBuf::from_iter(["assets", "cache"]));
-
-    for _ in 0..32 {
-        let tile_request_receiver = tile_request_receiver.clone();
-        let tile_data_sender = tile_data_sender.clone();
-        let tile_server = tile_server.clone();
-        let projection = BoundedMercatorProjection {
-            lat_min: -0.45 * PI,
-            lat_max: 0.45 * PI,
-        };
-
-        runtime.spawn_background_task(|_| async move {
-            while let Ok((tile_key, _)) = tile_request_receiver.recv().await {
-                let tile_res = tile_server
-                    .load_tile(&projection, &tile_key)
-                    .await
-                    .inspect_err(|err| error!("{err}"));
-
-                if let Ok(tile_img_path) = tile_res {
-                    let rel_tile_img_path = PathBuf::from_iter(tile_img_path.iter().skip(1));
-                    let _ = tile_data_sender
-                        .send((tile_key, rel_tile_img_path))
-                        .await
-                        .inspect_err(|err| error!("{err:?}"));
-                }
-            }
-        });
-    }
+    world.insert_non_send_resource(TileServer::new(PathBuf::from_iter(["assets", "cache"])));
 
     world.insert_non_send_resource(GeoMapTileImageStore {
         tiles: HashMap::new(),
         requested: HashSet::new(),
-        tile_data_receiver,
-        tile_request_sender,
+        failed: HashSet::new(),
     });
 }
 
 pub struct GeoMapTileImageStore {
     requested: HashSet<TileKey>,
+    failed: HashSet<TileKey>,
     tiles: HashMap<TileKey, Handle<Image>>,
-    tile_data_receiver: async_channel::Receiver<(TileKey, PathBuf)>,
-    tile_request_sender: async_channel::Sender<(TileKey, (RadLonLatVec2, RadLonLatVec2))>,
 }
 
-fn geo_map_plane_tile_image_store_update(
-    mut store: NonSendMut<GeoMapTileImageStore>,
-    asset_server: Res<AssetServer>,
-) {
-    let mut max_recv = 10;
-    while max_recv >= 1
-        && let Ok((key, image_key)) = store.tile_data_receiver.try_recv()
-    {
-        store.tiles.insert(key, asset_server.load(image_key));
-        max_recv -= 1;
-    }
+impl GeoMapTileImageStore {
+    const MAX_INFLIGHT_COUNT: usize = 32;
 }
 
 fn geo_map_plane_tiling_update_sprite(
     mut commands: Commands,
     mut store: NonSendMut<GeoMapTileImageStore>,
+    tile_server: NonSend<TileServer>,
+    runtime: Res<TokioTasksRuntime>,
     tiles_without_sprite: Query<(Entity, &GeoMapElementOf, &GeoMapPlaneTile), Without<Sprite>>,
     planes: Query<&GeoMapPlane>,
 ) {
+    struct RequestedTile {
+        priority: f32,
+        tile: TileKey,
+    }
+
+    let mut requests = Vec::new();
+
     for (tile_id, tile_element_of, tile) in tiles_without_sprite {
         if let Ok(plane) = planes.get(tile_element_of.0) {
             if let Some(handle) = store.tiles.get(&tile.key) {
@@ -105,15 +69,55 @@ fn geo_map_plane_tiling_update_sprite(
                     custom_size: Some(plane.scale * (tile.bb_abs.1 - tile.bb_abs.0)),
                     ..default()
                 });
-            } else if !store.requested.contains(&tile.key) {
-                store.requested.insert(tile.key.clone());
-
-                let _ = store
-                    .tile_request_sender
-                    .try_send((tile.key.clone(), tile.bb_gcs.clone()))
-                    .inspect_err(|err| error!("{err:?}"));
+            } else if !store.requested.contains(&tile.key)
+                && !store.failed.contains(&tile.key)
+                && tile.targeted
+            {
+                requests.push((tile.key.clone(), plane.projection.clone()));
             }
         }
+    }
+
+    requests.sort_by_key(|(key, _)| key.len());
+
+    for (requested_tile, projection) in requests.into_iter().take(
+        GeoMapTileImageStore::MAX_INFLIGHT_COUNT - store.requested.len(),
+    ) {
+        store.requested.insert(requested_tile.clone());
+        let tile_server = tile_server.clone();
+        runtime.spawn_background_task(async move |mut task| {
+            let projection = projection;
+            let requested_tile = requested_tile;
+
+            let tile_path = tile_server
+                .load_tile(&projection, &requested_tile)
+                .await
+                .inspect_err(|err| error!("{err}"));
+
+            task.run_on_main_thread(|ctx| {
+                let _ = ctx
+                    .world
+                    .run_system_once_with(
+                        |(In(tile), In(tile_path)): (
+                            In<TileKey>,
+                            In<Result<PathBuf, TileServerError>>,
+                        ),
+                         asset_server: Res<AssetServer>,
+                         mut store: NonSendMut<GeoMapTileImageStore>| {
+                            store.requested.remove(&tile);
+
+                            if let Ok(tile_path) = tile_path {
+                                store.tiles.insert(tile, asset_server.load(PathBuf::from_iter(tile_path.iter().skip(1))));
+                            } else {
+                                store.failed.insert(tile);
+                            }
+                        },
+                        (requested_tile, tile_path),
+                    )
+                    .inspect_err(|err| error!("{err}"));
+            })
+            .await;
+        });
     }
 }
 
@@ -137,6 +141,7 @@ pub struct GeoMapPlaneTile {
     pub key: TileKey,
     pub bb_gcs: (RadLonLatVec2, RadLonLatVec2),
     pub bb_abs: (Vec2, Vec2),
+    pub targeted: bool,
 }
 
 fn geo_map_plane_tiling_tile_management(
@@ -144,6 +149,7 @@ fn geo_map_plane_tiling_tile_management(
     tiling: Query<(&mut GeoMapPlaneTiling, &GeoMapElementOf)>,
     planes: Query<(Entity, &GlobalTransform, &GeoMapPlane)>,
     camera: Query<(&GlobalTransform, &Camera)>,
+    mut tiles: Query<&mut GeoMapPlaneTile>,
 ) {
     if let Ok((camera_transform, camera)) = camera.single() {
         for (mut tiling, tiling_element_of) in tiling {
@@ -175,8 +181,12 @@ fn geo_map_plane_tiling_tile_management(
                         USizeVec2::new(tiling.target_count, tiling.target_count),
                     );
 
+                    let mut untargeted_tiles = tiling.tile_map.clone();
+
                     for depth in 0..=target_depth.min(9) {
                         for tile in sub_division.tile_covering(cam_abs_bbox, depth) {
+                        untargeted_tiles.remove(&tile.key);
+
                             if let std::collections::hash_map::Entry::Vacant(e) =
                                 tiling.tile_map.entry(tile.key.clone())
                             {
@@ -193,6 +203,7 @@ fn geo_map_plane_tiling_tile_management(
                                             key: tile.key.clone(),
                                             bb_abs: (tile.bb_min, tile.bb_max),
                                             bb_gcs,
+                                            targeted: true,
                                         },
                                         Transform::from_translation(
                                             plane
@@ -204,6 +215,15 @@ fn geo_map_plane_tiling_tile_management(
                                     .id();
 
                                 e.insert(tile_id);
+                            }
+                        }
+                    }
+
+                    for &tile_id in tiling.tile_map.values() {
+                        if let Ok(mut tile) = tiles.get_mut(tile_id) {
+                            let targeted = !untargeted_tiles.contains_key(&tile.key);
+                            if targeted != tile.targeted {
+                                tile.targeted = targeted;
                             }
                         }
                     }

@@ -1,6 +1,6 @@
 use crate::app::geo::boundaries::load_all_shape_paths;
 use crate::app::geo::tiling::GeoMapTilingPlugin;
-use crate::geo::coords::{BoundedMercatorProjection, LonLatVec2, RadLonLatVec2};
+use crate::geo::coords::{BoundedMercatorProjection, LonLatVec2, Projection2D, RadLonLatVec2};
 use bevy::prelude::*;
 use bevy_prototype_lyon::geometry::ShapeBuilderBase;
 use bevy_prototype_lyon::path::ShapePath;
@@ -21,6 +21,17 @@ impl Plugin for GeoMapPlugin {
 #[derive(Component)]
 pub struct GeoMapPlane {
     pub(crate) projection: BoundedMercatorProjection,
+    pub(crate) scale: f32,
+}
+
+impl GeoMapPlane {
+    fn local_to_abs(&self, pos: &Vec2) -> Vec2 {
+        pos / self.scale + self.projection.abs_pos()
+    }
+
+    fn abs_to_local(&self, pos: &Vec2) -> Vec2 {
+        (pos - self.projection.abs_pos()) * self.scale
+    }
 }
 
 #[derive(Component)]
@@ -46,10 +57,9 @@ fn apply_transform(
 ) {
     for (mut transform, geo_transform, element_of) in transforms {
         if let Ok(plane) = planes.get(element_of.0) {
-            transform.translation = plane
-                .projection
-                .gcs_to_abs(&geo_transform.pos)
-                .extend(transform.translation.z);
+            transform.translation = (plane
+                .abs_to_local(&plane.projection.gcs_to_abs(&geo_transform.pos)))
+            .extend(transform.translation.z);
         }
     }
 }
@@ -62,15 +72,14 @@ fn geo_map_plane_setup(
     _asset_server: Res<AssetServer>,
 ) {
     for (entity, plane) in planes {
-        let plane_pos = plane.projection.abs_pos();
-        let plane_size = plane.projection.abs_size();
+        let plane_size = plane.projection.abs_size() * plane.scale;
 
         let background_border = [
-            plane_pos + Vec2::new(-1.0, -1.0) * plane_size / 2.0,
-            plane_pos + Vec2::new(-1.0, 1.0) * plane_size / 2.0,
-            plane_pos + Vec2::new(1.0, 1.0) * plane_size / 2.0,
-            plane_pos + Vec2::new(1.0, -1.0) * plane_size / 2.0,
-            plane_pos + Vec2::new(-1.0, -1.0) * plane_size / 2.0,
+            Vec2::new(-1.0, -1.0) * plane_size / 2.0,
+            Vec2::new(-1.0, 1.0) * plane_size / 2.0,
+            Vec2::new(1.0, 1.0) * plane_size / 2.0,
+            Vec2::new(1.0, -1.0) * plane_size / 2.0,
+            Vec2::new(-1.0, -1.0) * plane_size / 2.0,
         ];
 
         let mut background_border_path = ShapePath::new();
@@ -83,18 +92,18 @@ fn geo_map_plane_setup(
         commands.entity(entity).with_child((
             Transform::from_xyz(0.0, 0.0, -2.0),
             ShapeBuilder::with(&background_border_path)
-                .stroke((Color::BLACK, 50.0))
+                .stroke((Color::BLACK, 5.0))
                 .fill(Color::srgba(0.4, 0.4, 0.8, 0.25))
                 .build(),
         ));
 
         for path in load_all_shape_paths("assets/datasets/geojson", |pos| {
-            plane.projection.gcs_to_abs(&LonLatVec2::from(pos).into())
+            plane.abs_to_local(&plane.projection.gcs_to_abs(&LonLatVec2::from(pos).into()))
         }) {
             commands.entity(entity).with_child((
                 Transform::from_xyz(0.0, 0.0, 2.0),
                 ShapeBuilder::with(&path)
-                    .stroke((Color::srgba(1.0, 0.0, 0.0, 0.3), 5.0))
+                    .stroke((Color::srgba(1.0, 0.0, 0.0, 0.3), 0.5))
                     .build(),
             ));
         }

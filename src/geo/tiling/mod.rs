@@ -1,4 +1,4 @@
-use crate::geo::coords::{BoundedMercatorProjection, LonLatVec2, RadLonLatVec2};
+use crate::geo::coords::{BoundedMercatorProjection, LonLatVec2, Projection2D, RadLonLatVec2};
 use crate::geo::sub_division::{SubDivision2d, SubDivisionKey, TileKey};
 use crate::geo::tiling::gibs::{
     GibsEpsg4326Params, LAYER_MODIS_TERRA_CORRECTED_REFLECTANCE_TRUE_COLOR, fetch_epsg4326_image,
@@ -62,13 +62,13 @@ impl TileServer {
 
     fn reprojected(
         image: &image::RgbImage,
-        projection: &BoundedMercatorProjection,
+        projection: &impl Projection2D,
         gcs_bbox: (RadLonLatVec2, RadLonLatVec2),
     ) -> Result<image::RgbImage, TileServerError> {
         let mut out = image::RgbImage::new(image.width(), image.height());
 
-        let abs_min = projection.gcs_to_abs(&gcs_bbox.0);
-        let abs_size = projection.gcs_to_abs(&gcs_bbox.1) - abs_min;
+        let rel_min = projection.gcs_to_rel(&gcs_bbox.0);
+        let rel_size = projection.gcs_to_rel(&gcs_bbox.1) - rel_min;
 
         let gcs_min = Vec2::from(gcs_bbox.0.clone());
         let gcs_size = Vec2::from(gcs_bbox.1.clone()) - Vec2::from(gcs_bbox.0.clone());
@@ -76,11 +76,11 @@ impl TileServer {
         let image_size = Vec2::new(image.width() as f32, image.height() as f32);
 
         for (x, y, pixel) in out.enumerate_pixels_mut() {
-            let abs_pos = abs_min
-                + abs_size
+            let rel_pos = rel_min
+                + rel_size
                     * (Vec2::new(0.0, 1.0)
                         + Vec2::new(x as f32 + 0.5, -(y as f32 + 0.5)) / image_size);
-            let gcs_pos = projection.abs_to_gcs(&abs_pos);
+            let gcs_pos = projection.rel_to_gcs(&rel_pos);
             let img_pos_rel = (Vec2::new(0.0, 1.0)
                 + Vec2::new(1.0, -1.0) * (Vec2::from(gcs_pos.clone()) - gcs_min) / gcs_size)
                 .clamp(Vec2::ZERO, Vec2::ONE);
@@ -112,25 +112,28 @@ impl TileServer {
             return Ok(file_path);
         }
 
-        let sub_div = SubDivision2d::from_corners(-Vec2::ONE / 2.0, Vec2::ONE / 2.0);
-        let rel_bbox = sub_div.tile_bbox(tile_key);
-        let rel_size = rel_bbox.1 - rel_bbox.0;
+        let sub_div = SubDivision2d::from_corners(
+            projection.abs_pos() - 0.5 * projection.abs_size(),
+            projection.abs_pos() + 0.5 * projection.abs_size(),
+        );
+        let abs_bbox = sub_div.tile_bbox(tile_key);
         let rad_gcs_bbox = (
-            projection.abs_to_gcs(&(projection.abs_pos() + rel_bbox.0 * projection.abs_size())),
-            projection.abs_to_gcs(&(projection.abs_pos() + rel_bbox.1 * projection.abs_size())),
+            projection.abs_to_gcs(&abs_bbox.0),
+            projection.abs_to_gcs(&abs_bbox.1),
         );
 
         let gcs_bbox = (
             LonLatVec2::from(rad_gcs_bbox.0.clone()),
             LonLatVec2::from(rad_gcs_bbox.1.clone()),
         );
+        let gcs_size = Vec2::from(gcs_bbox.1.clone()) - Vec2::from(gcs_bbox.0.clone());
 
         let img = fetch_epsg4326_image(
             &self.client,
             GibsEpsg4326Params {
                 layers: LAYER_MODIS_TERRA_CORRECTED_REFLECTANCE_TRUE_COLOR.to_owned(),
                 bbox: (gcs_bbox.0.x, gcs_bbox.0.y, gcs_bbox.1.x, gcs_bbox.1.y),
-                size: (256, (256.0 * rel_size.y / rel_size.x).ceil() as usize),
+                size: (256, (256.0 * gcs_size.y / gcs_size.x).ceil() as usize),
             },
         )
         .await?;

@@ -1,5 +1,5 @@
 use crate::app::geo::{GeoMapElementOf, GeoMapPlane};
-use crate::geo::coords::{BoundedMercatorProjection, RadLonLatVec2};
+use crate::geo::coords::{BoundedMercatorProjection, Projection2D, RadLonLatVec2};
 use crate::geo::sub_division::{SubDivision2d, TileKey};
 use crate::geo::tiling::TileServer;
 use bevy::math::USizeVec2;
@@ -19,7 +19,6 @@ impl Plugin for GeoMapTilingPlugin {
             Update,
             (
                 geo_map_plane_tiling_tile_management,
-                geo_map_plane_tiling_update,
                 geo_map_plane_tile_image_store_update,
                 geo_map_plane_tiling_update_sprite,
             )
@@ -44,7 +43,6 @@ fn startup(world: &mut World) {
         let projection = BoundedMercatorProjection {
             lat_min: -0.45 * PI,
             lat_max: 0.45 * PI,
-            scale: 5000.0,
         };
 
         runtime.spawn_background_task(|_| async move {
@@ -96,22 +94,25 @@ fn geo_map_plane_tile_image_store_update(
 fn geo_map_plane_tiling_update_sprite(
     mut commands: Commands,
     mut store: NonSendMut<GeoMapTileImageStore>,
-    tiles_without_sprite: Query<(Entity, &GeoMapPlaneTile), Without<Sprite>>,
+    tiles_without_sprite: Query<(Entity, &GeoMapElementOf, &GeoMapPlaneTile), Without<Sprite>>,
+    planes: Query<&GeoMapPlane>,
 ) {
-    for (tile_id, tile) in tiles_without_sprite {
-        if let Some(handle) = store.tiles.get(&tile.key) {
-            commands.entity(tile_id).insert(Sprite {
-                image: handle.clone(),
-                custom_size: Some(tile.bb_abs.1 - tile.bb_abs.0),
-                ..default()
-            });
-        } else if !store.requested.contains(&tile.key) {
-            store.requested.insert(tile.key.clone());
+    for (tile_id, tile_element_of, tile) in tiles_without_sprite {
+        if let Ok(plane) = planes.get(tile_element_of.0) {
+            if let Some(handle) = store.tiles.get(&tile.key) {
+                commands.entity(tile_id).insert(Sprite {
+                    image: handle.clone(),
+                    custom_size: Some(plane.scale * (tile.bb_abs.1 - tile.bb_abs.0)),
+                    ..default()
+                });
+            } else if !store.requested.contains(&tile.key) {
+                store.requested.insert(tile.key.clone());
 
-            let _ = store
-                .tile_request_sender
-                .try_send((tile.key.clone(), tile.bb_gcs.clone()))
-                .inspect_err(|err| error!("{err:?}"));
+                let _ = store
+                    .tile_request_sender
+                    .try_send((tile.key.clone(), tile.bb_gcs.clone()))
+                    .inspect_err(|err| error!("{err:?}"));
+            }
         }
     }
 }
@@ -138,21 +139,6 @@ pub struct GeoMapPlaneTile {
     pub bb_abs: (Vec2, Vec2),
 }
 
-fn geo_map_plane_tiling_update(
-    mut commands: Commands,
-    added_tiles: Query<(Entity, &GeoMapPlaneTile), Added<GeoMapPlaneTile>>,
-) {
-    for (tile_id, tile) in added_tiles {
-        commands.entity(tile_id).insert((
-            Transform::from_translation(
-                ((tile.bb_abs.0 + tile.bb_abs.1) / 2.0)
-                    .extend(1.0 + tile.key.len() as f32 * 0.0001),
-            ),
-            Visibility::default(),
-        ));
-    }
-}
-
 fn geo_map_plane_tiling_tile_management(
     mut commands: Commands,
     tiling: Query<(&mut GeoMapPlaneTiling, &GeoMapElementOf)>,
@@ -161,34 +147,36 @@ fn geo_map_plane_tiling_tile_management(
 ) {
     if let Ok((camera_transform, camera)) = camera.single() {
         for (mut tiling, tiling_element_of) in tiling {
-            if let Ok((plane_id, _, plane)) = planes.get(tiling_element_of.0) {
-                let plane_size = plane.projection.abs_size();
-                let plane_pos = plane.projection.abs_pos();
+            if let Ok((plane_id, plane_transform, plane)) = planes.get(tiling_element_of.0) {
+                let plane_pos = plane_transform.translation().xy();
 
-                let plane_bottom_left = plane_pos - plane_size / 2.0;
-                let plane_top_right = plane_pos + plane_size / 2.0;
-
-                let cam_bottom_left = camera
+                let cam_global_min = camera
                     .ndc_to_world(camera_transform, Vec2::NEG_ONE.extend(0.0))
                     .map(Vec3::xy);
-                let cam_top_right = camera
+                let cam_global_max = camera
                     .ndc_to_world(camera_transform, Vec2::ONE.extend(0.0))
                     .map(Vec3::xy);
 
-                if let Some(cam_bottom_left) = cam_bottom_left
-                    && let Some(cam_top_right) = cam_top_right
+                if let Some(cam_global_min) = cam_global_min
+                    && let Some(cam_global_max) = cam_global_max
                 {
-                    let cam_area = (cam_bottom_left, cam_top_right);
-                    let sub_division =
-                        SubDivision2d::from_corners(plane_bottom_left, plane_top_right);
+                    let cam_abs_min = plane.local_to_abs(&(cam_global_min - plane_pos));
+                    let cam_abs_max = plane.local_to_abs(&(cam_global_max - plane_pos));
+
+                    let cam_abs_bbox = (cam_abs_min, cam_abs_max);
+
+                    let sub_division = SubDivision2d::from_corners(
+                        plane.projection.abs_pos() - 0.5 * plane.projection.abs_size(),
+                        plane.projection.abs_pos() + 0.5 * plane.projection.abs_size(),
+                    );
 
                     let target_depth = sub_division.min_depth_for_tile_count(
-                        cam_area,
+                        cam_abs_bbox,
                         USizeVec2::new(tiling.target_count, tiling.target_count),
                     );
 
                     for depth in 0..=target_depth.min(9) {
-                        for tile in sub_division.tile_covering(cam_area, depth) {
+                        for tile in sub_division.tile_covering(cam_abs_bbox, depth) {
                             if let std::collections::hash_map::Entry::Vacant(e) =
                                 tiling.tile_map.entry(tile.key.clone())
                             {
@@ -206,6 +194,12 @@ fn geo_map_plane_tiling_tile_management(
                                             bb_abs: (tile.bb_min, tile.bb_max),
                                             bb_gcs,
                                         },
+                                        Transform::from_translation(
+                                            plane
+                                                .abs_to_local(&((tile.bb_min + tile.bb_max) / 2.0))
+                                                .extend(1.0 + tile.key.len() as f32 * 0.0001),
+                                        ),
+                                        Visibility::default(),
                                     ))
                                     .id();
 

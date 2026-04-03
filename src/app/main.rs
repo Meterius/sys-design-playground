@@ -43,8 +43,8 @@ fn setup(mut commands: Commands) {
             projection: BoundedMercatorProjection {
                 lat_min: -0.45 * PI,
                 lat_max: 0.45 * PI,
-                scale: 5000.0,
             },
+            scale: 500.0,
         },
     ));
 

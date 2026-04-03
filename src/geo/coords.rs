@@ -1,5 +1,6 @@
 use bevy::prelude::Vec2;
 use std::f32::consts::PI;
+use std::ops::Rem;
 
 #[derive(Debug, Clone)]
 pub struct LonLatVec2 {
@@ -26,6 +27,22 @@ impl From<LonLatVec2> for Vec2 {
 pub struct RadLonLatVec2 {
     pub x: f32,
     pub y: f32,
+}
+
+impl RadLonLatVec2 {
+    pub fn rem_euclid(&self) -> RadLonLatVec2 {
+        RadLonLatVec2 {
+            x: self.x.rem_euclid(2.0 * PI),
+            y: self.y.rem_euclid(PI),
+        }
+    }
+
+    pub fn rem(&self) -> RadLonLatVec2 {
+        RadLonLatVec2 {
+            x: self.x.rem(2.0 * PI),
+            y: self.y.rem(PI),
+        }
+    }
 }
 
 impl From<Vec2> for RadLonLatVec2 {
@@ -61,27 +78,35 @@ impl From<RadLonLatVec2> for LonLatVec2 {
     }
 }
 
+pub trait Projection2D {
+    fn abs_pos(&self) -> Vec2;
+
+    fn abs_size(&self) -> Vec2;
+
+    fn gcs_to_abs(&self, pos: &RadLonLatVec2) -> Vec2;
+
+    fn gcs_to_rel(&self, pos: &RadLonLatVec2) -> Vec2 {
+        (self.gcs_to_abs(pos) - self.abs_pos()) / self.abs_size()
+    }
+
+    fn abs_to_gcs(&self, pos: &Vec2) -> RadLonLatVec2;
+
+    fn rel_to_gcs(&self, pos: &Vec2) -> RadLonLatVec2 {
+        self.abs_to_gcs(&(self.abs_pos() + pos * self.abs_size()))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BoundedMercatorProjection {
     pub lat_max: f32,
     pub lat_min: f32,
-    pub scale: f32,
 }
 
-impl BoundedMercatorProjection {
-    pub fn gcs_pos(&self) -> RadLonLatVec2 {
-        RadLonLatVec2 { x: 0.0, y: 0.0 }
-    }
-
-    pub fn gcs_size(&self) -> Vec2 {
-        Vec2::new(2.0 * PI, PI)
-    }
-
-    pub fn abs_pos(&self) -> Vec2 {
+impl Projection2D for BoundedMercatorProjection {
+    fn abs_pos(&self) -> Vec2 {
         self.gcs_to_abs(&RadLonLatVec2 { x: 0.0, y: 0.0 })
     }
-
-    pub fn abs_size(&self) -> Vec2 {
+    fn abs_size(&self) -> Vec2 {
         self.gcs_to_abs(&RadLonLatVec2 {
             x: PI,
             y: self.lat_max,
@@ -91,17 +116,14 @@ impl BoundedMercatorProjection {
         })
     }
 
-    pub fn gcs_to_abs(&self, pos: &RadLonLatVec2) -> Vec2 {
-        Vec2::new(
-            self.scale * pos.x,
-            self.scale * (PI / 4.0 + pos.y / 2.0).tan().ln(),
-        )
+    fn gcs_to_abs(&self, pos: &RadLonLatVec2) -> Vec2 {
+        Vec2::new(pos.x, (PI / 4.0 + pos.y / 2.0).tan().ln())
     }
 
-    pub fn abs_to_gcs(&self, pos: &Vec2) -> RadLonLatVec2 {
+    fn abs_to_gcs(&self, pos: &Vec2) -> RadLonLatVec2 {
         RadLonLatVec2 {
-            x: pos.x / self.scale,
-            y: (pos.y / self.scale).sinh().atan(),
+            x: pos.x,
+            y: pos.y.sinh().atan(),
         }
     }
 }

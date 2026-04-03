@@ -1,4 +1,5 @@
 /target
 /pkg
+/assets/cache/
 /assets/datasets/osm/*.osm.pbf
 /assets/images/equirectangular_world_projection_high_res.png

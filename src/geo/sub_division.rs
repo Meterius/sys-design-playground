@@ -38,6 +38,10 @@ impl SubDivision2d {
     pub fn min_depth_for_tile_count(&self, area: (Vec2, Vec2), min_count: USizeVec2) -> usize {
         let area_size = area.0.max(area.1) - area.0.min(area.1);
 
+        if area_size.x == 0.0 || area_size.y == 0.0 {
+            return 0;
+        }
+
         let x_depth = (min_count.x as f32 * self.bb_size.x / area_size.x)
             .max(1.0)
             .log2()

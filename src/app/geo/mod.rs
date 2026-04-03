@@ -1,7 +1,6 @@
 use crate::app::geo::boundaries::load_all_shape_paths;
 use crate::app::geo::tiling::GeoMapTilingPlugin;
 use crate::geo::coords::{BoundedMercatorProjection, LonLatVec2, RadLonLatVec2};
-use bevy::asset::ErasedAssetLoader;
 use bevy::prelude::*;
 use bevy_prototype_lyon::geometry::ShapeBuilderBase;
 use bevy_prototype_lyon::path::ShapePath;
@@ -55,61 +54,12 @@ fn apply_transform(
     }
 }
 
-fn spawn_element<'a>(
-    commands: &'a mut Commands,
-    plane_id: Entity,
-    pos: RadLonLatVec2,
-    scale: f32,
-) -> EntityCommands<'a> {
-    commands.spawn((
-        GeoMapElementOf(plane_id),
-        Transform::from_xyz(0.0, 0.0, 1.0).with_scale(Vec3::ONE * scale),
-        Visibility::default(),
-        GeoMapTransform { pos },
-    ))
-}
-
-fn spawn_marker<'a>(
-    commands: &'a mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<ColorMaterial>>,
-    asset_server: &Res<AssetServer>,
-    plane_id: Entity,
-    pos: RadLonLatVec2,
-    label: Option<String>,
-    scale: f32,
-) -> EntityCommands<'a> {
-    let mut e_commands = spawn_element(commands, plane_id, pos, scale);
-
-    e_commands.with_child((
-        Transform::from_xyz(0.0, 0.0, 0.0),
-        Mesh2d(meshes.add(Circle::new(10.0))),
-        MeshMaterial2d(materials.add(Color::BLACK)),
-    ));
-
-    if let Some(label) = label {
-        e_commands.with_child((
-            Transform::from_xyz(0.0, 30.0, 1.0),
-            Text2d(label),
-            TextFont {
-                font: asset_server.load("fonts/calibri-regular.ttf"),
-                font_size: 20.0,
-                ..default()
-            },
-            TextColor(Color::srgb(0.0, 0.0, 0.0)),
-            TextBackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.5)),
-        ));
-    }
-
-    e_commands
-}
-
 fn geo_map_plane_setup(
     mut commands: Commands,
     planes: Query<(Entity, &GeoMapPlane), Added<GeoMapPlane>>,
-    meshes: ResMut<Assets<Mesh>>,
-    materials: ResMut<Assets<ColorMaterial>>,
-    asset_server: Res<AssetServer>,
+    _meshes: ResMut<Assets<Mesh>>,
+    _materials: ResMut<Assets<ColorMaterial>>,
+    _asset_server: Res<AssetServer>,
 ) {
     for (entity, plane) in planes {
         let plane_pos = plane.projection.abs_pos();

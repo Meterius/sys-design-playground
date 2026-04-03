@@ -1,20 +1,13 @@
-use crate::app::geo::{GeoMapElementOf, GeoMapPlane, GeoMapTransform};
-use crate::geo::coords::{BoundedMercatorProjection, LonLatVec2, RadLonLatVec2};
-use crate::geo::sub_division::{SubDivision2d, SubDivisionKey, TileKey};
+use crate::app::geo::{GeoMapElementOf, GeoMapPlane};
+use crate::geo::coords::{BoundedMercatorProjection, RadLonLatVec2};
+use crate::geo::sub_division::{SubDivision2d, TileKey};
 use crate::geo::tiling::TileServer;
 use bevy::math::USizeVec2;
 use bevy::prelude::*;
-use bevy::tasks::AsyncComputeTaskPool;
-use bevy_prototype_lyon::prelude::{ShapeBuilder, ShapeBuilderBase};
-use bevy_prototype_lyon::shapes;
 use bevy_tokio_tasks::TokioTasksRuntime;
-use futures::task::waker;
-use itertools::Itertools;
 use std::collections::{HashMap, HashSet};
 use std::f32::consts::PI;
-use std::fs;
 use std::path::PathBuf;
-use std::rc::Rc;
 
 #[derive(Default)]
 pub struct GeoMapTilingPlugin {}
@@ -39,13 +32,10 @@ fn startup(world: &mut World) {
     let runtime = world.get_resource_mut::<TokioTasksRuntime>().unwrap();
 
     let (tile_data_sender, tile_data_receiver) = async_channel::unbounded();
-    let (tile_request_sender, mut tile_request_receiver) =
+    let (tile_request_sender, tile_request_receiver) =
         async_channel::unbounded::<(TileKey, (RadLonLatVec2, RadLonLatVec2))>();
 
-    let tile_server = TileServer {
-        client: reqwest::Client::new(),
-        cache_dir: PathBuf::from_iter(["assets", "cache"].into_iter()),
-    };
+    let tile_server = TileServer::new(PathBuf::from_iter(["assets", "cache"]));
 
     for _ in 0..32 {
         let tile_request_receiver = tile_request_receiver.clone();
@@ -107,7 +97,6 @@ fn geo_map_plane_tiling_update_sprite(
     mut commands: Commands,
     mut store: NonSendMut<GeoMapTileImageStore>,
     tiles_without_sprite: Query<(Entity, &GeoMapPlaneTile), Without<Sprite>>,
-    asset_server: Res<AssetServer>,
 ) {
     for (tile_id, tile) in tiles_without_sprite {
         if let Some(handle) = store.tiles.get(&tile.key) {
@@ -154,12 +143,6 @@ fn geo_map_plane_tiling_update(
     added_tiles: Query<(Entity, &GeoMapPlaneTile), Added<GeoMapPlaneTile>>,
 ) {
     for (tile_id, tile) in added_tiles {
-        let shape = shapes::Rectangle {
-            origin: shapes::RectangleOrigin::Center,
-            extents: tile.bb_abs.1 - tile.bb_abs.0,
-            radii: None,
-        };
-
         commands.entity(tile_id).insert((
             Transform::from_translation(
                 ((tile.bb_abs.0 + tile.bb_abs.1) / 2.0)
@@ -178,7 +161,7 @@ fn geo_map_plane_tiling_tile_management(
 ) {
     if let Ok((camera_transform, camera)) = camera.single() {
         for (mut tiling, tiling_element_of) in tiling {
-            if let Ok((plane_id, plane_transform, plane)) = planes.get(tiling_element_of.0) {
+            if let Ok((plane_id, _, plane)) = planes.get(tiling_element_of.0) {
                 let plane_size = plane.projection.abs_size();
                 let plane_pos = plane.projection.abs_pos();
 
@@ -204,9 +187,11 @@ fn geo_map_plane_tiling_tile_management(
                         USizeVec2::new(tiling.target_count, tiling.target_count),
                     );
 
-                    for depth in 0..=target_depth.min(8) {
+                    for depth in 0..=target_depth.min(9) {
                         for tile in sub_division.tile_covering(cam_area, depth) {
-                            if !tiling.tile_map.contains_key(&tile.key) {
+                            if let std::collections::hash_map::Entry::Vacant(e) =
+                                tiling.tile_map.entry(tile.key.clone())
+                            {
                                 let bb_gcs = (
                                     plane.projection.abs_to_gcs(&tile.bb_min),
                                     plane.projection.abs_to_gcs(&tile.bb_max),
@@ -224,7 +209,7 @@ fn geo_map_plane_tiling_tile_management(
                                     ))
                                     .id();
 
-                                tiling.tile_map.insert(tile.key, tile_id);
+                                e.insert(tile_id);
                             }
                         }
                     }

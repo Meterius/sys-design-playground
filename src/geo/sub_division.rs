@@ -1,5 +1,5 @@
 use bevy::math::USizeVec2;
-use bevy::prelude::{Vec2, info};
+use bevy::prelude::Vec2;
 use smallvec::SmallVec;
 
 pub type TileKey = SmallVec<[SubDivisionKey; 10]>;

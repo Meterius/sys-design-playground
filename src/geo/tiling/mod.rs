@@ -5,16 +5,19 @@ use crate::geo::tiling::gibs::{
 };
 use bevy::math::Vec2;
 use itertools::Itertools;
-use std::path::PathBuf;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use thiserror::Error;
-use crate::geo::tiling::TileServerError::ReprojectionError;
 
 pub mod gibs;
 
 #[derive(Clone)]
 pub struct TileServer {
-    pub client: reqwest::Client,
     pub cache_dir: PathBuf,
+
+    client: reqwest::Client,
+    entry_exists_cache: Arc<tokio::sync::RwLock<HashSet<PathBuf>>>,
 }
 
 #[derive(Debug, Error)]
@@ -30,26 +33,31 @@ pub enum TileServerError {
 }
 
 impl TileServer {
+    pub fn new(cache_dir: impl AsRef<Path>) -> Self {
+        Self {
+            client: reqwest::Client::new(),
+            entry_exists_cache: Arc::new(tokio::sync::RwLock::new(HashSet::new())),
+            cache_dir: PathBuf::from(cache_dir.as_ref()),
+        }
+    }
+
     fn get_cache_key(projection: &BoundedMercatorProjection, tile: &TileKey) -> PathBuf {
-        PathBuf::from_iter(
-            [
-                LAYER_MODIS_TERRA_CORRECTED_REFLECTANCE_TRUE_COLOR,
-                hex::encode(format!("{projection:?}")).as_str(),
-                format!(
-                    "tile_{}",
-                    tile.iter()
-                        .map(|sub_key| match sub_key {
-                            SubDivisionKey::TopLeft => "TL",
-                            SubDivisionKey::TopRight => "TR",
-                            SubDivisionKey::BottomLeft => "BL",
-                            SubDivisionKey::BottomRight => "BR",
-                        })
-                        .join("_")
-                )
-                .as_str(),
-            ]
-            .into_iter(),
-        )
+        PathBuf::from_iter([
+            LAYER_MODIS_TERRA_CORRECTED_REFLECTANCE_TRUE_COLOR,
+            hex::encode(format!("{projection:?}")).as_str(),
+            format!(
+                "tile_{}",
+                tile.iter()
+                    .map(|sub_key| match sub_key {
+                        SubDivisionKey::TopLeft => "TL",
+                        SubDivisionKey::TopRight => "TR",
+                        SubDivisionKey::BottomLeft => "BL",
+                        SubDivisionKey::BottomRight => "BR",
+                    })
+                    .join("_")
+            )
+            .as_str(),
+        ])
     }
 
     fn reprojected(
@@ -68,12 +76,14 @@ impl TileServer {
         let image_size = Vec2::new(image.width() as f32, image.height() as f32);
 
         for (x, y, pixel) in out.enumerate_pixels_mut() {
-            let abs_pos = abs_min + abs_size * (Vec2::new(0.0, 1.0) + Vec2::new(x as f32 + 0.5, -(y as f32 + 0.5)) / image_size);
+            let abs_pos = abs_min
+                + abs_size
+                    * (Vec2::new(0.0, 1.0)
+                        + Vec2::new(x as f32 + 0.5, -(y as f32 + 0.5)) / image_size);
             let gcs_pos = projection.abs_to_gcs(&abs_pos);
-            let img_pos_rel = (
-                Vec2::new(0.0, 1.0)
-                    + Vec2::new(1.0, -1.0) * (Vec2::from(gcs_pos.clone()) - gcs_min) / gcs_size
-            ).clamp(Vec2::ZERO, Vec2::ONE);
+            let img_pos_rel = (Vec2::new(0.0, 1.0)
+                + Vec2::new(1.0, -1.0) * (Vec2::from(gcs_pos.clone()) - gcs_min) / gcs_size)
+                .clamp(Vec2::ZERO, Vec2::ONE);
             *pixel = image::imageops::sample_bilinear(image, img_pos_rel.x, img_pos_rel.y)
                 .ok_or_else(|| TileServerError::ReprojectionError)?;
         }
@@ -86,11 +96,19 @@ impl TileServer {
         projection: &BoundedMercatorProjection,
         tile_key: &TileKey,
     ) -> Result<PathBuf, TileServerError> {
-        let key = Self::get_cache_key(projection, &tile_key);
+        let key = Self::get_cache_key(projection, tile_key);
         let file_key = key.with_added_extension("jpg");
         let file_path = self.cache_dir.join(&file_key);
 
+        if self.entry_exists_cache.read().await.contains(&file_path) {
+            return Ok(file_path);
+        }
+
         if tokio::fs::try_exists(&file_path).await? {
+            self.entry_exists_cache
+                .write()
+                .await
+                .insert(file_path.clone());
             return Ok(file_path);
         }
 
@@ -123,6 +141,11 @@ impl TileServer {
             tokio::fs::create_dir_all(file_dir).await?;
         }
         img.save(&file_path)?;
+
+        self.entry_exists_cache
+            .write()
+            .await
+            .insert(file_path.clone());
 
         Ok(file_path)
     }

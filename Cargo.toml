@@ -36,6 +36,7 @@ thiserror = "2.0.18"
 hex = "0.4.3"
 async = "0.0.0"
 fs = "0.0.5"
+lru-cache = "0.1.2"
 
 [profile.dev]
 opt-level = 0

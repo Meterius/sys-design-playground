@@ -10,7 +10,7 @@ use bevy_prototype_lyon::plugin::ShapePlugin;
 use bevy_vector_shapes::Shape2dPlugin;
 use std::f32::consts::PI;
 
-pub fn initialize(width: usize, height: usize) {
+pub fn initialize(_width: usize, _height: usize) {
     App::new()
         .insert_resource(ClearColor(Color::WHITE))
         .add_plugins(DefaultPlugins.set(LogPlugin {

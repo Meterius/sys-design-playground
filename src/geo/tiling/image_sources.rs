@@ -1,5 +1,5 @@
-use crate::geo::coords::LonLatVec2;
-use bevy::prelude::{error, info};
+use crate::geo::coords::{approx_size_bound, LonLatVec2, RadLonLatVec2};
+use bevy::prelude::{error, info, Vec2};
 use image::RgbImage;
 use serde::Deserialize;
 use serde_json::json;
@@ -8,6 +8,7 @@ use std::collections::HashMap;
 pub const LAYER_MODIS_TERRA_CORRECTED_REFLECTANCE_TRUE_COLOR: &str =
     "MODIS_Terra_CorrectedReflectance_TrueColor";
 
+#[derive(Debug)]
 pub struct Epsg4326TileParams {
     pub resolution: (usize, usize),
     pub gcs_bbox: (LonLatVec2, LonLatVec2),
@@ -101,8 +102,8 @@ pub async fn fetch_epsg4326_sen_hub_image(
         params.gcs_bbox.1.y,
     ];
 
-    let time_from = "2025-08-01T00:00:00Z";
-    let time_to = "2025-12-31T23:59:59Z";
+    let time_from = "2025-04-01T00:00:00Z";
+    let time_to = "2025-08-31T23:59:59Z";
 
     let data_type = "sentinel-2-l2a";
 
@@ -129,12 +130,12 @@ pub async fn fetch_epsg4326_sen_hub_image(
                         "from": time_from,
                         "to": time_to
                     },
-                    "maxCloudCoverage": 0,
+                    "maxCloudCoverage": 10,
                     "mosaickingOrder": "leastCC"
                 },
                 "processing": {
-                  "upsampling": "BILINEAR",
-                  "downsampling": "BILINEAR"
+                  "upsampling": "BICUBIC",
+                  "downsampling": "BICUBIC"
                 },
                 "type": data_type
             }]

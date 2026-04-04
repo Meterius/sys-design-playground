@@ -104,7 +104,7 @@ impl TileServer {
         ).max_element();
 
         match dataset {
-            TileServerDataset::SenHubSentinel2L2a => (5.0..=1000.0).contains(&meters_per_pixel),
+            TileServerDataset::SenHubSentinel2L2a => (5.0..=1400.0).contains(&meters_per_pixel),
             TileServerDataset::GibsLayerModisTerraCorrectedReflectanceTrueColor => meters_per_pixel > 1000.0,
         }
     }
@@ -249,9 +249,10 @@ impl TileServer {
         )
     }
 
-    fn tile_resolution(&self, gcs_bbox: &(RadLonLatVec2, RadLonLatVec2)) -> USizeVec2 {
-        let gcs_size = Vec2::from(gcs_bbox.1.clone()) - Vec2::from(gcs_bbox.0.clone());
-        USizeVec2::new(self.tile_resolution_width, (self.tile_resolution_width as f32 * gcs_size.y / gcs_size.x).ceil() as usize)
+    fn tile_resolution(&self, _gcs_bbox: &(RadLonLatVec2, RadLonLatVec2)) -> USizeVec2 {
+        // let gcs_size = Vec2::from(gcs_bbox.1.clone()) - Vec2::from(gcs_bbox.0.clone());
+        // USizeVec2::new(self.tile_resolution_width, (self.tile_resolution_width as f32 * gcs_size.y / gcs_size.x).ceil() as usize)
+        USizeVec2::new(self.tile_resolution_width, self.tile_resolution_width)
     }
 
     pub async fn load_tile(

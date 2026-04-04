@@ -40,7 +40,7 @@ fn startup(world: &mut World) {
         dataset_stores: HashMap::from_iter([
             (
                 TileServerDataset::SenHubSentinel2L2a,
-                TileImageDatasetStore::new(Ratelimiter::new(2)),
+                TileImageDatasetStore::new(Ratelimiter::new(4)),
             ),
             (
                 TileServerDataset::GibsLayerModisTerraCorrectedReflectanceTrueColor,

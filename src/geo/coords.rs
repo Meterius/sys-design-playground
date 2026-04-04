@@ -46,7 +46,7 @@ impl RadLonLatVec2 {
 }
 
 fn approx_vertical_len(lat_min: f32, lat_max: f32) -> f32 {
-    (lat_max - lat_min) * (2.0 * PI * 111320.0 / 360.0)
+    (lat_max - lat_min) * (360.0 / 2.0 * PI) * 111320.0
 }
 
 fn approx_horizontal_len(lat: f32, lon_min: f32, lon_max: f32) -> f32 {

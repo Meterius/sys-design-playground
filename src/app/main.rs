@@ -60,7 +60,7 @@ fn setup(mut commands: Commands) {
     ));
 
     plane_commands.with_child((
-        LocationsManager {},
+        LocationsManager::default(),
         Transform::from_translation(Vec3::new(0.0, 0.0, 50.0)),
         Visibility::default(),
         GeoMapElementOf(plane_commands.id()),

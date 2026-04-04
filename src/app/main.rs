@@ -1,4 +1,4 @@
-use crate::app::geo::tiling::GeoMapPlaneTiling;
+use crate::app::geo::tiling::Tiling;
 use crate::app::geo::{GeoMapElementOf, GeoMapPlane, GeoMapPlugin};
 use crate::geo::coords::BoundedMercatorProjection;
 use bevy::DefaultPlugins;
@@ -49,7 +49,7 @@ fn setup(mut commands: Commands) {
     ));
 
     plane_commands.with_child((
-        GeoMapPlaneTiling::new(8),
+        Tiling::new(8),
         Transform::default(),
         Visibility::default(),
         GeoMapElementOf(plane_commands.id()),

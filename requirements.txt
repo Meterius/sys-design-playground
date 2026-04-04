@@ -8,3 +8,4 @@ mapbox_vector_tile
 pandas
 geopandas
 rasterio
+boto3

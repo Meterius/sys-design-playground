@@ -1,23 +1,27 @@
 use crate::geo::coords::{BoundedMercatorProjection, LonLatVec2, Projection2D, RadLonLatVec2};
 use crate::geo::sub_division::{SubDivision2d, SubDivisionKey, TileKey};
-use crate::geo::tiling::gibs::{
-    GibsEpsg4326Params, LAYER_MODIS_TERRA_CORRECTED_REFLECTANCE_TRUE_COLOR, fetch_epsg4326_image,
+use crate::geo::tiling::image_sources::{
+    Epsg4326TileParams, GibsEpsg4326Params, LAYER_MODIS_TERRA_CORRECTED_REFLECTANCE_TRUE_COLOR,
+    fetch_epsg4326_gibs_image, fetch_epsg4326_sen_hub_image, fetch_sen_hub_bearer_token,
 };
 use bevy::math::Vec2;
+use bevy::prelude::info;
 use itertools::Itertools;
-use std::collections::HashSet;
+use lru_cache::LruCache;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
 
-pub mod gibs;
+pub mod image_sources;
 
 #[derive(Clone)]
 pub struct TileServer {
-    pub cache_dir: PathBuf,
+    pub file_cache_dir: PathBuf,
 
     client: reqwest::Client,
-    entry_exists_cache: Arc<tokio::sync::RwLock<HashSet<PathBuf>>>,
+    cache: Arc<tokio::sync::RwLock<HashMap<PathBuf, Option<PathBuf>>>>,
+    sen_hub_bearer_token: Arc<tokio::sync::Mutex<Option<Result<String, TileServerError>>>>,
 }
 
 #[derive(Debug, Error)]
@@ -30,20 +34,79 @@ pub enum TileServerError {
     ImageError(#[from] image::ImageError),
     #[error("Reprojection Error")]
     ReprojectionError,
+    #[error("Retry Error")]
+    RetryError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum TileServerDataset {
+    GibsLayerModisTerraCorrectedReflectanceTrueColor,
+    SenHubSentinel2L2a,
 }
 
 impl TileServer {
     pub fn new(cache_dir: impl AsRef<Path>) -> Self {
         Self {
             client: reqwest::Client::new(),
-            entry_exists_cache: Arc::new(tokio::sync::RwLock::new(HashSet::new())),
-            cache_dir: PathBuf::from(cache_dir.as_ref()),
+            cache: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
+            file_cache_dir: PathBuf::from(cache_dir.as_ref()),
+            sen_hub_bearer_token: Arc::new(tokio::sync::Mutex::new(None)),
         }
     }
 
-    fn get_cache_key(projection: &BoundedMercatorProjection, tile: &TileKey) -> PathBuf {
+    async fn get_sen_hub_bearer_token(&self) -> Result<String, TileServerError> {
+        {
+            let token_mtx = self.sen_hub_bearer_token.lock().await;
+            if let Some(token) = &*token_mtx {
+                return token
+                    .as_ref()
+                    .map(Clone::clone)
+                    .map_err(|_| TileServerError::RetryError);
+            }
+        }
+
+        let mut token_mtx = self.sen_hub_bearer_token.lock().await;
+
+        if let Some(token) = &*token_mtx {
+            return token
+                .as_ref()
+                .map(Clone::clone)
+                .map_err(|_| TileServerError::RetryError);
+        }
+
+        let token: Result<String, TileServerError> = fetch_sen_hub_bearer_token(&self.client)
+            .await
+            .map_err(Into::into);
+
+        *token_mtx = Some(
+            token
+                .as_ref()
+                .map(Clone::clone)
+                .map_err(|_| TileServerError::RetryError),
+        );
+
+        token
+    }
+
+    fn is_tile_available(
+        &self,
+        dataset: &TileServerDataset,
+        projection: &BoundedMercatorProjection,
+        tile: &TileKey,
+    ) -> bool {
+        match dataset {
+            TileServerDataset::SenHubSentinel2L2a => 8 <= tile.len() && tile.len() <= 15,
+            TileServerDataset::GibsLayerModisTerraCorrectedReflectanceTrueColor => tile.len() <= 7,
+        }
+    }
+
+    fn get_cache_key(
+        dataset: TileServerDataset,
+        projection: &BoundedMercatorProjection,
+        tile: &TileKey,
+    ) -> PathBuf {
         PathBuf::from_iter([
-            LAYER_MODIS_TERRA_CORRECTED_REFLECTANCE_TRUE_COLOR,
+            hex::encode(format!("{dataset:?}")).as_str(),
             hex::encode(format!("{projection:?}")).as_str(),
             format!(
                 "tile_{}",
@@ -91,25 +154,95 @@ impl TileServer {
         Ok(out)
     }
 
-    pub async fn load_tile(
+    fn get_tile_file_path(
         &self,
+        dataset: TileServerDataset,
         projection: &BoundedMercatorProjection,
         tile_key: &TileKey,
-    ) -> Result<PathBuf, TileServerError> {
-        let key = Self::get_cache_key(projection, tile_key);
+    ) -> PathBuf {
+        let key = Self::get_cache_key(dataset.clone(), projection, tile_key);
         let file_key = key.with_added_extension("jpg");
-        let file_path = self.cache_dir.join(&file_key);
+        let file_path = self.file_cache_dir.join(&file_key);
+        file_path
+    }
 
-        if self.entry_exists_cache.read().await.contains(&file_path) {
-            return Ok(file_path);
+    pub fn load_tile_offline_blocking(
+        &self,
+        dataset: TileServerDataset,
+        projection: &BoundedMercatorProjection,
+        tile_key: &TileKey,
+    ) -> Result<Option<Option<PathBuf>>, TileServerError> {
+        if !self.is_tile_available(&dataset, &projection, &tile_key) {
+            return Ok(Some(None));
+        }
+
+        let file_path = self.get_tile_file_path(dataset, projection, tile_key);
+
+
+        if let Some(cached_value) = self.cache.blocking_read().get(&file_path).cloned() {
+            return Ok(Some(cached_value));
+        }
+
+        if std::fs::exists(&file_path)? {
+            self.cache
+                .blocking_write()
+                .insert(file_path.clone(), Some(file_path.clone()));
+
+            return Ok(Some(Some(file_path)));
+        }
+
+        Ok(None)
+    }
+
+    pub async fn load_tile_offline(
+        &self,
+        dataset: TileServerDataset,
+        projection: &BoundedMercatorProjection,
+        tile_key: &TileKey,
+    ) -> Result<Option<Option<PathBuf>>, TileServerError> {
+        if !self.is_tile_available(&dataset, &projection, &tile_key) {
+            return Ok(Some(None));
+        }
+
+        let file_path = self.get_tile_file_path(dataset, projection, tile_key);
+
+        if let Some(cached_value) = self.cache.read().await.get(&file_path).cloned() {
+            return Ok(Some(cached_value));
         }
 
         if tokio::fs::try_exists(&file_path).await? {
-            self.entry_exists_cache
+            self.cache
                 .write()
                 .await
-                .insert(file_path.clone());
-            return Ok(file_path);
+                .insert(file_path.clone(), Some(file_path.clone()));
+
+            return Ok(Some(Some(file_path)));
+        }
+
+        Ok(None)
+    }
+
+    pub async fn load_tile(
+        &self,
+        dataset: TileServerDataset,
+        projection: &BoundedMercatorProjection,
+        tile_key: &TileKey,
+    ) -> Result<Option<PathBuf>, TileServerError> {
+        if let Some(cached_value) = self
+            .load_tile_offline(dataset.clone(), projection, tile_key)
+            .await?
+        {
+            return Ok(cached_value.clone());
+        }
+
+        let file_path = self.get_tile_file_path(dataset.clone(), projection, tile_key);
+
+        if tokio::fs::try_exists(&file_path).await? {
+            self.cache
+                .write()
+                .await
+                .insert(file_path.clone(), Some(file_path.clone()));
+            return Ok(Some(file_path));
         }
 
         let sub_div = SubDivision2d::from_corners(
@@ -128,15 +261,31 @@ impl TileServer {
         );
         let gcs_size = Vec2::from(gcs_bbox.1.clone()) - Vec2::from(gcs_bbox.0.clone());
 
-        let img = fetch_epsg4326_image(
-            &self.client,
-            GibsEpsg4326Params {
-                layers: LAYER_MODIS_TERRA_CORRECTED_REFLECTANCE_TRUE_COLOR.to_owned(),
-                bbox: (gcs_bbox.0.x, gcs_bbox.0.y, gcs_bbox.1.x, gcs_bbox.1.y),
-                size: (256, (256.0 * gcs_size.y / gcs_size.x).ceil() as usize),
-            },
-        )
-        .await?;
+        let tile_params = Epsg4326TileParams {
+            gcs_bbox,
+            resolution: (256, (256.0 * gcs_size.y / gcs_size.x).ceil() as usize),
+        };
+
+        let img = match &dataset {
+            TileServerDataset::GibsLayerModisTerraCorrectedReflectanceTrueColor => {
+                fetch_epsg4326_gibs_image(
+                    &self.client,
+                    GibsEpsg4326Params {
+                        layers: LAYER_MODIS_TERRA_CORRECTED_REFLECTANCE_TRUE_COLOR.to_owned(),
+                        tile_params,
+                    },
+                )
+                .await?
+            }
+            TileServerDataset::SenHubSentinel2L2a => {
+                fetch_epsg4326_sen_hub_image(
+                    &self.client,
+                    self.get_sen_hub_bearer_token().await?,
+                    tile_params,
+                )
+                .await?
+            }
+        };
 
         let img = Self::reprojected(&img, projection, rad_gcs_bbox)?;
 
@@ -145,11 +294,11 @@ impl TileServer {
         }
         img.save(&file_path)?;
 
-        self.entry_exists_cache
+        self.cache
             .write()
             .await
-            .insert(file_path.clone());
+            .insert(file_path.clone(), Some(file_path.clone()));
 
-        Ok(file_path)
+        Ok(Some(file_path))
     }
 }

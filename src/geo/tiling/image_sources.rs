@@ -129,7 +129,7 @@ pub async fn fetch_epsg4326_sen_hub_image(
                         "from": time_from,
                         "to": time_to
                     },
-                    "maxCloudCoverage": 50,
+                    "maxCloudCoverage": 0,
                     "mosaickingOrder": "leastCC"
                 },
                 "processing": {

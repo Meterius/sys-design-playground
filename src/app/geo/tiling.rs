@@ -26,6 +26,7 @@ impl Plugin for GeoMapTilingPlugin {
                 handle_tile_target_sync,
                 handle_tile_image_loading,
                 handle_loaded_tile_image,
+                handle_tile_image_fade,
             )
                 .chain(),
         );
@@ -74,6 +75,8 @@ pub struct TileImageStore {
 #[derive(Component)]
 #[require(Tiles)]
 pub struct Tiling {
+    pub target_depth: usize,
+    pub target_depth_fac: f32,
     pub target_count: usize,
     pub spawned_tiles: HashSet<TileKey>,
     pub targeted_tiles: HashSet<TileKey>,
@@ -91,6 +94,8 @@ impl Tiling {
     pub fn new(target_count: usize) -> Self {
         Self {
             target_count,
+            target_depth_fac: 0.0,
+            target_depth: 0,
             spawned_tiles: HashSet::new(),
             targeted_tiles: HashSet::new(),
         }
@@ -114,6 +119,23 @@ pub struct TileImage {
 #[derive(Component)]
 pub struct TileImageLoaded {
     image_handle: Option<Handle<Image>>,
+}
+
+fn handle_tile_image_fade(
+    mut tile_image: Query<(&ChildOf, &mut Sprite)>,
+    tiles: Query<(&Tile, &TileOf)>,
+    tiling: Query<&Tiling>,
+) {
+    for (tile_image_child_of, mut tile_image_sprite) in tile_image.iter_mut() {
+        if let Some((tile, tile_of)) = tiles.get(tile_image_child_of.0).ok()
+            && let Some(tiling) = tiling.get(tile_of.0).ok() {
+            let fac = (
+                tiling.target_depth as f32 - tile.key.len() as f32 + tiling.target_depth_fac
+            ).clamp(0.0, 0.75) / 0.75;
+
+            tile_image_sprite.color.set_alpha(fac);
+        }
+    }
 }
 
 fn handle_loaded_tile_image(
@@ -293,14 +315,28 @@ fn handle_tiling_management(
                         plane.projection.abs_pos() + 0.5 * plane.projection.abs_size(),
                     );
 
+                    let cam_abs_size = cam_abs_bbox.1 - cam_abs_bbox.0;
+
                     let target_depth = sub_division.min_depth_for_tile_count(
-                        cam_abs_bbox,
+                        cam_abs_size,
                         USizeVec2::new(tiling.target_count, tiling.target_count),
                     );
 
+                    let prev_target_depth_area_size = sub_division.area_size_for_min_depth_for_tile_count(
+                        if target_depth == 0 { 0 } else { target_depth - 1 }, USizeVec2::new(tiling.target_count, tiling.target_count)
+                    );
+
+                    let target_depth_area_size = sub_division.area_size_for_min_depth_for_tile_count(
+                        target_depth, USizeVec2::new(tiling.target_count, tiling.target_count)
+                    );
+
+                    tiling.target_depth = target_depth;
+                    tiling.target_depth_fac = ((cam_abs_size - prev_target_depth_area_size)
+                        / (target_depth_area_size - prev_target_depth_area_size)).max_element().clamp(0.0, 1.0);
+
                     let mut targeted_tiles = HashSet::new();
 
-                    for depth in 0..=target_depth.min(17) {
+                    for depth in 0..=(target_depth + 1).min(17) {
                         for tile in sub_division.tile_covering(cam_abs_bbox, depth) {
                             targeted_tiles.insert(tile.key.clone());
 
@@ -329,6 +365,7 @@ fn handle_tiling_management(
         }
     }
 }
+
 fn handle_tile_setup(mut commands: Commands, added_tiles: Query<Entity, Added<Tile>>) {
     for tile_id in added_tiles {
         for (idx, dataset) in [
@@ -346,6 +383,7 @@ fn handle_tile_setup(mut commands: Commands, added_tiles: Query<Entity, Added<Ti
         }
     }
 }
+
 fn handle_tile_target_sync(
     mut commands: Commands,
     tilings: Query<(&Tiling, &Tiles)>,

@@ -45,6 +45,22 @@ impl RadLonLatVec2 {
     }
 }
 
+fn approx_vertical_len(lat_min: f32, lat_max: f32) -> f32 {
+    (lat_max - lat_min) * (2.0 * PI * 111320.0 / 360.0)
+}
+
+fn approx_horizontal_len(lat: f32, lon_min: f32, lon_max: f32) -> f32 {
+    (lon_max - lon_min) * 360.0 / (2.0 * PI) * 111320.0 * lat.cos()
+}
+
+pub fn approx_size_bound((gcs_min, gcs_max): &(RadLonLatVec2, RadLonLatVec2)) -> Vec2 {
+    Vec2::new(
+        approx_horizontal_len(gcs_max.y, gcs_min.x, gcs_max.x).max(
+        approx_horizontal_len(gcs_min.y, gcs_min.x, gcs_max.x)),
+        approx_vertical_len(gcs_min.y, gcs_max.y),
+    )
+}
+
 impl From<Vec2> for RadLonLatVec2 {
     fn from(value: Vec2) -> Self {
         Self {

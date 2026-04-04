@@ -101,7 +101,7 @@ fn geo_map_plane_setup(
             plane.abs_to_local(&plane.projection.gcs_to_abs(&LonLatVec2::from(pos).into()))
         }) {
             commands.entity(entity).with_child((
-                Transform::from_xyz(0.0, 0.0, 2.0),
+                Transform::from_xyz(0.0, 0.0, 10.0),
                 ShapeBuilder::with(&path)
                     .stroke((Color::srgba(1.0, 0.0, 0.0, 0.3), 0.5))
                     .build(),

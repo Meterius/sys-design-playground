@@ -1,10 +1,10 @@
-use crate::geo::coords::{BoundedMercatorProjection, LonLatVec2, Projection2D, RadLonLatVec2};
+use crate::geo::coords::{approx_size_bound, BoundedMercatorProjection, LonLatVec2, Projection2D, RadLonLatVec2};
 use crate::geo::sub_division::{SubDivision2d, SubDivisionKey, TileKey};
 use crate::geo::tiling::image_sources::{
     Epsg4326TileParams, GibsEpsg4326Params, LAYER_MODIS_TERRA_CORRECTED_REFLECTANCE_TRUE_COLOR,
     fetch_epsg4326_gibs_image, fetch_epsg4326_sen_hub_image, fetch_sen_hub_bearer_token,
 };
-use bevy::math::Vec2;
+use bevy::math::{USizeVec2, Vec2};
 use bevy::prelude::info;
 use itertools::Itertools;
 use lru_cache::LruCache;
@@ -18,6 +18,7 @@ pub mod image_sources;
 #[derive(Clone)]
 pub struct TileServer {
     pub file_cache_dir: PathBuf,
+    pub tile_resolution_width: usize,
 
     client: reqwest::Client,
     cache: Arc<tokio::sync::RwLock<HashMap<PathBuf, Option<PathBuf>>>>,
@@ -45,8 +46,9 @@ pub enum TileServerDataset {
 }
 
 impl TileServer {
-    pub fn new(cache_dir: impl AsRef<Path>) -> Self {
+    pub fn new(tile_resolution_width: usize, cache_dir: impl AsRef<Path>) -> Self {
         Self {
+            tile_resolution_width,
             client: reqwest::Client::new(),
             cache: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
             file_cache_dir: PathBuf::from(cache_dir.as_ref()),
@@ -92,15 +94,23 @@ impl TileServer {
         &self,
         dataset: &TileServerDataset,
         projection: &BoundedMercatorProjection,
-        tile: &TileKey,
+        tile_key: &TileKey,
     ) -> bool {
+        let gcs_bbox = self.tile_gcs_bbox(projection, tile_key);
+        let [res_width, res_height] = self.tile_resolution(&gcs_bbox).to_array();
+
+        let meters_per_pixel = (
+            approx_size_bound(&gcs_bbox) / Vec2::new(res_width as f32, res_height as f32)
+        ).max_element();
+
         match dataset {
-            TileServerDataset::SenHubSentinel2L2a => 8 <= tile.len() && tile.len() <= 15,
-            TileServerDataset::GibsLayerModisTerraCorrectedReflectanceTrueColor => tile.len() <= 7,
+            TileServerDataset::SenHubSentinel2L2a => (5.0..=1000.0).contains(&meters_per_pixel),
+            TileServerDataset::GibsLayerModisTerraCorrectedReflectanceTrueColor => meters_per_pixel > 1000.0,
         }
     }
 
     fn get_cache_key(
+        &self,
         dataset: TileServerDataset,
         projection: &BoundedMercatorProjection,
         tile: &TileKey,
@@ -108,6 +118,7 @@ impl TileServer {
         PathBuf::from_iter([
             hex::encode(format!("{dataset:?}")).as_str(),
             hex::encode(format!("{projection:?}")).as_str(),
+            self.tile_resolution_width.to_string().as_str(),
             format!(
                 "tile_{}",
                 tile.iter()
@@ -160,7 +171,7 @@ impl TileServer {
         projection: &BoundedMercatorProjection,
         tile_key: &TileKey,
     ) -> PathBuf {
-        let key = Self::get_cache_key(dataset.clone(), projection, tile_key);
+        let key = self.get_cache_key(dataset.clone(), projection, tile_key);
         let file_key = key.with_added_extension("jpg");
         let file_path = self.file_cache_dir.join(&file_key);
         file_path
@@ -222,6 +233,27 @@ impl TileServer {
         Ok(None)
     }
 
+    fn tile_gcs_bbox(
+        &self,
+        projection: &BoundedMercatorProjection,
+        tile_key: &TileKey,
+    ) -> (RadLonLatVec2, RadLonLatVec2) {
+        let sub_div = SubDivision2d::from_corners(
+            projection.abs_pos() - 0.5 * projection.abs_size(),
+            projection.abs_pos() + 0.5 * projection.abs_size(),
+        );
+        let abs_bbox = sub_div.tile_bbox(tile_key);
+        (
+            projection.abs_to_gcs(&abs_bbox.0),
+            projection.abs_to_gcs(&abs_bbox.1),
+        )
+    }
+
+    fn tile_resolution(&self, gcs_bbox: &(RadLonLatVec2, RadLonLatVec2)) -> USizeVec2 {
+        let gcs_size = Vec2::from(gcs_bbox.1.clone()) - Vec2::from(gcs_bbox.0.clone());
+        USizeVec2::new(self.tile_resolution_width, (self.tile_resolution_width as f32 * gcs_size.y / gcs_size.x).ceil() as usize)
+    }
+
     pub async fn load_tile(
         &self,
         dataset: TileServerDataset,
@@ -245,25 +277,16 @@ impl TileServer {
             return Ok(Some(file_path));
         }
 
-        let sub_div = SubDivision2d::from_corners(
-            projection.abs_pos() - 0.5 * projection.abs_size(),
-            projection.abs_pos() + 0.5 * projection.abs_size(),
-        );
-        let abs_bbox = sub_div.tile_bbox(tile_key);
-        let rad_gcs_bbox = (
-            projection.abs_to_gcs(&abs_bbox.0),
-            projection.abs_to_gcs(&abs_bbox.1),
-        );
-
+        let rad_gcs_bbox = self.tile_gcs_bbox(projection, tile_key);
         let gcs_bbox = (
             LonLatVec2::from(rad_gcs_bbox.0.clone()),
             LonLatVec2::from(rad_gcs_bbox.1.clone()),
         );
-        let gcs_size = Vec2::from(gcs_bbox.1.clone()) - Vec2::from(gcs_bbox.0.clone());
+        let [res_width, res_height] = self.tile_resolution(&rad_gcs_bbox).to_array();
 
         let tile_params = Epsg4326TileParams {
             gcs_bbox,
-            resolution: (256, (256.0 * gcs_size.y / gcs_size.x).ceil() as usize),
+            resolution: (res_width, res_height),
         };
 
         let img = match &dataset {

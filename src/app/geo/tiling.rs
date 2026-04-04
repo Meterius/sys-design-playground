@@ -33,7 +33,7 @@ impl Plugin for GeoMapTilingPlugin {
 }
 
 fn startup(world: &mut World) {
-    world.insert_non_send_resource(TileServer::new(PathBuf::from_iter(["assets", "cache"])));
+    world.insert_non_send_resource(TileServer::new(256, PathBuf::from_iter(["assets", "cache"])));
 
     world.insert_non_send_resource(TileImageStore {
         dataset_stores: HashMap::from_iter([

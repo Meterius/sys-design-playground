@@ -49,7 +49,7 @@ fn setup(mut commands: Commands) {
     ));
 
     plane_commands.with_child((
-        Tiling::new(8),
+        Tiling::new(4),
         Transform::default(),
         Visibility::default(),
         GeoMapElementOf(plane_commands.id()),

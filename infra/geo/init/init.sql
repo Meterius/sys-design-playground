@@ -30,6 +30,6 @@ CREATE TRIGGER set_geom
 CREATE INDEX idx_locations_geom ON locations USING GIST (geom);
 
 -- Seed data
-INSERT INTO locations (name, description, latitude, longitude)
+INSERT INTO locations (id, name, description, latitude, longitude)
 VALUES
-    ('Berlin Center', 'Example location', 52.5200, 13.4050);
+    (0, 'Berlin Center', 'Example location', 52.5200, 13.4050);

@@ -1,5 +1,5 @@
-use crate::geo::coords::{LonLatVec2, RadLonLatVec2, approx_size_bound};
-use bevy::prelude::{Vec2, error, info};
+use crate::geo::coords::LonLatVec2;
+use bevy::prelude::error;
 use image::RgbImage;
 use serde::Deserialize;
 use serde_json::json;

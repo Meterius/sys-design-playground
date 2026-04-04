@@ -1,5 +1,7 @@
+use crate::app::geo::locations::LocationsManager;
 use crate::app::geo::tiling::Tiling;
-use crate::app::geo::{GeoMapElementOf, GeoMapPlane, GeoMapPlugin};
+use crate::app::geo::{GeoMapElementOf, GeoMapPlane, GeoMapPlaneView, GeoMapPlugin};
+use crate::app::settings::SettingsPlugin;
 use crate::geo::coords::BoundedMercatorProjection;
 use bevy::DefaultPlugins;
 use bevy::app::{App, PluginGroup, Startup};
@@ -28,6 +30,7 @@ pub fn initialize(_width: usize, _height: usize) {
             ShapePlugin,
             Shape2dPlugin::default(),
             bevy_tokio_tasks::TokioTasksPlugin::default(),
+            SettingsPlugin::default(),
         ))
         .add_systems(Startup, setup)
         .run();
@@ -42,15 +45,23 @@ fn setup(mut commands: Commands) {
         GeoMapPlane {
             projection: BoundedMercatorProjection {
                 lat_min: -0.45 * PI,
-                lat_max: 0.45 * PI,
+                lat_max: 0.4 * PI,
             },
             scale: 500.0,
         },
+        GeoMapPlaneView::default(),
     ));
 
     plane_commands.with_child((
-        Tiling::new(6),
+        Tiling::new(4),
         Transform::default(),
+        Visibility::default(),
+        GeoMapElementOf(plane_commands.id()),
+    ));
+
+    plane_commands.with_child((
+        LocationsManager {},
+        Transform::from_translation(Vec3::new(0.0, 0.0, 50.0)),
         Visibility::default(),
         GeoMapElementOf(plane_commands.id()),
     ));

@@ -1,16 +1,22 @@
-use crate::app::geo::{GeoMapElementOf, GeoMapPlane};
+use crate::app::geo::{GeoMapElementOf, GeoMapPlane, GeoMapPlaneView};
+use crate::app::settings::Settings;
 use crate::geo::coords::Projection2D;
 use crate::geo::sub_division::{SubDivision2d, TileKey};
 use crate::geo::tiling::{TileServer, TileServerDataset, TileServerError};
 use bevy::ecs::system::RunSystemOnce;
 use bevy::math::USizeVec2;
+use bevy::math::bounding::Aabb2d;
 use bevy::prelude::*;
 use bevy_tokio_tasks::TokioTasksRuntime;
+use bevy_vector_shapes::painter::ShapePainter;
+use bevy_vector_shapes::prelude::RectPainter;
+use bevy_vector_shapes::shapes::ThicknessType;
 use itertools::Itertools;
+use priority_queue::PriorityQueue;
 use ratelimit::Ratelimiter;
+use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use tokio_rate_limit::{RateLimiter, RateLimiterConfig};
 
 #[derive(Default)]
 pub struct GeoMapTilingPlugin {}
@@ -21,14 +27,17 @@ impl Plugin for GeoMapTilingPlugin {
         app.add_systems(
             Update,
             (
-                handle_tiling_management,
-                handle_tile_setup,
-                handle_tile_target_sync,
-                handle_tile_image_loading,
-                handle_loaded_tile_image,
-                handle_tile_image_fade,
-            )
-                .chain(),
+                (
+                    handle_tiling_management,
+                    handle_tile_setup,
+                    handle_tile_target_sync,
+                    handle_tile_image_loading,
+                    handle_loaded_tile_image,
+                    handle_tile_image_fade,
+                )
+                    .chain(),
+                (handle_tile_debug, handle_tile_image_debug).chain(),
+            ),
         );
     }
 }
@@ -79,10 +88,32 @@ pub struct TileImageStore {
 #[require(Tiles)]
 pub struct Tiling {
     pub target_depth: usize,
-    pub target_depth_fac: f32,
-    pub target_count: usize,
-    pub spawned_tiles: HashSet<TileKey>,
-    pub targeted_tiles: HashSet<TileKey>,
+
+    max_depth: usize,
+
+    target_depth_fac: f32,
+    target_count: usize,
+
+    spawned_tiles: PriorityQueue<TileKey, Reverse<usize>>,
+    spawned_tiles_untargeted_capacity: usize,
+
+    targeted_tiles: HashSet<TileKey>,
+}
+
+impl Tiling {
+    const MAX_DESPAWN_TILE_PER_TICK: usize = 128;
+
+    pub fn new(target_count: usize) -> Self {
+        Self {
+            max_depth: 17,
+            target_count,
+            target_depth_fac: 0.0,
+            target_depth: 0,
+            spawned_tiles: PriorityQueue::new(),
+            spawned_tiles_untargeted_capacity: 1024,
+            targeted_tiles: HashSet::new(),
+        }
+    }
 }
 
 #[derive(Default, Component)]
@@ -92,18 +123,6 @@ pub struct Tiles(Vec<Entity>);
 #[derive(Component)]
 #[relationship(relationship_target = Tiles)]
 pub struct TileOf(Entity);
-
-impl Tiling {
-    pub fn new(target_count: usize) -> Self {
-        Self {
-            target_count,
-            target_depth_fac: 0.0,
-            target_depth: 0,
-            spawned_tiles: HashSet::new(),
-            targeted_tiles: HashSet::new(),
-        }
-    }
-}
 
 #[derive(Component)]
 pub struct Tile {
@@ -122,6 +141,48 @@ pub struct TileImage {
 #[derive(Component)]
 pub struct TileImageLoaded {
     image_handle: Option<Handle<Image>>,
+}
+
+fn handle_tile_image_debug(
+    settings: Res<Settings>,
+    tile_images: Query<(&GlobalTransform, &Sprite), With<TileImage>>,
+    mut painter: ShapePainter,
+) {
+    if settings.debug_mode {
+        for (tile_image_transform, tile_image_sprite) in tile_images.iter() {
+            if let Some(size) = tile_image_sprite.custom_size.clone() {
+                painter.set_translation(tile_image_transform.translation());
+                painter.translate(Vec3::new(0.0, 0.0, 200.0));
+                painter.color = Color::srgb(0.0, 1.0, 0.0);
+                painter.hollow = true;
+                painter.thickness = 0.001 * size.max_element();
+                painter.thickness_type = ThicknessType::World;
+                painter.rect(size);
+            }
+        }
+    }
+}
+
+fn handle_tile_debug(
+    settings: Res<Settings>,
+    tiles: Query<(&GlobalTransform, &Tile, &GeoMapElementOf)>,
+    planes: Query<&GeoMapPlane>,
+    mut painter: ShapePainter,
+) {
+    if settings.debug_mode {
+        for (tile_transform, tile, tile_element_of) in tiles.iter() {
+            if let Some(plane) = planes.get(tile_element_of.0).ok() {
+                let size = (tile.bb_abs.1 - tile.bb_abs.0) * plane.scale;
+                painter.set_translation(tile_transform.translation());
+                painter.translate(Vec3::new(0.0, 0.0, 100.0));
+                painter.color = Color::srgb(1.0, 0.0, 0.0);
+                painter.hollow = true;
+                painter.thickness = 0.001 * size.max_element();
+                painter.thickness_type = ThicknessType::World;
+                painter.rect(size);
+            }
+        }
+    }
 }
 
 fn handle_tile_image_fade(
@@ -290,95 +351,118 @@ fn handle_tile_image_loading(
 }
 
 fn handle_tiling_management(
+    mut tick: Local<usize>,
     mut commands: Commands,
+    tiles: Query<&Tile>,
     tiling: Query<(Entity, &mut Tiling, &Tiles, &GeoMapElementOf)>,
-    planes: Query<(Entity, &GlobalTransform, &GeoMapPlane)>,
-    camera: Query<(&GlobalTransform, &Camera)>,
+    planes: Query<(Entity, &GeoMapPlane, &GeoMapPlaneView)>,
 ) {
-    if let Ok((camera_transform, camera)) = camera.single() {
-        for (tiling_id, mut tiling, tiles, tiling_element_of) in tiling {
-            if let Ok((plane_id, plane_transform, plane)) = planes.get(tiling_element_of.0) {
-                let plane_pos = plane_transform.translation().xy();
+    for (tiling_id, mut tiling, tiling_tiles, tiling_element_of) in tiling {
+        if let Ok((plane_id, plane, plane_view)) = planes.get(tiling_element_of.0)
+            && let Some(view_gcs_bbox) = plane_view.view_gcs.as_ref()
+        {
+            let view_abs_bbox = (
+                plane.projection.gcs_to_abs(&view_gcs_bbox.0),
+                plane.projection.gcs_to_abs(&view_gcs_bbox.1),
+            );
 
-                let cam_global_min = camera
-                    .ndc_to_world(camera_transform, Vec2::NEG_ONE.extend(0.0))
-                    .map(Vec3::xy);
-                let cam_global_max = camera
-                    .ndc_to_world(camera_transform, Vec2::ONE.extend(0.0))
-                    .map(Vec3::xy);
+            let sub_division = SubDivision2d {
+                area: Aabb2d::new(
+                    plane.projection.abs_pos(),
+                    plane.projection.abs_size() / 2.0,
+                ),
+            };
 
-                if let Some(cam_global_min) = cam_global_min
-                    && let Some(cam_global_max) = cam_global_max
-                {
-                    let cam_abs_min = plane.local_to_abs(&(cam_global_min - plane_pos));
-                    let cam_abs_max = plane.local_to_abs(&(cam_global_max - plane_pos));
+            let view_abs_size = view_abs_bbox.1 - view_abs_bbox.0;
 
-                    let cam_abs_bbox = (cam_abs_min, cam_abs_max);
+            let target_depth = sub_division.min_depth_for_tile_count(
+                view_abs_size,
+                USizeVec2::new(tiling.target_count, tiling.target_count),
+            );
 
-                    let sub_division = SubDivision2d::from_corners(
-                        plane.projection.abs_pos() - 0.5 * plane.projection.abs_size(),
-                        plane.projection.abs_pos() + 0.5 * plane.projection.abs_size(),
-                    );
+            let prev_target_depth_area_size = sub_division.area_size_for_min_depth_for_tile_count(
+                if target_depth == 0 {
+                    0
+                } else {
+                    target_depth - 1
+                },
+                USizeVec2::new(tiling.target_count, tiling.target_count),
+            );
 
-                    let cam_abs_size = cam_abs_bbox.1 - cam_abs_bbox.0;
+            let target_depth_area_size = sub_division.area_size_for_min_depth_for_tile_count(
+                target_depth,
+                USizeVec2::new(tiling.target_count, tiling.target_count),
+            );
 
-                    let target_depth = sub_division.min_depth_for_tile_count(
-                        cam_abs_size,
-                        USizeVec2::new(tiling.target_count, tiling.target_count),
-                    );
+            tiling.target_depth = target_depth;
+            tiling.target_depth_fac = ((view_abs_size - prev_target_depth_area_size)
+                / (target_depth_area_size - prev_target_depth_area_size))
+                .max_element()
+                .clamp(0.0, 1.0);
 
-                    let prev_target_depth_area_size = sub_division
-                        .area_size_for_min_depth_for_tile_count(
-                            if target_depth == 0 {
-                                0
-                            } else {
-                                target_depth - 1
+            let mut targeted_tiles = HashSet::new();
+
+            for depth in 0..=(target_depth + 1).min(tiling.max_depth) {
+                for tile in sub_division.tile_covering(view_abs_bbox, depth) {
+                    targeted_tiles.insert(tile.key.clone());
+
+                    if tiling
+                        .spawned_tiles
+                        .push(tile.key.clone(), Reverse(*tick))
+                        .is_none()
+                    {
+                        commands.entity(tiling_id).with_child((
+                            GeoMapElementOf(plane_id),
+                            Tile {
+                                key: tile.key.clone(),
+                                bb_abs: (tile.bb_min, tile.bb_max),
                             },
-                            USizeVec2::new(tiling.target_count, tiling.target_count),
-                        );
-
-                    let target_depth_area_size = sub_division
-                        .area_size_for_min_depth_for_tile_count(
-                            target_depth,
-                            USizeVec2::new(tiling.target_count, tiling.target_count),
-                        );
-
-                    tiling.target_depth = target_depth;
-                    tiling.target_depth_fac = ((cam_abs_size - prev_target_depth_area_size)
-                        / (target_depth_area_size - prev_target_depth_area_size))
-                        .max_element()
-                        .clamp(0.0, 1.0);
-
-                    let mut targeted_tiles = HashSet::new();
-
-                    for depth in 0..=(target_depth + 1).min(17) {
-                        for tile in sub_division.tile_covering(cam_abs_bbox, depth) {
-                            targeted_tiles.insert(tile.key.clone());
-
-                            if tiling.spawned_tiles.insert(tile.key.clone()) {
-                                commands.entity(tiling_id).with_child((
-                                    GeoMapElementOf(plane_id),
-                                    Tile {
-                                        key: tile.key.clone(),
-                                        bb_abs: (tile.bb_min, tile.bb_max),
-                                    },
-                                    TileOf(tiling_id),
-                                    Transform::from_translation(
-                                        plane
-                                            .abs_to_local(&((tile.bb_min + tile.bb_max) / 2.0))
-                                            .extend(1.0 + tile.key.len() as f32 * 0.0001),
-                                    ),
-                                    Visibility::default(),
-                                ));
-                            }
-                        }
+                            TileOf(tiling_id),
+                            Transform::from_translation(
+                                plane
+                                    .abs_to_local(&((tile.bb_min + tile.bb_max) / 2.0))
+                                    .extend(1.0 + tile.key.len() as f32 * 0.0001),
+                            ),
+                            Visibility::default(),
+                        ));
                     }
-
-                    tiling.targeted_tiles = targeted_tiles;
                 }
             }
+
+            let mut to_remove_tiles = HashSet::new();
+            while tiling.spawned_tiles.len() - targeted_tiles.len()
+                >= tiling.spawned_tiles_untargeted_capacity
+                && to_remove_tiles.len() < Tiling::MAX_DESPAWN_TILE_PER_TICK
+                && let Some((tile_key, _)) = tiling.spawned_tiles.pop()
+            {
+                to_remove_tiles.insert(tile_key);
+            }
+
+            if !to_remove_tiles.is_empty() {
+                for &tile_id in tiling_tiles.0.iter() {
+                    if let Some(tile) = tiles.get(tile_id).ok()
+                        && to_remove_tiles.remove(&tile.key)
+                    {
+                        commands.entity(tile_id).despawn();
+                    }
+                }
+
+                if !to_remove_tiles.is_empty() {
+                    warn!(
+                        "Could find tiles corresponding to despawned tiles: {}",
+                        to_remove_tiles
+                            .into_iter()
+                            .map(|key| format!("{:?}", key))
+                            .join(", ")
+                    );
+                }
+            }
+
+            tiling.targeted_tiles = targeted_tiles;
         }
     }
+
+    *tick += 1;
 }
 
 fn handle_tile_setup(mut commands: Commands, added_tiles: Query<Entity, Added<Tile>>) {

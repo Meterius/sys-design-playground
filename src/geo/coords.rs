@@ -118,18 +118,28 @@ pub struct BoundedMercatorProjection {
     pub lat_min: f32,
 }
 
+impl BoundedMercatorProjection {
+    fn abs_bbox(&self) -> (Vec2, Vec2) {
+        (
+            self.gcs_to_abs(&RadLonLatVec2 {
+                x: -PI,
+                y: self.lat_min,
+            }),
+            self.gcs_to_abs(&RadLonLatVec2 {
+                x: PI,
+                y: self.lat_max,
+            }),
+        )
+    }
+}
+
 impl Projection2D for BoundedMercatorProjection {
     fn abs_pos(&self) -> Vec2 {
-        self.gcs_to_abs(&RadLonLatVec2 { x: 0.0, y: 0.0 })
+        (self.abs_bbox().0 + self.abs_bbox().1) / 2.0
     }
+
     fn abs_size(&self) -> Vec2 {
-        self.gcs_to_abs(&RadLonLatVec2 {
-            x: PI,
-            y: self.lat_max,
-        }) - self.gcs_to_abs(&RadLonLatVec2 {
-            x: -PI,
-            y: self.lat_min,
-        })
+        self.abs_bbox().1 - self.abs_bbox().0
     }
 
     fn gcs_to_abs(&self, pos: &RadLonLatVec2) -> Vec2 {

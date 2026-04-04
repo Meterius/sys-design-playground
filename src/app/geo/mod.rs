@@ -1,4 +1,5 @@
 use crate::app::geo::boundaries::load_all_shape_paths;
+use crate::app::geo::locations::LocationsPlugin;
 use crate::app::geo::tiling::GeoMapTilingPlugin;
 use crate::geo::coords::{BoundedMercatorProjection, LonLatVec2, Projection2D, RadLonLatVec2};
 use bevy::prelude::*;
@@ -7,14 +8,18 @@ use bevy_prototype_lyon::path::ShapePath;
 use bevy_prototype_lyon::prelude::ShapeBuilder;
 
 pub mod boundaries;
+pub mod locations;
 pub mod tiling;
 
 pub struct GeoMapPlugin {}
 
 impl Plugin for GeoMapPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (apply_transform, geo_map_plane_setup));
-        app.add_plugins(GeoMapTilingPlugin::default());
+        app.add_systems(
+            Update,
+            (apply_transform, geo_map_plane_setup, handle_plane_view_sync),
+        );
+        app.add_plugins((GeoMapTilingPlugin::default(), LocationsPlugin::default()));
     }
 }
 
@@ -42,6 +47,42 @@ pub struct GeoMapElementOf(pub Entity);
 #[relationship_target(relationship = GeoMapElementOf)]
 pub struct GeoMapElements(Vec<Entity>);
 
+#[derive(Default, Component)]
+pub struct GeoMapPlaneView {
+    pub view_gcs: Option<(RadLonLatVec2, RadLonLatVec2)>,
+}
+
+fn handle_plane_view_sync(
+    mut planes: Query<(&GlobalTransform, &GeoMapPlane, &mut GeoMapPlaneView)>,
+    camera: Query<(&GlobalTransform, &Camera)>,
+) {
+    if let Ok((camera_transform, camera)) = camera.single() {
+        for (plane_transform, plane, mut plane_view) in planes.iter_mut() {
+            let plane_pos = plane_transform.translation().xy();
+
+            let cam_global_min = camera
+                .ndc_to_world(camera_transform, Vec2::NEG_ONE.extend(0.0))
+                .map(Vec3::xy);
+            let cam_global_max = camera
+                .ndc_to_world(camera_transform, Vec2::ONE.extend(0.0))
+                .map(Vec3::xy);
+
+            if let Some(cam_global_min) = cam_global_min
+                && let Some(cam_global_max) = cam_global_max
+            {
+                let cam_abs_min = plane
+                    .projection
+                    .abs_to_gcs(&plane.local_to_abs(&(cam_global_min - plane_pos)));
+                let cam_abs_max = plane
+                    .projection
+                    .abs_to_gcs(&plane.local_to_abs(&(cam_global_max - plane_pos)));
+
+                plane_view.view_gcs = Some((cam_abs_min, cam_abs_max));
+            }
+        }
+    }
+}
+
 #[derive(Component)]
 #[require(Transform)]
 pub struct GeoMapTransform {
@@ -57,9 +98,9 @@ fn apply_transform(
 ) {
     for (mut transform, geo_transform, element_of) in transforms {
         if let Ok(plane) = planes.get(element_of.0) {
-            transform.translation = (plane
-                .abs_to_local(&plane.projection.gcs_to_abs(&geo_transform.pos)))
-            .extend(transform.translation.z);
+            transform.translation = plane
+                .abs_to_local(&plane.projection.gcs_to_abs(&geo_transform.pos))
+                .extend(transform.translation.z);
         }
     }
 }

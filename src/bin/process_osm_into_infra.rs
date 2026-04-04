@@ -1,7 +1,6 @@
-use futures::future::{join_all, try_join_all};
+use futures::future::try_join_all;
 use osmpbf::Element;
-use tokio::sync::broadcast::error::RecvError;
-use tokio_postgres::{NoTls, connect};
+use tokio_postgres::NoTls;
 
 #[tokio::main]
 async fn main() {
@@ -46,27 +45,26 @@ DO UPDATE SET (name, description, latitude, longitude) = (EXCLUDED.name, EXCLUDE
         })
         .collect::<Vec<_>>();
 
-    let reader = osmpbf::ElementReader::from_path("assets/datasets/osm/germany-latest.osm.pbf").unwrap();
+    let reader =
+        osmpbf::ElementReader::from_path("assets/datasets/osm/germany-latest.osm.pbf").unwrap();
 
     let producer_tx = tx.clone();
     let producer = std::thread::spawn(move || {
         let total = reader
             .par_map_reduce(
                 |el| {
-                    match el {
-                        Element::DenseNode(node) => {
-                            if let Some((_, name)) = node.tags().find(|(key, _)| key == &"name") {
-                                producer_tx.send_blocking((
-                                    node.id,
-                                    node.lon(),
-                                    node.lat(),
-                                    name.to_owned(),
-                                    "".to_owned(),
-                                ))
-                                    .unwrap();
-                            }
-                        }
-                        _ => {}
+                    if let Element::DenseNode(node) = el
+                        && let Some((_, name)) = node.tags().find(|(key, _)| key == &"name")
+                    {
+                        producer_tx
+                            .send_blocking((
+                                node.id,
+                                node.lon(),
+                                node.lat(),
+                                name.to_owned(),
+                                "".to_owned(),
+                            ))
+                            .unwrap();
                     }
                     1
                 },
@@ -83,5 +81,4 @@ DO UPDATE SET (name, description, latitude, longitude) = (EXCLUDED.name, EXCLUDE
     tx.closed().await;
     producer.join().unwrap();
     try_join_all(consumers.into_iter()).await.unwrap();
-
 }

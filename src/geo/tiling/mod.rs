@@ -6,11 +6,10 @@ use crate::geo::tiling::image_sources::{
     Epsg4326TileParams, GibsEpsg4326Params, LAYER_MODIS_TERRA_CORRECTED_REFLECTANCE_TRUE_COLOR,
     fetch_epsg4326_gibs_image, fetch_epsg4326_sen_hub_image, fetch_sen_hub_bearer_token,
 };
+use bevy::math::bounding::Aabb2d;
 use bevy::math::{USizeVec2, Vec2};
-use bevy::prelude::info;
 use itertools::Itertools;
-use lru_cache::LruCache;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
@@ -108,7 +107,7 @@ impl TileServer {
         match dataset {
             TileServerDataset::SenHubSentinel2L2a => (5.0..=1400.0).contains(&meters_per_pixel),
             TileServerDataset::GibsLayerModisTerraCorrectedReflectanceTrueColor => {
-                meters_per_pixel > 1000.0
+                meters_per_pixel > 1400.0
             }
         }
     }
@@ -177,8 +176,7 @@ impl TileServer {
     ) -> PathBuf {
         let key = self.get_cache_key(dataset.clone(), projection, tile_key);
         let file_key = key.with_added_extension("jpg");
-        let file_path = self.file_cache_dir.join(&file_key);
-        file_path
+        self.file_cache_dir.join(&file_key)
     }
 
     pub fn load_tile_offline_blocking(
@@ -187,7 +185,7 @@ impl TileServer {
         projection: &BoundedMercatorProjection,
         tile_key: &TileKey,
     ) -> Result<Option<Option<PathBuf>>, TileServerError> {
-        if !self.is_tile_available(&dataset, &projection, &tile_key) {
+        if !self.is_tile_available(&dataset, projection, tile_key) {
             return Ok(Some(None));
         }
 
@@ -214,7 +212,7 @@ impl TileServer {
         projection: &BoundedMercatorProjection,
         tile_key: &TileKey,
     ) -> Result<Option<Option<PathBuf>>, TileServerError> {
-        if !self.is_tile_available(&dataset, &projection, &tile_key) {
+        if !self.is_tile_available(&dataset, projection, tile_key) {
             return Ok(Some(None));
         }
 
@@ -241,10 +239,9 @@ impl TileServer {
         projection: &BoundedMercatorProjection,
         tile_key: &TileKey,
     ) -> (RadLonLatVec2, RadLonLatVec2) {
-        let sub_div = SubDivision2d::from_corners(
-            projection.abs_pos() - 0.5 * projection.abs_size(),
-            projection.abs_pos() + 0.5 * projection.abs_size(),
-        );
+        let sub_div = SubDivision2d {
+            area: Aabb2d::new(projection.abs_pos(), projection.abs_size() / 2.0),
+        };
         let abs_bbox = sub_div.tile_bbox(tile_key);
         (
             projection.abs_to_gcs(&abs_bbox.0),

@@ -34,7 +34,10 @@ impl Plugin for GeoMapTilingPlugin {
 }
 
 fn startup(world: &mut World) {
-    world.insert_non_send_resource(TileServer::new(256, PathBuf::from_iter(["assets", "cache"])));
+    world.insert_non_send_resource(TileServer::new(
+        256,
+        PathBuf::from_iter(["assets", "cache"]),
+    ));
 
     world.insert_non_send_resource(TileImageStore {
         dataset_stores: HashMap::from_iter([
@@ -128,10 +131,12 @@ fn handle_tile_image_fade(
 ) {
     for (tile_image_child_of, mut tile_image_sprite) in tile_image.iter_mut() {
         if let Some((tile, tile_of)) = tiles.get(tile_image_child_of.0).ok()
-            && let Some(tiling) = tiling.get(tile_of.0).ok() {
-            let fac = (
-                tiling.target_depth as f32 - tile.key.len() as f32 + tiling.target_depth_fac
-            ).clamp(0.0, 0.75) / 0.75;
+            && let Some(tiling) = tiling.get(tile_of.0).ok()
+        {
+            let fac = (tiling.target_depth as f32 - tile.key.len() as f32
+                + tiling.target_depth_fac)
+                .clamp(0.0, 0.75)
+                / 0.75;
 
             tile_image_sprite.color.set_alpha(fac);
         }
@@ -322,17 +327,27 @@ fn handle_tiling_management(
                         USizeVec2::new(tiling.target_count, tiling.target_count),
                     );
 
-                    let prev_target_depth_area_size = sub_division.area_size_for_min_depth_for_tile_count(
-                        if target_depth == 0 { 0 } else { target_depth - 1 }, USizeVec2::new(tiling.target_count, tiling.target_count)
-                    );
+                    let prev_target_depth_area_size = sub_division
+                        .area_size_for_min_depth_for_tile_count(
+                            if target_depth == 0 {
+                                0
+                            } else {
+                                target_depth - 1
+                            },
+                            USizeVec2::new(tiling.target_count, tiling.target_count),
+                        );
 
-                    let target_depth_area_size = sub_division.area_size_for_min_depth_for_tile_count(
-                        target_depth, USizeVec2::new(tiling.target_count, tiling.target_count)
-                    );
+                    let target_depth_area_size = sub_division
+                        .area_size_for_min_depth_for_tile_count(
+                            target_depth,
+                            USizeVec2::new(tiling.target_count, tiling.target_count),
+                        );
 
                     tiling.target_depth = target_depth;
                     tiling.target_depth_fac = ((cam_abs_size - prev_target_depth_area_size)
-                        / (target_depth_area_size - prev_target_depth_area_size)).max_element().clamp(0.0, 1.0);
+                        / (target_depth_area_size - prev_target_depth_area_size))
+                        .max_element()
+                        .clamp(0.0, 1.0);
 
                     let mut targeted_tiles = HashSet::new();
 

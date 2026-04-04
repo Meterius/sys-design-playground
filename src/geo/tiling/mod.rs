@@ -1,4 +1,6 @@
-use crate::geo::coords::{approx_size_bound, BoundedMercatorProjection, LonLatVec2, Projection2D, RadLonLatVec2};
+use crate::geo::coords::{
+    BoundedMercatorProjection, LonLatVec2, Projection2D, RadLonLatVec2, approx_size_bound,
+};
 use crate::geo::sub_division::{SubDivision2d, SubDivisionKey, TileKey};
 use crate::geo::tiling::image_sources::{
     Epsg4326TileParams, GibsEpsg4326Params, LAYER_MODIS_TERRA_CORRECTED_REFLECTANCE_TRUE_COLOR,
@@ -99,13 +101,15 @@ impl TileServer {
         let gcs_bbox = self.tile_gcs_bbox(projection, tile_key);
         let [res_width, res_height] = self.tile_resolution(&gcs_bbox).to_array();
 
-        let meters_per_pixel = (
-            approx_size_bound(&gcs_bbox) / Vec2::new(res_width as f32, res_height as f32)
-        ).max_element();
+        let meters_per_pixel = (approx_size_bound(&gcs_bbox)
+            / Vec2::new(res_width as f32, res_height as f32))
+        .max_element();
 
         match dataset {
             TileServerDataset::SenHubSentinel2L2a => (5.0..=1400.0).contains(&meters_per_pixel),
-            TileServerDataset::GibsLayerModisTerraCorrectedReflectanceTrueColor => meters_per_pixel > 1000.0,
+            TileServerDataset::GibsLayerModisTerraCorrectedReflectanceTrueColor => {
+                meters_per_pixel > 1000.0
+            }
         }
     }
 
@@ -188,7 +192,6 @@ impl TileServer {
         }
 
         let file_path = self.get_tile_file_path(dataset, projection, tile_key);
-
 
         if let Some(cached_value) = self.cache.blocking_read().get(&file_path).cloned() {
             return Ok(Some(cached_value));

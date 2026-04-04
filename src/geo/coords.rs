@@ -55,8 +55,8 @@ fn approx_horizontal_len(lat: f32, lon_min: f32, lon_max: f32) -> f32 {
 
 pub fn approx_size_bound((gcs_min, gcs_max): &(RadLonLatVec2, RadLonLatVec2)) -> Vec2 {
     Vec2::new(
-        approx_horizontal_len(gcs_max.y, gcs_min.x, gcs_max.x).max(
-        approx_horizontal_len(gcs_min.y, gcs_min.x, gcs_max.x)),
+        approx_horizontal_len(gcs_max.y, gcs_min.x, gcs_max.x)
+            .max(approx_horizontal_len(gcs_min.y, gcs_min.x, gcs_max.x)),
         approx_vertical_len(gcs_min.y, gcs_max.y),
     )
 }

@@ -35,7 +35,11 @@ impl SubDivision2d {
         }
     }
 
-    pub fn area_size_for_min_depth_for_tile_count(&self, depth: usize, min_count: USizeVec2) -> Vec2 {
+    pub fn area_size_for_min_depth_for_tile_count(
+        &self,
+        depth: usize,
+        min_count: USizeVec2,
+    ) -> Vec2 {
         (self.bb_size * Vec2::new(min_count.x as f32, min_count.y as f32)) / 2f32.powf(depth as f32)
     }
 

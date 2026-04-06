@@ -1,38 +1,56 @@
-use crate::app::geo::GeoMapPlugin;
+use crate::app::geo::GeoPlugin;
 use crate::app::geo::map::{
-    Map, MapView, MapViewCamera, MapViewCameraWithView, MapViewTiling, MapViewTilingWithView,
+    Map, MapView, MapViewCamera, MapViewCameraWithView,
     MapViewWithMap,
 };
 use crate::app::settings::SettingsPlugin;
 use crate::geo::coords::BoundedMercatorProjection;
 use bevy::DefaultPlugins;
 use bevy::app::{App, PluginGroup, Startup};
-use bevy::log::tracing_subscriber::Layer;
-use bevy::log::tracing_subscriber::fmt::writer::MakeWriterExt;
 use bevy::log::{Level, LogPlugin};
+use bevy::pbr::wireframe::WireframeConfig;
 use bevy::prelude::*;
+use bevy::render::RenderPlugin;
+use bevy::render::settings::{WgpuFeatures, WgpuSettings};
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_pancam::{PanCam, PanCamPlugin};
 use bevy_prototype_lyon::plugin::ShapePlugin;
 use bevy_vector_shapes::Shape2dPlugin;
-use std::f32::consts::PI;
+use std::f64::consts::PI;
+use crate::app::geo::tiling::{MapViewTiling, MapViewTilingWithView};
 
 pub fn initialize(_width: usize, _height: usize) {
     App::new()
         .insert_resource(ClearColor(Color::WHITE))
-        .add_plugins(DefaultPlugins.set(LogPlugin {
-            filter: "info,bevy_mod_picking=info,wgpu_core=error,wgpu_hal=error".into(),
-            level: if cfg!(feature = "debug") {
-                Level::INFO
-            } else {
-                Level::WARN
-            },
-            ..default()
-        }))
+        .insert_resource(WireframeConfig {
+            global: false,
+            default_color: Color::srgb(0.1, 0.1, 1.0),
+        })
+        .add_plugins(
+            DefaultPlugins
+                .set(LogPlugin {
+                    filter: "info,bevy_mod_picking=info,wgpu_core=error,wgpu_hal=error".into(),
+                    level: if cfg!(feature = "debug") {
+                        Level::INFO
+                    } else {
+                        Level::WARN
+                    },
+                    ..default()
+                })
+                .set(RenderPlugin {
+                    render_creation: WgpuSettings {
+                        features: WgpuFeatures::POLYGON_MODE_LINE,
+                        ..default()
+                    }
+                    .into(),
+                    ..default()
+                }),
+        )
         .add_plugins((
-            GeoMapPlugin {},
             PanCamPlugin,
+            GeoPlugin {},
+            MeshPickingPlugin,
             EguiPlugin::default(),
             WorldInspectorPlugin::new(),
             ShapePlugin,
@@ -56,7 +74,7 @@ fn setup(mut commands: Commands) {
 
     let map_view_id = commands
         .spawn((
-            GlobalTransform::from_scale((500000.0 * Vec2::ONE).extend(1.0)),
+            Transform::from_scale((5000.0 * Vec2::ONE).extend(1.0)),
             Visibility::default(),
             MapView::default(),
             MapViewWithMap(map_id),
@@ -67,7 +85,10 @@ fn setup(mut commands: Commands) {
 
     commands.spawn((
         Camera2d,
-        PanCam::default(),
+        PanCam {
+            min_scale: 0.001,
+            ..default()
+        },
         MapViewCamera {},
         MapViewCameraWithView(map_view_id),
     ));

@@ -1,13 +1,11 @@
-use crate::geo::coords::{
-    BoundedMercatorProjection, LonLatVec2, Projection2D, RadLonLatVec2, approx_size_bound,
-};
+use crate::geo::coords::{BoundedMercatorProjection, Projection2D, approx_size_bound};
 use crate::geo::sub_division::{SubDivision2d, SubDivisionKey, TileKey};
 use crate::geo::tiling::image_sources::{
     Epsg4326TileParams, GibsEpsg4326Params, LAYER_MODIS_TERRA_CORRECTED_REFLECTANCE_TRUE_COLOR,
     fetch_epsg4326_gibs_image, fetch_epsg4326_sen_hub_image, fetch_sen_hub_bearer_token,
 };
-use bevy::math::bounding::Aabb2d;
-use bevy::math::{USizeVec2, Vec2};
+use crate::utils::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
+use glam::{DVec2, USizeVec2, dvec2};
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -98,11 +96,10 @@ impl TileServer {
         tile_key: &TileKey,
     ) -> bool {
         let gcs_bbox = self.tile_gcs_bbox(projection, tile_key);
-        let [res_width, res_height] = self.tile_resolution(&gcs_bbox).to_array();
+        let res = self.tile_resolution(gcs_bbox);
 
-        let meters_per_pixel = (approx_size_bound(&gcs_bbox)
-            / Vec2::new(res_width as f32, res_height as f32))
-        .max_element();
+        let meters_per_pixel =
+            (approx_size_bound(gcs_bbox) / dvec2(res.x as f64, res.y as f64)).max_element();
 
         match dataset {
             TileServerDataset::SenHubSentinel2L2a => (5.0..=1400.0).contains(&meters_per_pixel),
@@ -140,29 +137,26 @@ impl TileServer {
     fn reprojected(
         image: &image::RgbImage,
         projection: &impl Projection2D,
-        gcs_bbox: (RadLonLatVec2, RadLonLatVec2),
+        gcs_bounds: DAabb2,
     ) -> Result<image::RgbImage, TileServerError> {
         let mut out = image::RgbImage::new(image.width(), image.height());
 
-        let rel_min = projection.gcs_to_rel(&gcs_bbox.0);
-        let rel_size = projection.gcs_to_rel(&gcs_bbox.1) - rel_min;
+        let rel_min = projection.gcs_to_rel(gcs_bounds.min());
+        let rel_size = projection.gcs_to_rel(gcs_bounds.max()) - rel_min;
 
-        let gcs_min = Vec2::from(gcs_bbox.0.clone());
-        let gcs_size = Vec2::from(gcs_bbox.1.clone()) - Vec2::from(gcs_bbox.0.clone());
-
-        let image_size = Vec2::new(image.width() as f32, image.height() as f32);
+        let image_size = DVec2::new(image.width() as f64, image.height() as f64);
 
         for (x, y, pixel) in out.enumerate_pixels_mut() {
             let rel_pos = rel_min
                 + rel_size
-                    * (Vec2::new(0.0, 1.0)
-                        + Vec2::new(x as f32 + 0.5, -(y as f32 + 0.5)) / image_size);
-            let gcs_pos = projection.rel_to_gcs(&rel_pos);
-            let img_pos_rel = (Vec2::new(0.0, 1.0)
-                + Vec2::new(1.0, -1.0) * (Vec2::from(gcs_pos.clone()) - gcs_min) / gcs_size)
-                .clamp(Vec2::ZERO, Vec2::ONE);
-            *pixel = image::imageops::sample_bilinear(image, img_pos_rel.x, img_pos_rel.y)
-                .ok_or_else(|| TileServerError::ReprojectionError)?;
+                    * (dvec2(0.0, 1.0) + dvec2(x as f64 + 0.5, -(y as f64 + 0.5)) / image_size);
+            let gcs_pos = projection.rel_to_gcs(rel_pos);
+            let img_pos_rel = (dvec2(0.0, 1.0)
+                + dvec2(1.0, -1.0) * (gcs_pos.clone() - gcs_bounds.min()) / gcs_bounds.size())
+            .clamp(DVec2::ZERO, DVec2::ONE);
+            *pixel =
+                image::imageops::sample_bilinear(image, img_pos_rel.x as f32, img_pos_rel.y as f32)
+                    .ok_or_else(|| TileServerError::ReprojectionError)?;
         }
 
         Ok(out)
@@ -234,22 +228,18 @@ impl TileServer {
         Ok(None)
     }
 
-    fn tile_gcs_bbox(
-        &self,
-        projection: &BoundedMercatorProjection,
-        tile_key: &TileKey,
-    ) -> (RadLonLatVec2, RadLonLatVec2) {
+    fn tile_gcs_bbox(&self, projection: &BoundedMercatorProjection, tile_key: &TileKey) -> DAabb2 {
         let sub_div = SubDivision2d {
-            area: Aabb2d::new(projection.abs_pos(), projection.abs_size() / 2.0),
+            area: projection.abs_bounds(),
         };
         let abs_bbox = sub_div.tile_bbox(tile_key);
-        (
-            projection.abs_to_gcs(&abs_bbox.0),
-            projection.abs_to_gcs(&abs_bbox.1),
+        DAabb2::new(
+            projection.abs_to_gcs(abs_bbox.min()),
+            projection.abs_to_gcs(abs_bbox.max()),
         )
     }
 
-    fn tile_resolution(&self, _gcs_bbox: &(RadLonLatVec2, RadLonLatVec2)) -> USizeVec2 {
+    fn tile_resolution(&self, gcs_bounds: DAabb2) -> USizeVec2 {
         // let gcs_size = Vec2::from(gcs_bbox.1.clone()) - Vec2::from(gcs_bbox.0.clone());
         // USizeVec2::new(self.tile_resolution_width, (self.tile_resolution_width as f32 * gcs_size.y / gcs_size.x).ceil() as usize)
         USizeVec2::new(self.tile_resolution_width, self.tile_resolution_width)
@@ -279,14 +269,13 @@ impl TileServer {
         }
 
         let rad_gcs_bbox = self.tile_gcs_bbox(projection, tile_key);
-        let gcs_bbox = (
-            LonLatVec2::from(rad_gcs_bbox.0.clone()),
-            LonLatVec2::from(rad_gcs_bbox.1.clone()),
-        );
-        let [res_width, res_height] = self.tile_resolution(&rad_gcs_bbox).to_array();
+        let [res_width, res_height] = self.tile_resolution(rad_gcs_bbox).to_array();
 
         let tile_params = Epsg4326TileParams {
-            gcs_bbox,
+            gcs_bounds: DAabb2::new(
+                rad_gcs_bbox.min().map(|a| a.to_degrees()),
+                rad_gcs_bbox.max().map(|a| a.to_degrees()),
+            ),
             resolution: (res_width, res_height),
         };
 

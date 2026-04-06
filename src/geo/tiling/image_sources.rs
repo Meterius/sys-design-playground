@@ -1,5 +1,6 @@
-use crate::geo::coords::LonLatVec2;
+use crate::utils::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use bevy::prelude::error;
+use glam::DVec2;
 use image::RgbImage;
 use serde::Deserialize;
 use serde_json::json;
@@ -11,7 +12,7 @@ pub const LAYER_MODIS_TERRA_CORRECTED_REFLECTANCE_TRUE_COLOR: &str =
 #[derive(Debug)]
 pub struct Epsg4326TileParams {
     pub resolution: (usize, usize),
-    pub gcs_bbox: (LonLatVec2, LonLatVec2),
+    pub gcs_bounds: DAabb2,
 }
 
 pub struct GibsEpsg4326Params {
@@ -20,16 +21,15 @@ pub struct GibsEpsg4326Params {
 }
 
 fn fetch_gibs_epsg4326_url(params: &GibsEpsg4326Params) -> String {
-    let (
-        LonLatVec2 {
-            x: min_lon,
-            y: min_lat,
-        },
-        LonLatVec2 {
-            x: max_lon,
-            y: max_lat,
-        },
-    ) = params.tile_params.gcs_bbox;
+    let DVec2 {
+        x: min_lon,
+        y: min_lat,
+    } = params.tile_params.gcs_bounds.min();
+    let DVec2 {
+        x: max_lon,
+        y: max_lat,
+    } = params.tile_params.gcs_bounds.max();
+
     let (width, height) = params.tile_params.resolution;
     let layers = &params.layers;
 
@@ -59,15 +59,8 @@ pub async fn fetch_epsg4326_gibs_image(
 pub async fn fetch_sen_hub_bearer_token(
     client: &reqwest::Client,
 ) -> Result<String, reqwest::Error> {
-    #[derive(Debug, Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Credentials {
-        client_id: String,
-        client_secret: String,
-    }
-
-    const CREDS_JSON: &str = include_str!("../../../secrets/sentinel_hub_creds.json");
-    let creds: Credentials = serde_json::from_str(CREDS_JSON).unwrap();
+    let client_id = std::env::var("SEN_HUB_CLIENT_ID").unwrap_or("".into());
+    let client_secret = std::env::var("SEN_HUB_CLIENT_SECRET").unwrap_or("".into());
 
     #[derive(Debug, Deserialize)]
     struct TokenResponse {
@@ -76,8 +69,8 @@ pub async fn fetch_sen_hub_bearer_token(
 
     let mut params = HashMap::new();
     params.insert("grant_type", "client_credentials");
-    params.insert("client_id", creds.client_id.as_str());
-    params.insert("client_secret", creds.client_secret.as_str());
+    params.insert("client_id", client_id.as_str());
+    params.insert("client_secret", client_secret.as_str());
 
     let token_resp = client
         .post("https://services.sentinel-hub.com/auth/realms/main/protocol/openid-connect/token")
@@ -96,10 +89,10 @@ pub async fn fetch_epsg4326_sen_hub_image(
     params: Epsg4326TileParams,
 ) -> Result<RgbImage, reqwest::Error> {
     let bbox = [
-        params.gcs_bbox.0.x,
-        params.gcs_bbox.0.y,
-        params.gcs_bbox.1.x,
-        params.gcs_bbox.1.y,
+        params.gcs_bounds.min().x,
+        params.gcs_bounds.min().y,
+        params.gcs_bounds.max().x,
+        params.gcs_bounds.max().y,
     ];
 
     let time_from = "2025-04-01T00:00:00Z";

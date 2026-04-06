@@ -1,11 +1,12 @@
 use crate::app::settings::Settings;
 use crate::app::utils::SoftExpect;
-use crate::geo::coords::{BoundedMercatorProjection, LonLatVec2, Projection2D, RadLonLatVec2};
+use crate::geo::coords::{BoundedMercatorProjection, Projection2D};
 use crate::geo::sub_division::{SubDivision2d, TileKey};
-use crate::utils::{Aabb2dFromCorners, Aabb2dIntersect, Aabb2dSized};
+use crate::utils::glam_ext::bounding::{Aabb2, AxisAlignedBoundingBox2D, DAabb2};
 use bevy::math::USizeVec2;
 use bevy::math::bounding::{Aabb2d, BoundingVolume};
 use bevy::prelude::*;
+use bevy_inspector_egui::bevy_egui::{EguiContexts, EguiPrimaryContextPass};
 use bevy_pancam::{PanCam, PanCamClampBounds, PanCamSystems};
 use bevy_prototype_lyon::draw::{Fill, Stroke};
 use bevy_prototype_lyon::prelude::{Shape, ShapeBuilder, ShapeBuilderBase};
@@ -14,6 +15,7 @@ use bevy_prototype_lyon::shapes::RectangleOrigin;
 use bevy_vector_shapes::painter::ShapePainter;
 use bevy_vector_shapes::prelude::{DiscPainter, LinePainter, RectPainter, ShapeBundle};
 use bevy_vector_shapes::shapes::ThicknessType;
+use glam::{DAffine2, DAffine3, DVec2, dvec2};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
@@ -21,14 +23,7 @@ pub struct MapPlugin {}
 
 impl Plugin for MapPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Update,
-            (
-                (sync_tiles_for_view, setup_tiles).chain(),
-                adjust_pan_cam_bounds.before(PanCamSystems),
-                draw_tiles_debug,
-            ),
-        );
+        app.add_systems(Update, (adjust_pan_cam_bounds.before(PanCamSystems),));
 
         app.add_systems(
             PostUpdate,
@@ -50,10 +45,30 @@ pub struct Map {
 #[relationship_target(relationship = MapViewWithMap)]
 pub struct MapWithViews(Vec<Entity>);
 
-#[derive(Component, Default)]
+#[derive(Component, Default, Reflect)]
 pub struct MapView {
-    viewport_abs: Option<Aabb2d>,
-    viewport_gcs: Option<Aabb2d>,
+    abs_transform: DAffine2,
+
+    pub viewport_abs: Option<DAabb2>,
+    pub viewport_gcs: Option<DAabb2>,
+}
+
+impl MapView {
+    pub fn local_to_abs(&self, pos: Vec2) -> DVec2 {
+        self.abs_transform
+            .inverse()
+            .transform_point2(pos.as_dvec2())
+    }
+
+    pub fn abs_to_local(&self, pos: DVec2) -> Vec2 {
+        self.abs_transform.transform_point2(pos).as_vec2()
+    }
+}
+
+#[derive(EntityEvent)]
+pub struct MapViewAbsLocalTransformChanged {
+    #[event_target]
+    view_id: Entity,
 }
 
 fn draw_map_view_debug(
@@ -68,43 +83,37 @@ fn draw_map_view_debug(
                 painter.thickness_type = ThicknessType::Pixels;
                 painter.thickness = 2.0;
 
-                let gcs_to_world = |pos: RadLonLatVec2| {
+                let gcs_to_world = |pos: DVec2| {
                     view_transform.transform_point(
-                        view.abs_to_local(map.projection.gcs_to_abs(&RadLonLatVec2::from(
-                            map.projection.gcs_bbox().closest_point(Vec2::from(pos)),
-                        )))
+                        view.abs_to_local(
+                            map.projection.gcs_to_abs(
+                                map.projection
+                                    .gcs_bounds()
+                                    .closest_point(pos.map(f64::to_degrees)),
+                            ),
+                        )
                         .extend(0.0),
                     )
                 };
 
                 painter.color = Color::srgb(1.0, 0.0, 0.0);
                 for lat in -9..=9 {
-                    let lat = lat as f32 * 10.0;
+                    let lat = lat as f64 * 10.0;
                     painter.line(
-                        gcs_to_world(RadLonLatVec2::from(LonLatVec2 { x: -180.0, y: lat })),
-                        gcs_to_world(RadLonLatVec2::from(LonLatVec2 { x: 180.0, y: lat })),
+                        gcs_to_world(dvec2(-180.0, lat)),
+                        gcs_to_world(dvec2(180.0, lat)),
                     );
                 }
 
                 for lon in -18..=18 {
-                    let lon = lon as f32 * 10.0;
+                    let lon = lon as f64 * 10.0;
                     painter.line(
-                        gcs_to_world(RadLonLatVec2::from(LonLatVec2 { x: lon, y: -90.0 })),
-                        gcs_to_world(RadLonLatVec2::from(LonLatVec2 { x: lon, y: 90.0 })),
+                        gcs_to_world(dvec2(lon, -90.0)),
+                        gcs_to_world(dvec2(lon, 90.0)),
                     );
                 }
             }
         }
-    }
-}
-
-impl MapView {
-    pub fn local_to_abs(&self, pos: Vec2) -> Vec2 {
-        pos
-    }
-
-    pub fn abs_to_local(&self, pos: Vec2) -> Vec2 {
-        pos
     }
 }
 
@@ -137,12 +146,18 @@ fn adjust_pan_cam_bounds(
             views.get_mut(view_id).ok().soft_expect("")
             && let Some(map) = maps.get(map_id).ok().soft_expect("")
         {
-            let view_world_bounds = Aabb2d::from_corners(
+            let view_world_bounds = Aabb2::new(
                 view_transform
-                    .transform_point(view.abs_to_local(map.projection.abs_bbox().min).extend(0.0))
+                    .transform_point(
+                        view.abs_to_local(map.projection.abs_bounds().min())
+                            .extend(0.0),
+                    )
                     .xy(),
                 view_transform
-                    .transform_point(view.abs_to_local(map.projection.abs_bbox().max).extend(0.0))
+                    .transform_point(
+                        view.abs_to_local(map.projection.abs_bounds().max())
+                            .extend(0.0),
+                    )
                     .xy(),
             );
 
@@ -157,16 +172,16 @@ fn adjust_pan_cam_bounds(
                     commands.trigger(PanCamClampBounds { entity: cam_id });
                 }
 
-                let pan_cam_bounds = Aabb2d {
-                    min: Vec2::new(pan_cam.min_x, pan_cam.min_y),
-                    max: Vec2::new(pan_cam.max_x, pan_cam.max_x),
-                };
+                let pan_cam_bounds = Aabb2::new(
+                    Vec2::new(pan_cam.min_x, pan_cam.min_y),
+                    Vec2::new(pan_cam.max_x, pan_cam.max_x),
+                );
 
                 if pan_cam_bounds != view_world_bounds {
-                    pan_cam.min_x = view_world_bounds.min.x;
-                    pan_cam.min_y = view_world_bounds.min.y;
-                    pan_cam.max_x = view_world_bounds.max.x;
-                    pan_cam.max_y = view_world_bounds.max.y;
+                    pan_cam.min_x = view_world_bounds.min().x;
+                    pan_cam.min_y = view_world_bounds.min().y;
+                    pan_cam.max_x = view_world_bounds.max().x;
+                    pan_cam.max_y = view_world_bounds.max().y;
 
                     commands.trigger(PanCamClampBounds { entity: cam_id });
                 }
@@ -195,150 +210,20 @@ fn sync_view_from_camera(
         {
             let view_transform_inv = view_transform.affine().inverse();
 
-            let cam_view_abs = Aabb2d::from_corners(
+            let cam_view_abs = DAabb2::new(
                 view.local_to_abs(view_transform_inv.transform_point3(cam_view_world_min).xy()),
                 view.local_to_abs(view_transform_inv.transform_point3(cam_view_world_max).xy()),
             )
-            .intersect(&map.projection.abs_bbox())
+            .intersection(map.projection.abs_bounds())
             .soft_expect("");
 
             view.viewport_gcs = cam_view_abs.as_ref().map(|cam_view_abs| {
-                Aabb2d::from_corners(
-                    Vec2::from(map.projection.abs_to_gcs(&cam_view_abs.min)),
-                    Vec2::from(map.projection.abs_to_gcs(&cam_view_abs.max)),
+                DAabb2::new(
+                    map.projection.abs_to_gcs(cam_view_abs.min()),
+                    map.projection.abs_to_gcs(cam_view_abs.max()),
                 )
             });
             view.viewport_abs = cam_view_abs;
-        }
-    }
-}
-
-#[derive(Component)]
-pub struct MapViewTiling {
-    target_tile_count: usize,
-    tiles: HashMap<TileKey, Entity>,
-}
-
-impl MapViewTiling {
-    pub fn new(target_tile_count: usize) -> Self {
-        Self {
-            target_tile_count,
-            tiles: HashMap::new(),
-        }
-    }
-}
-
-fn sync_tiles_for_view(
-    mut commands: Commands,
-    tilings: Query<(&mut MapViewTiling, &MapViewTilingWithView)>,
-    views: Query<(Entity, &MapView, &MapViewWithMap)>,
-    maps: Query<&Map>,
-) {
-    for (mut tiling, &MapViewTilingWithView(view_id)) in tilings {
-        if let Some((view_id, view, &MapViewWithMap(map_id))) =
-            views.get(view_id).ok().soft_expect("")
-            && let Some(map) = maps.get(map_id).ok().soft_expect("")
-            && let Some(viewport_abs) = view.viewport_abs
-        {
-            let abs_bbox = map.projection.abs_bbox();
-            let sub_div = SubDivision2d { area: abs_bbox };
-
-            let target_depth = sub_div.min_depth_for_tile_count(
-                viewport_abs.size(),
-                USizeVec2::new(tiling.target_tile_count, tiling.target_tile_count),
-            );
-
-            let mut required_tile_keys = HashSet::new();
-
-            for tile in sub_div.tile_covering((viewport_abs.min, viewport_abs.max), target_depth) {
-                required_tile_keys.insert(tile.key.clone());
-
-                if let Entry::Vacant(mut entry) = tiling.tiles.entry(tile.key.clone()) {
-                    let tile_id = commands
-                        .spawn(MapViewTile {
-                            area_abs: Aabb2d {
-                                min: tile.bb_min,
-                                max: tile.bb_max,
-                            },
-                            key: tile.key.clone(),
-                        })
-                        .id();
-                    commands.entity(view_id).add_child(tile_id);
-                    entry.insert(tile_id);
-                }
-            }
-
-            for (_, tile_id) in tiling
-                .tiles
-                .extract_if(|key, _| !required_tile_keys.contains(key))
-            {
-                // commands.entity(tile_id).despawn();
-            }
-        }
-    }
-}
-
-#[derive(Component)]
-#[relationship_target(relationship = MapViewTilingWithView)]
-pub struct MapViewWithTilings(Vec<Entity>);
-
-#[derive(Component)]
-#[relationship(relationship_target = MapViewWithTilings)]
-pub struct MapViewTilingWithView(pub Entity);
-
-#[derive(Component)]
-pub struct MapViewTile {
-    pub key: TileKey,
-    pub area_abs: Aabb2d,
-}
-
-fn draw_tiles_debug(
-    tiles: Query<(Entity, &MapViewTile, &ChildOf), Added<MapViewTile>>,
-    views: Query<(&GlobalTransform, &MapView)>,
-    mut painter: ShapePainter,
-) {
-    for (tile_id, tile, &ChildOf(view_id)) in tiles {
-        if let Some((view_transform, view)) = views.get(view_id).ok().soft_expect("") {
-            let area_world = (
-                view_transform.transform_point(view.abs_to_local(tile.area_abs.min).extend(0.0)),
-                view_transform.transform_point(view.abs_to_local(tile.area_abs.max).extend(0.0)),
-            );
-
-            painter.set_translation(((area_world.1 - area_world.0) / 2.0).xy().extend(10.0));
-            painter.color = Color::srgb(0.0, 1.0, 0.0);
-            painter.rect((area_world.1 - area_world.0).xy());
-        }
-    }
-}
-
-fn setup_tiles(
-    mut commands: Commands,
-    added_tiles: Query<(Entity, &MapViewTile, &ChildOf), Added<MapViewTile>>,
-    views: Query<&MapView>,
-) {
-    for (tile_id, tile, &ChildOf(view_id)) in added_tiles {
-        if let Some(view) = views.get(view_id).ok().soft_expect("") {
-            let area_local = Aabb2d::from_corners(
-                view.abs_to_local(tile.area_abs.min),
-                view.abs_to_local(tile.area_abs.max),
-            );
-            info!("{area_local:?}");
-            let mut tile_commands = commands.entity(tile_id);
-
-            tile_commands.insert((
-                Transform::from_translation(area_local.center().extend(10.0)),
-                Visibility::default(),
-            ));
-
-            tile_commands.with_child(
-                (ShapeBuilder::with(&shapes::Rectangle {
-                    extents: area_local.size(),
-                    ..default()
-                })
-                .fill(Color::BLACK)
-                .stroke((Color::BLACK, area_local.size().max_element() * 0.01))
-                .build()),
-            );
         }
     }
 }

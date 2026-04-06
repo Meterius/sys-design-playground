@@ -9,7 +9,7 @@ impl<T> SoftExpect for Option<T> {
         if self.is_none() {
             warn!(
                 "{}",
-                if msg == "" {
+                if msg.is_empty() {
                     "Expected to be Some but was None"
                 } else {
                     msg

@@ -1,170 +1,71 @@
-use crate::utils::{Aabb2dFromCorners, Aabb2dSized};
-use bevy::math::bounding::{Aabb2d, BoundingVolume};
-use bevy::prelude::Vec2;
-use std::f32::consts::PI;
-use std::ops::Rem;
+use crate::utils::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
+use glam::{DVec2, dvec2};
+use std::f64::consts::PI;
 
-#[derive(Debug, Clone)]
-pub struct LonLatVec2 {
-    pub x: f32,
-    pub y: f32,
-}
-
-impl From<Vec2> for LonLatVec2 {
-    fn from(value: Vec2) -> Self {
-        Self {
-            x: value.x,
-            y: value.y,
-        }
-    }
-}
-
-impl From<LonLatVec2> for Vec2 {
-    fn from(val: LonLatVec2) -> Self {
-        Vec2::new(val.x, val.y)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct RadLonLatVec2 {
-    pub x: f32,
-    pub y: f32,
-}
-
-impl RadLonLatVec2 {
-    pub fn rem_euclid(&self) -> RadLonLatVec2 {
-        RadLonLatVec2 {
-            x: self.x.rem_euclid(2.0 * PI),
-            y: self.y.rem_euclid(PI),
-        }
-    }
-
-    pub fn rem(&self) -> RadLonLatVec2 {
-        RadLonLatVec2 {
-            x: self.x.rem(2.0 * PI),
-            y: self.y.rem(PI),
-        }
-    }
-}
-
-fn approx_vertical_len(lat_min: f32, lat_max: f32) -> f32 {
+fn approx_vertical_len(lat_min: f64, lat_max: f64) -> f64 {
     (lat_max - lat_min) * (360.0 / 2.0 * PI) * 111320.0
 }
 
-fn approx_horizontal_len(lat: f32, lon_min: f32, lon_max: f32) -> f32 {
+fn approx_horizontal_len(lat: f64, lon_min: f64, lon_max: f64) -> f64 {
     (lon_max - lon_min) * 360.0 / (2.0 * PI) * 111320.0 * lat.cos()
 }
 
-pub fn approx_size_bound((gcs_min, gcs_max): &(RadLonLatVec2, RadLonLatVec2)) -> Vec2 {
-    Vec2::new(
-        approx_horizontal_len(gcs_max.y, gcs_min.x, gcs_max.x)
-            .max(approx_horizontal_len(gcs_min.y, gcs_min.x, gcs_max.x)),
-        approx_vertical_len(gcs_min.y, gcs_max.y),
+pub fn approx_size_bound(gcs_area: DAabb2) -> DVec2 {
+    dvec2(
+        approx_horizontal_len(gcs_area.min().y, gcs_area.min().x, gcs_area.max().x).max(
+            approx_horizontal_len(gcs_area.max().y, gcs_area.min().x, gcs_area.max().x),
+        ),
+        approx_vertical_len(gcs_area.min().y, gcs_area.max().y),
     )
 }
 
-impl From<Vec2> for RadLonLatVec2 {
-    fn from(value: Vec2) -> Self {
-        Self {
-            x: value.x,
-            y: value.y,
-        }
-    }
-}
-
-impl From<RadLonLatVec2> for Vec2 {
-    fn from(val: RadLonLatVec2) -> Self {
-        Vec2::new(val.x, val.y)
-    }
-}
-
-impl From<LonLatVec2> for RadLonLatVec2 {
-    fn from(value: LonLatVec2) -> Self {
-        Self {
-            x: value.x.to_radians(),
-            y: value.y.to_radians(),
-        }
-    }
-}
-
-impl From<RadLonLatVec2> for LonLatVec2 {
-    fn from(val: RadLonLatVec2) -> Self {
-        LonLatVec2 {
-            x: val.x.to_degrees(),
-            y: val.y.to_degrees(),
-        }
-    }
-}
-
 pub trait Projection2D {
-    fn abs_pos(&self) -> Vec2;
+    fn gcs_bounds(&self) -> DAabb2;
 
-    fn abs_size(&self) -> Vec2;
-
-    fn gcs_to_abs(&self, pos: &RadLonLatVec2) -> Vec2;
-
-    fn gcs_to_rel(&self, pos: &RadLonLatVec2) -> Vec2 {
-        (self.gcs_to_abs(pos) - self.abs_pos()) / self.abs_size()
+    fn abs_bounds(&self) -> DAabb2 {
+        DAabb2::new(
+            self.gcs_to_abs(self.gcs_bounds().min()),
+            self.gcs_to_abs(self.gcs_bounds().max()),
+        )
     }
 
-    fn abs_to_gcs(&self, pos: &Vec2) -> RadLonLatVec2;
+    fn gcs_to_abs(&self, gcs_pos: DVec2) -> DVec2;
 
-    fn rel_to_gcs(&self, pos: &Vec2) -> RadLonLatVec2 {
-        self.abs_to_gcs(&(self.abs_pos() + pos * self.abs_size()))
+    fn abs_to_gcs(&self, abs_pos: DVec2) -> DVec2;
+
+    fn abs_to_rel(&self, abs_pos: DVec2) -> DVec2 {
+        (abs_pos - self.abs_bounds().min()) / self.abs_bounds().size()
+    }
+
+    fn rel_to_abs(&self, rel_pos: DVec2) -> DVec2 {
+        self.abs_bounds().min() + self.abs_bounds().size() * rel_pos
+    }
+
+    fn gcs_to_rel(&self, gcs_pos: DVec2) -> DVec2 {
+        self.abs_to_rel(self.gcs_to_abs(gcs_pos))
+    }
+
+    fn rel_to_gcs(&self, rel_pos: DVec2) -> DVec2 {
+        self.rel_to_abs(self.abs_to_gcs(rel_pos))
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct BoundedMercatorProjection {
-    pub lat_max: f32,
-    pub lat_min: f32,
-}
-
-impl BoundedMercatorProjection {
-    pub fn abs_bbox(&self) -> Aabb2d {
-        Aabb2d::from_corners(
-            self.gcs_to_abs(&RadLonLatVec2 {
-                x: -PI,
-                y: self.lat_min,
-            }),
-            self.gcs_to_abs(&RadLonLatVec2 {
-                x: PI,
-                y: self.lat_max,
-            }),
-        )
-    }
-
-    pub fn gcs_bbox(&self) -> Aabb2d {
-        Aabb2d::from_corners(
-            Vec2 {
-                x: -PI,
-                y: self.lat_min,
-            },
-            Vec2 {
-                x: PI,
-                y: self.lat_max,
-            },
-        )
-    }
+    pub lat_max: f64,
+    pub lat_min: f64,
 }
 
 impl Projection2D for BoundedMercatorProjection {
-    fn abs_pos(&self) -> Vec2 {
-        self.abs_bbox().center()
+    fn gcs_bounds(&self) -> DAabb2 {
+        DAabb2::new(dvec2(-PI, self.lat_min), dvec2(PI, self.lat_max))
     }
 
-    fn abs_size(&self) -> Vec2 {
-        self.abs_bbox().size()
+    fn gcs_to_abs(&self, gcs_pos: DVec2) -> DVec2 {
+        dvec2(gcs_pos.x, (PI / 4.0 + gcs_pos.y / 2.0).tan().ln())
     }
 
-    fn gcs_to_abs(&self, pos: &RadLonLatVec2) -> Vec2 {
-        Vec2::new(pos.x, (PI / 4.0 + pos.y / 2.0).tan().ln())
-    }
-
-    fn abs_to_gcs(&self, pos: &Vec2) -> RadLonLatVec2 {
-        RadLonLatVec2 {
-            x: pos.x,
-            y: pos.y.sinh().atan(),
-        }
+    fn abs_to_gcs(&self, abs_pos: DVec2) -> DVec2 {
+        dvec2(abs_pos.x, abs_pos.y.sinh().atan())
     }
 }

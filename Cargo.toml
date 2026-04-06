@@ -21,7 +21,7 @@ debug = ["bevy/debug"]
 
 [dependencies]
 bevy = { version = "0.18.1", features = ["jpeg"] }
-bevy_pancam = "0.20.0"
+bevy_pancam = { version = "0.20.0", features = ["bevy_egui_0_39"] }
 bevy_prototype_lyon = "0.16.0"
 geojson = "1.0.0"
 osmpbf = "0.3.8"
@@ -47,6 +47,8 @@ ratelimit = "1.0.0"
 tokio-postgres = "0.7.17"
 priority-queue = "2.7.0"
 bevy-inspector-egui = "0.36.0"
+egui = "0.33.3"
+glam = "0.30.10"
 
 [profile.dev]
 opt-level = 0

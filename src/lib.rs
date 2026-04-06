@@ -1,3 +1,3 @@
 pub mod app;
 pub mod geo;
-mod utils;
+pub mod utils;

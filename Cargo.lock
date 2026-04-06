@@ -1354,6 +1354,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2471bcedbc73d8fb715b454c80fb392eab6f4c0003a57260a5cbb3299da571de"
 dependencies = [
  "bevy",
+ "bevy_egui",
 ]
 
 [[package]]
@@ -4176,9 +4177,11 @@ dependencies = [
  "bevy_pancam",
  "bevy_prototype_lyon",
  "bevy_vector_shapes",
+ "egui",
  "fs",
  "futures 0.3.32",
  "geojson",
+ "glam",
  "hex",
  "image",
  "itertools 0.14.0",

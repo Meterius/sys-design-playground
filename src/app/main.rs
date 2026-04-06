@@ -1,12 +1,18 @@
-use crate::app::geo::locations::LocationsManager;
-use crate::app::geo::tiling::Tiling;
-use crate::app::geo::{GeoMapElementOf, GeoMapPlane, GeoMapPlaneView, GeoMapPlugin};
+use crate::app::geo::GeoMapPlugin;
+use crate::app::geo::map::{
+    Map, MapView, MapViewCamera, MapViewCameraWithView, MapViewTiling, MapViewTilingWithView,
+    MapViewWithMap,
+};
 use crate::app::settings::SettingsPlugin;
 use crate::geo::coords::BoundedMercatorProjection;
 use bevy::DefaultPlugins;
 use bevy::app::{App, PluginGroup, Startup};
+use bevy::log::tracing_subscriber::Layer;
+use bevy::log::tracing_subscriber::fmt::writer::MakeWriterExt;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
+use bevy_inspector_egui::bevy_egui::EguiPlugin;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_pancam::{PanCam, PanCamPlugin};
 use bevy_prototype_lyon::plugin::ShapePlugin;
 use bevy_vector_shapes::Shape2dPlugin;
@@ -27,6 +33,8 @@ pub fn initialize(_width: usize, _height: usize) {
         .add_plugins((
             GeoMapPlugin {},
             PanCamPlugin,
+            EguiPlugin::default(),
+            WorldInspectorPlugin::new(),
             ShapePlugin,
             Shape2dPlugin::default(),
             bevy_tokio_tasks::TokioTasksPlugin::default(),
@@ -37,32 +45,57 @@ pub fn initialize(_width: usize, _height: usize) {
 }
 
 fn setup(mut commands: Commands) {
-    commands.spawn((Camera2d, PanCam::default()));
-
-    let mut plane_commands = commands.spawn((
-        Transform::default().with_scale(Vec3::ONE),
-        Visibility::default(),
-        GeoMapPlane {
+    let map_id = commands
+        .spawn(Map {
             projection: BoundedMercatorProjection {
                 lat_min: -0.45 * PI,
                 lat_max: 0.4 * PI,
             },
-            scale: 500.0,
-        },
-        GeoMapPlaneView::default(),
+        })
+        .id();
+
+    let map_view_id = commands
+        .spawn((
+            GlobalTransform::from_scale((500000.0 * Vec2::ONE).extend(1.0)),
+            Visibility::default(),
+            MapView::default(),
+            MapViewWithMap(map_id),
+        ))
+        .id();
+
+    commands.spawn((MapViewTiling::new(6), MapViewTilingWithView(map_view_id)));
+
+    commands.spawn((
+        Camera2d,
+        PanCam::default(),
+        MapViewCamera {},
+        MapViewCameraWithView(map_view_id),
     ));
 
-    plane_commands.with_child((
-        Tiling::new(4),
-        Transform::default(),
-        Visibility::default(),
-        GeoMapElementOf(plane_commands.id()),
-    ));
-
-    plane_commands.with_child((
-        LocationsManager::default(),
-        Transform::from_translation(Vec3::new(0.0, 0.0, 50.0)),
-        Visibility::default(),
-        GeoMapElementOf(plane_commands.id()),
-    ));
+    // let mut plane_commands = commands.spawn((
+    //     Transform::default().with_scale(Vec3::ONE),
+    //     Visibility::default(),
+    //     GeoMapPlane {
+    //         projection: BoundedMercatorProjection {
+    //             lat_min: -0.45 * PI,
+    //             lat_max: 0.4 * PI,
+    //         },
+    //         scale: 500.0,
+    //     },
+    //     GeoMapPlaneView::default(),
+    // ));
+    //
+    // plane_commands.with_child((
+    //     Tiling::new(4),
+    //     Transform::default(),
+    //     Visibility::default(),
+    //     GeoMapElementOf(plane_commands.id()),
+    // ));
+    //
+    // plane_commands.with_child((
+    //     LocationsManager::default(),
+    //     Transform::from_translation(Vec3::new(0.0, 0.0, 50.0)),
+    //     Visibility::default(),
+    //     GeoMapElementOf(plane_commands.id()),
+    // ));
 }

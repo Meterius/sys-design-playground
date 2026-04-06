@@ -1,5 +1,6 @@
 use crate::app::geo::boundaries::load_all_shape_paths;
 use crate::app::geo::locations::LocationsPlugin;
+use crate::app::geo::map::MapPlugin;
 use crate::app::geo::tiling::GeoMapTilingPlugin;
 use crate::geo::coords::{BoundedMercatorProjection, LonLatVec2, Projection2D, RadLonLatVec2};
 use bevy::prelude::*;
@@ -9,6 +10,7 @@ use bevy_prototype_lyon::prelude::ShapeBuilder;
 
 pub mod boundaries;
 pub mod locations;
+pub mod map;
 pub mod tiling;
 
 pub struct GeoMapPlugin {}
@@ -19,7 +21,11 @@ impl Plugin for GeoMapPlugin {
             Update,
             (apply_transform, geo_map_plane_setup, handle_plane_view_sync),
         );
-        app.add_plugins((GeoMapTilingPlugin::default(), LocationsPlugin::default()));
+        app.add_plugins((
+            MapPlugin {},
+            GeoMapTilingPlugin::default(),
+            LocationsPlugin::default(),
+        ));
     }
 }
 

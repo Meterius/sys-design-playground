@@ -1,3 +1,5 @@
+use crate::utils::{Aabb2dFromCorners, Aabb2dSized};
+use bevy::math::bounding::{Aabb2d, BoundingVolume};
 use bevy::prelude::Vec2;
 use std::f32::consts::PI;
 use std::ops::Rem;
@@ -119,8 +121,8 @@ pub struct BoundedMercatorProjection {
 }
 
 impl BoundedMercatorProjection {
-    fn abs_bbox(&self) -> (Vec2, Vec2) {
-        (
+    pub fn abs_bbox(&self) -> Aabb2d {
+        Aabb2d::from_corners(
             self.gcs_to_abs(&RadLonLatVec2 {
                 x: -PI,
                 y: self.lat_min,
@@ -131,15 +133,28 @@ impl BoundedMercatorProjection {
             }),
         )
     }
+
+    pub fn gcs_bbox(&self) -> Aabb2d {
+        Aabb2d::from_corners(
+            Vec2 {
+                x: -PI,
+                y: self.lat_min,
+            },
+            Vec2 {
+                x: PI,
+                y: self.lat_max,
+            },
+        )
+    }
 }
 
 impl Projection2D for BoundedMercatorProjection {
     fn abs_pos(&self) -> Vec2 {
-        (self.abs_bbox().0 + self.abs_bbox().1) / 2.0
+        self.abs_bbox().center()
     }
 
     fn abs_size(&self) -> Vec2 {
-        self.abs_bbox().1 - self.abs_bbox().0
+        self.abs_bbox().size()
     }
 
     fn gcs_to_abs(&self, pos: &RadLonLatVec2) -> Vec2 {

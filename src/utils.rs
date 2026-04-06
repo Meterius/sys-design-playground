@@ -20,3 +20,22 @@ impl Aabb2dFromCorners for Aabb2d {
         Self::new((a + b) / 2.0, (a.max(b) - a.min(b)) / 2.0)
     }
 }
+
+pub trait Aabb2dIntersect {
+    fn intersect(&self, other: &Self) -> Option<Self>
+    where
+        Self: Sized;
+}
+
+impl Aabb2dIntersect for Aabb2d {
+    fn intersect(&self, other: &Self) -> Option<Self> {
+        let min = self.min.max(other.min);
+        let max = self.max.min(other.max);
+
+        if min.x <= max.x && min.y <= max.y {
+            Some(Aabb2d { min, max })
+        } else {
+            None
+        }
+    }
+}

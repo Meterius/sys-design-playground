@@ -20,7 +20,7 @@ default = []
 debug = ["bevy/debug"]
 
 [dependencies]
-bevy = { version = "0.18.1", features = ["dynamic_linking", "jpeg"] }
+bevy = { version = "0.18.1", features = ["jpeg"] }
 bevy_pancam = "0.20.0"
 bevy_prototype_lyon = "0.16.0"
 geojson = "1.0.0"
@@ -46,6 +46,7 @@ tokio-rate-limit = "0.8.1"
 ratelimit = "1.0.0"
 tokio-postgres = "0.7.17"
 priority-queue = "2.7.0"
+bevy-inspector-egui = "0.36.0"
 
 [profile.dev]
 opt-level = 0

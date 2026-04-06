@@ -1,18 +1,25 @@
-use std::sync::Arc;
-use bevy::input::ButtonState;
-use bevy::input::keyboard::KeyboardInput;
-use crate::geo::locations::{Location, LocationClient};
-use bevy::prelude::*;
-use bevy_tokio_tasks::TokioTasksRuntime;
 use crate::app::geo::{GeoMapElementOf, GeoMapPlane, GeoMapPlaneView, GeoMapTransform};
 use crate::geo::coords::{LonLatVec2, Projection2D, RadLonLatVec2};
+use crate::geo::locations::{Location, LocationClient};
+use bevy::input::ButtonState;
+use bevy::input::keyboard::KeyboardInput;
+use bevy::prelude::*;
+use bevy_tokio_tasks::TokioTasksRuntime;
+use std::sync::Arc;
 
 #[derive(Default)]
 pub struct LocationsPlugin {}
 
 impl Plugin for LocationsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (initialize_locations_manager, request_markers, sync_location_marker));
+        app.add_systems(
+            Update,
+            (
+                initialize_locations_manager,
+                request_markers,
+                sync_location_marker,
+            ),
+        );
     }
 }
 
@@ -38,12 +45,20 @@ fn sync_location_marker(
         if let Ok(plane) = planes.get(loc_marker_element_of.0) {
             let mut e_commands = commands.spawn((
                 Transform::from_translation(
-                    plane.abs_to_local(&plane.projection.gcs_to_abs(&RadLonLatVec2::from(loc_marker.location.pos.clone()))).extend(1000.0),
-                ).with_scale(Vec3::ONE * 0.5f32.powf(23.0f32) *  plane.scale),
+                    plane
+                        .abs_to_local(
+                            &plane
+                                .projection
+                                .gcs_to_abs(&RadLonLatVec2::from(loc_marker.location.pos.clone())),
+                        )
+                        .extend(1000.0),
+                )
+                .with_scale(Vec3::ONE * 0.5f32.powf(23.0f32) * plane.scale),
                 Visibility::default(),
-                GeoMapTransform { pos: RadLonLatVec2::from(loc_marker.location.pos.clone()) },
+                GeoMapTransform {
+                    pos: RadLonLatVec2::from(loc_marker.location.pos.clone()),
+                },
             ));
-
 
             e_commands.with_child((
                 Transform::from_xyz(0.0, 0.0, 0.0),
@@ -64,7 +79,9 @@ fn sync_location_marker(
             ));
 
             let entity_id = e_commands.id();
-            commands.entity(loc_marker_element_of.0).add_child(entity_id);
+            commands
+                .entity(loc_marker_element_of.0)
+                .add_child(entity_id);
         }
     }
 }
@@ -80,27 +97,35 @@ fn request_markers(
             for (manager_id, manager, manager_element_of) in managers.iter() {
                 if let Ok((plane_view)) = plane_views.get(manager_element_of.0.clone())
                     && let Some(view_gcs) = plane_view.view_gcs.clone()
-                    && let Some(client) = manager.client.as_ref() {
+                    && let Some(client) = manager.client.as_ref()
+                {
                     let plane_id = manager_element_of.0;
                     let client = client.clone();
-                    let view_center_gcs = RadLonLatVec2::from((Vec2::from(view_gcs.0) + Vec2::from(view_gcs.1)) / 2.0);
+                    let view_center_gcs = RadLonLatVec2::from(
+                        (Vec2::from(view_gcs.0) + Vec2::from(view_gcs.1)) / 2.0,
+                    );
 
                     runtime.spawn_background_task(async move |mut task_ctx| {
                         let view_center_gcs = LonLatVec2::from(view_center_gcs.clone());
                         debug!("Requesting {:?}", view_center_gcs);
-                        if let Ok(locations) = client.fetch_nearest(
-                            view_center_gcs, 100,
-                        ).await.inspect_err(|err| { error!("{err}"); }) {
+                        if let Ok(locations) = client
+                            .fetch_nearest(view_center_gcs, 100)
+                            .await
+                            .inspect_err(|err| {
+                                error!("{err}");
+                            })
+                        {
                             debug!("Found {:?}", locations);
-                            task_ctx.run_on_main_thread(move |ctx| {
-                                for location in locations.into_iter() {
-                                    ctx.world.commands().entity(manager_id)
-                                        .with_child((
+                            task_ctx
+                                .run_on_main_thread(move |ctx| {
+                                    for location in locations.into_iter() {
+                                        ctx.world.commands().entity(manager_id).with_child((
                                             GeoMapElementOf(plane_id),
                                             LocationMarker { location },
                                         ));
-                                }
-                            }).await;
+                                    }
+                                })
+                                .await;
                         }
                     });
                 }

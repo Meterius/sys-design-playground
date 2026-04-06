@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use crate::geo::coords::LonLatVec2;
 use bevy::prelude::error;
+use std::sync::Arc;
 use thiserror::Error;
 use tokio_postgres::NoTls;
 
@@ -41,10 +41,16 @@ impl LocationClient {
         pos: LonLatVec2,
         limit: usize,
     ) -> Result<Vec<Location>, LocationClientError> {
-        let rows = self.client.query("SELECT name, longitude, latitude FROM locations
+        let rows = self
+            .client
+            .query(
+                "SELECT name, longitude, latitude FROM locations
 WHERE ST_DWithin(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
 ORDER BY ST_DISTANCE(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography)
-LIMIT 100;", &[&(pos.x as f64), &(pos.y as f64), &300.0f64]).await?;
+LIMIT 100;",
+                &[&(pos.x as f64), &(pos.y as f64), &300.0f64],
+            )
+            .await?;
 
         (rows.into_iter().map(|row| {
             Ok(Location {

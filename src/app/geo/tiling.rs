@@ -1,4 +1,6 @@
-use crate::app::geo::map::{reposition_view, Map, MapView, MapViewAbsLocalTransformChanged, MapViewWithMap};
+use crate::app::geo::map::{
+    Map, MapView, MapViewAbsLocalTransformChanged, MapViewWithMap, reposition_view,
+};
 use crate::app::settings::Settings;
 use crate::app::utils::SoftExpect;
 use crate::geo::coords::Projection2D;
@@ -6,20 +8,21 @@ use crate::geo::sub_division::{SubDivision2d, TileKey};
 use crate::utils::glam_ext::bounding::{Aabb2, AxisAlignedBoundingBox2D, DAabb2};
 use bevy::app::{App, Update};
 use bevy::color::{Color, Luminance};
-use bevy::prelude::{Changed, IntoScheduleConfigs};
 use bevy::prelude::{
     Added, ChildOf, Commands, Component, Entity, GlobalTransform, On, Query, Reflect, Res,
     Transform, Visibility, With, default,
 };
+use bevy::prelude::{Changed, IntoScheduleConfigs};
 use bevy::prelude::{Plugin, ReflectComponent};
 use bevy_inspector_egui::bevy_egui::{EguiContexts, EguiPrimaryContextPass};
-use bevy_pancam::PanCamSystems;
 use bevy_prototype_lyon::geometry::{ShapeBuilder, ShapeBuilderBase};
 use bevy_prototype_lyon::shapes;
 use bevy_vector_shapes::painter::ShapePainter;
-use glam::{vec2, USizeVec2, Vec2, Vec3};
+use glam::{USizeVec2, Vec2, Vec3, vec2, vec3};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use crate::app::geo::tile_fetcher::{TileImageRequest, TileImageRequestWithMap, TileImageSprite};
+use crate::geo::tiling::TileServerDataset;
 
 pub struct MapViewTilingPlugin {}
 
@@ -27,7 +30,15 @@ impl Plugin for MapViewTilingPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            ((sync_tiles_for_view, update_tiles.after(reposition_view), setup_tiles).chain(), draw_tiles_debug),
+            (
+                (
+                    sync_tiles_for_view,
+                    update_tiles.after(reposition_view),
+                    setup_tiles,
+                )
+                    .chain(),
+                draw_tiles_debug,
+            ),
         );
         app.add_systems(EguiPrimaryContextPass, map_tiling_ui);
     }
@@ -157,10 +168,10 @@ fn update_tiles(
 fn setup_tiles(
     mut commands: Commands,
     added_tiles: Query<(Entity, &MapViewTile, &ChildOf), Added<MapViewTile>>,
-    views: Query<&MapView>,
+    views: Query<(&MapView, &MapViewWithMap)>,
 ) {
     for (tile_id, tile, &ChildOf(view_id)) in added_tiles {
-        if let Some(view) = views.get(view_id).ok().soft_expect("") {
+        if let Some((view, &MapViewWithMap(map_id))) = views.get(view_id).ok().soft_expect("") {
             let area_local = Aabb2::new(
                 view.abs_to_local(tile.area_abs.min()),
                 view.abs_to_local(tile.area_abs.max()),
@@ -171,9 +182,31 @@ fn setup_tiles(
                     area_local
                         .center()
                         .extend(1.0 - 0.5f32.powf(tile.key.len() as f32)),
-                ).with_scale((Vec2::ONE * area_local.size().x).extend(1.0)),
+                )
+                .with_scale((Vec2::ONE * area_local.size().x).extend(1.0)),
                 Visibility::default(),
             ));
+
+            for (idx, dataset) in [
+                TileServerDataset::GibsLayerModisTerraCorrectedReflectanceTrueColor,
+                TileServerDataset::SenHubSentinel2L2a
+            ].into_iter().enumerate() {
+                let sprite_id = commands.spawn((
+                    Transform::from_translation(vec3(0.0, 0.0, 0.1 + idx as f32)),
+                    Visibility::default(),
+                    TileImageRequest {
+                        key: tile.key.clone(),
+                        dataset,
+                        priority: 0,
+                    },
+                    TileImageSprite {
+                        size: Some(vec2(1.0, area_local.size().y / area_local.size().x))
+                    },
+                    TileImageRequestWithMap(map_id),
+                )).id();
+
+                commands.entity(tile_id).add_child(sprite_id);
+            }
 
             let tile_hitbox_id = commands
                 .spawn((
@@ -199,7 +232,7 @@ fn setup_tiles(
                     0.1 / tile.key.len() as f32,
                 ))
                 .build(),
-                Transform::from_translation(Vec3::new(0.0, 0.0, 5.0)),
+                Transform::from_translation(Vec3::new(0.0, 0.0, 500.0)),
             ));
         }
     }

@@ -72,15 +72,25 @@ pub async fn fetch_sen_hub_bearer_token(
     params.insert("client_id", client_id.as_str());
     params.insert("client_secret", client_secret.as_str());
 
-    let token_resp = client
+    let response = client
         .post("https://services.sentinel-hub.com/auth/realms/main/protocol/openid-connect/token")
         .form(&params)
         .send()
-        .await?
-        .error_for_status()?;
+        .await?;
 
-    let token: TokenResponse = token_resp.json().await?;
-    Ok(token.access_token)
+    let response_res = response.error_for_status_ref().err();
+
+    if let Some(err) = response_res {
+        error!(
+            "Sentinel Image Fetch Failure; status={:?} body={:?}",
+            err.status(),
+            response.text().await?,
+        );
+        Err(err)
+    } else {
+        let token: TokenResponse = response.json().await?;
+        Ok(token.access_token)
+    }
 }
 
 pub async fn fetch_epsg4326_sen_hub_image(
@@ -156,17 +166,15 @@ pub async fn fetch_epsg4326_sen_hub_image(
 
     let response_res = response.error_for_status_ref().err();
 
-    let bytes = response.bytes().await?.to_vec();
-
     if let Some(err) = response_res {
         error!(
             "Sentinel Image Fetch Failure; status={:?} body={:?}",
             err.status(),
-            String::from_utf8_lossy(&bytes)
+            response.text().await?
         );
-        return Err(err);
+        Err(err)
+    } else {
+        let img = image::load_from_memory(&response.bytes().await?).unwrap();
+        Ok(img.to_rgb8())
     }
-
-    let img = image::load_from_memory(&bytes).unwrap();
-    Ok(img.to_rgb8())
 }

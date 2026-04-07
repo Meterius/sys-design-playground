@@ -49,6 +49,7 @@ priority-queue = "2.7.0"
 bevy-inspector-egui = "0.36.0"
 egui = "0.33.3"
 glam = "0.30.10"
+dotenvy = "0.15.7"
 
 [profile.dev]
 opt-level = 0

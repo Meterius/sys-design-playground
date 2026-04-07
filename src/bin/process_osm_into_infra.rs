@@ -4,6 +4,8 @@ use tokio_postgres::NoTls;
 
 #[tokio::main]
 async fn main() {
+    dotenvy::dotenv().unwrap();
+    
     let (tx, rx) = async_channel::bounded::<(i64, f64, f64, String, String)>(4192);
 
     let consumers = (0..64)

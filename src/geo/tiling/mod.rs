@@ -10,6 +10,7 @@ use itertools::Itertools;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use bevy::prelude::Reflect;
 use thiserror::Error;
 
 pub mod image_sources;
@@ -38,7 +39,7 @@ pub enum TileServerError {
     RetryError,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Reflect)]
 pub enum TileServerDataset {
     GibsLayerModisTerraCorrectedReflectanceTrueColor,
     SenHubSentinel2L2a,
@@ -141,19 +142,22 @@ impl TileServer {
     ) -> Result<image::RgbImage, TileServerError> {
         let mut out = image::RgbImage::new(image.width(), image.height());
 
-        let rel_min = projection.gcs_to_rel(gcs_bounds.min());
-        let rel_size = projection.gcs_to_rel(gcs_bounds.max()) - rel_min;
+        let abs_bounds = DAabb2::new(
+            projection.gcs_to_abs(gcs_bounds.min()),
+            projection.gcs_to_abs(gcs_bounds.max()),
+        );
 
         let image_size = DVec2::new(image.width() as f64, image.height() as f64);
 
         for (x, y, pixel) in out.enumerate_pixels_mut() {
-            let rel_pos = rel_min
-                + rel_size
-                    * (dvec2(0.0, 1.0) + dvec2(x as f64 + 0.5, -(y as f64 + 0.5)) / image_size);
-            let gcs_pos = projection.rel_to_gcs(rel_pos);
-            let img_pos_rel = (dvec2(0.0, 1.0)
-                + dvec2(1.0, -1.0) * (gcs_pos.clone() - gcs_bounds.min()) / gcs_bounds.size())
-            .clamp(DVec2::ZERO, DVec2::ONE);
+            let rel = dvec2(0.0, 1.0) + dvec2(x as f64 + 0.5, -(y as f64 + 0.5)) / image_size;
+            debug_assert!((0.0..=1.0).contains(&rel.x) && (0.0..=1.0).contains(&rel.y));
+            let abs_pos = abs_bounds.min() + abs_bounds.size() * rel;
+            let gcs_pos = projection.abs_to_gcs(abs_pos);
+
+            let img_pos_rel = dvec2(0.0, 1.0) + dvec2(1.0, -1.0) * (gcs_pos.clone() - gcs_bounds.min()) / gcs_bounds.size();
+            debug_assert!((0.0..=1.0).contains(&img_pos_rel.x) && (0.0..=1.0).contains(&img_pos_rel.y));
+
             *pixel =
                 image::imageops::sample_bilinear(image, img_pos_rel.x as f32, img_pos_rel.y as f32)
                     .ok_or_else(|| TileServerError::ReprojectionError)?;

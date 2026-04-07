@@ -3,6 +3,9 @@ use crate::app::utils::SoftExpect;
 use crate::geo::coords::{BoundedMercatorProjection, Projection2D};
 use crate::geo::sub_division::{SubDivision2d, TileKey};
 use crate::utils::glam_ext::bounding::{Aabb2, AxisAlignedBoundingBox2D, DAabb2};
+use bevy::camera::CameraProjection;
+use bevy::input::ButtonState;
+use bevy::input::keyboard::KeyboardInput;
 use bevy::math::USizeVec2;
 use bevy::math::bounding::{Aabb2d, BoundingVolume};
 use bevy::prelude::*;
@@ -15,12 +18,9 @@ use bevy_prototype_lyon::shapes::RectangleOrigin;
 use bevy_vector_shapes::painter::ShapePainter;
 use bevy_vector_shapes::prelude::{DiscPainter, LinePainter, RectPainter, ShapeBundle};
 use bevy_vector_shapes::shapes::ThicknessType;
-use glam::{DAffine2, DAffine3, DVec2, dvec2, DMat2};
+use glam::{DAffine2, DAffine3, DMat2, DVec2, dvec2};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use bevy::camera::CameraProjection;
-use bevy::input::ButtonState;
-use bevy::input::keyboard::KeyboardInput;
 
 pub struct MapPlugin {}
 
@@ -250,7 +250,9 @@ pub fn reposition_view(
     mut views: Query<(&GlobalTransform, &mut MapView, &MapViewWithMap)>,
     maps: Query<&Map>,
 ) {
-    for (cam_transform_g, mut cam_transform, cam, mut cam_proj, &MapViewCameraWithView(view_id)) in view_cameras {
+    for (cam_transform_g, mut cam_transform, cam, mut cam_proj, &MapViewCameraWithView(view_id)) in
+        view_cameras
+    {
         if let Some((view_transform, mut view, &MapViewWithMap(map_id))) =
             views.get_mut(view_id).ok().soft_expect("")
             && let Some(map) = maps.get(map_id).ok().soft_expect("")
@@ -258,16 +260,28 @@ pub fn reposition_view(
                 .ndc_to_world(cam_transform_g, Vec3::ZERO)
                 .soft_expect("")
         {
-            let origin_local = view_transform.affine().inverse().transform_point3(Vec3::ZERO).xy();
+            let origin_local = view_transform
+                .affine()
+                .inverse()
+                .transform_point3(Vec3::ZERO)
+                .xy();
             let origin_abs = view.local_to_abs(origin_local);
 
-            let cam_center_local = view_transform.affine().inverse().transform_point3(cam_center_world).xy();
+            let cam_center_local = view_transform
+                .affine()
+                .inverse()
+                .transform_point3(cam_center_world)
+                .xy();
             let cam_center_abs = view.local_to_abs(cam_center_local);
 
             let reposition = match cam_proj.as_ref() {
                 Projection::Orthographic(cam_proj) => {
-                    (cam_transform.translation.xy() / cam_proj.scale).max_element().abs() >= 10000.0 || cam_proj.scale.log2().abs() >= 12.0
-                },
+                    (cam_transform.translation.xy() / cam_proj.scale)
+                        .max_element()
+                        .abs()
+                        >= 10000.0
+                        || cam_proj.scale.log2().abs() >= 12.0
+                }
                 _ => false,
             };
 

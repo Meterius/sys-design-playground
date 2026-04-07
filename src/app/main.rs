@@ -47,7 +47,7 @@ pub fn initialize(_width: usize, _height: usize) {
         .add_plugins((
             PanCamPlugin,
             GeoPlugin {},
-            MeshPickingPlugin,
+            // MeshPickingPlugin,
             EguiPlugin::default(),
             WorldInspectorPlugin::new(),
             ShapePlugin,
@@ -82,9 +82,7 @@ fn setup(mut commands: Commands) {
 
     commands.spawn((
         Camera2d,
-        PanCam {
-            ..default()
-        },
+        PanCam { ..default() },
         MapViewCamera {},
         MapViewCameraWithView(map_view_id),
     ));

@@ -34,11 +34,11 @@ pub trait Projection2D {
     fn abs_to_gcs(&self, abs_pos: DVec2) -> DVec2;
 
     fn abs_to_rel(&self, abs_pos: DVec2) -> DVec2 {
-        (abs_pos - self.abs_bounds().min()) / self.abs_bounds().size()
+        (abs_pos - self.abs_bounds().center()) / self.abs_bounds().size()
     }
 
     fn rel_to_abs(&self, rel_pos: DVec2) -> DVec2 {
-        self.abs_bounds().min() + self.abs_bounds().size() * rel_pos
+        self.abs_bounds().center() + self.abs_bounds().size() * rel_pos
     }
 
     fn gcs_to_rel(&self, gcs_pos: DVec2) -> DVec2 {

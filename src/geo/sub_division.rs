@@ -99,16 +99,21 @@ impl SubDivision2d {
         let count = ((end - start) / tile_size).ceil().as_usizevec2();
 
         (0..count.x).flat_map(move |x| {
-            (0..count.y).map(move |y| {
+            (0..count.y).filter_map(move |y| {
                 let tile_area = DAabb2::from_center(
                     start + tile_size * DVec2::new(x as f64 + 0.5, y as f64 + 0.5),
                     tile_size,
                 );
-                let key = self.tile_path(tile_area.center(), depth);
 
-                Tile2d {
-                    key,
-                    area: tile_area,
+                if self.area.contains(tile_area.size()) {
+                    let key = self.tile_path(tile_area.center(), depth);
+
+                    Some(Tile2d {
+                        key,
+                        area: tile_area,
+                    })
+                } else {
+                    None
                 }
             })
         })

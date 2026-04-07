@@ -71,7 +71,7 @@ fn setup(mut commands: Commands) {
 
     let map_view_id = commands
         .spawn((
-            Transform::from_scale((5000.0 * Vec2::ONE).extend(1.0)),
+            Transform::from_scale((50000.0 * Vec2::ONE).extend(1.0)),
             Visibility::default(),
             MapView::default(),
             MapViewWithMap(map_id),
@@ -82,6 +82,7 @@ fn setup(mut commands: Commands) {
 
     commands.spawn((
         Camera2d,
+        BackgroundColor(Color::WHITE.with_luminance(0.4)),
         PanCam { ..default() },
         MapViewCamera {},
         MapViewCameraWithView(map_view_id),

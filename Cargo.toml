@@ -17,11 +17,11 @@ path = "src/bin/process_osm_into_infra.rs"
 
 [features]
 default = []
-debug = ["bevy/debug"]
+debug = ["bevy/debug", "bevy/bevy_debug_stepping"]
 
 [dependencies]
 bevy = { version = "0.18.1", features = ["jpeg"] }
-bevy_pancam = { version = "0.20.0", features = ["bevy_egui_0_39"] }
+bevy_pancam = { path = "vendor/bevy_pancam", features = ["bevy_egui_0_39"] }
 bevy_prototype_lyon = "0.16.0"
 geojson = "1.0.0"
 osmpbf = "0.3.8"

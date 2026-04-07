@@ -1,26 +1,13 @@
 use crate::app::settings::Settings;
 use crate::app::utils::SoftExpect;
 use crate::geo::coords::{BoundedMercatorProjection, Projection2D};
-use crate::geo::sub_division::{SubDivision2d, TileKey};
 use crate::utils::glam_ext::bounding::{Aabb2, AxisAlignedBoundingBox2D, DAabb2};
-use bevy::camera::CameraProjection;
-use bevy::input::ButtonState;
-use bevy::input::keyboard::KeyboardInput;
-use bevy::math::USizeVec2;
-use bevy::math::bounding::{Aabb2d, BoundingVolume};
 use bevy::prelude::*;
-use bevy_inspector_egui::bevy_egui::{EguiContexts, EguiPrimaryContextPass};
 use bevy_pancam::{PanCam, PanCamClampBounds, PanCamSystems};
-use bevy_prototype_lyon::draw::{Fill, Stroke};
-use bevy_prototype_lyon::prelude::{Shape, ShapeBuilder, ShapeBuilderBase};
-use bevy_prototype_lyon::shapes;
-use bevy_prototype_lyon::shapes::RectangleOrigin;
 use bevy_vector_shapes::painter::ShapePainter;
-use bevy_vector_shapes::prelude::{DiscPainter, LinePainter, RectPainter, ShapeBundle};
+use bevy_vector_shapes::prelude::LinePainter;
 use bevy_vector_shapes::shapes::ThicknessType;
-use glam::{DAffine2, DAffine3, DMat2, DVec2, dvec2};
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use glam::{DAffine2, DVec2, dvec2};
 
 pub struct MapPlugin {}
 
@@ -71,12 +58,6 @@ impl MapView {
     pub fn abs_to_local(&self, pos: DVec2) -> Vec2 {
         self.abs_transform.transform_point2(pos).as_vec2()
     }
-}
-
-#[derive(EntityEvent)]
-pub struct MapViewAbsLocalTransformChanged {
-    #[event_target]
-    view_id: Entity,
 }
 
 fn draw_map_view_debug(
@@ -237,7 +218,7 @@ fn sync_view_from_camera(
 }
 
 pub fn reposition_view(
-    mut view_cameras: Query<
+    view_cameras: Query<
         (
             &GlobalTransform,
             &mut Transform,
@@ -248,14 +229,12 @@ pub fn reposition_view(
         With<MapViewCamera>,
     >,
     mut views: Query<(&GlobalTransform, &mut MapView, &MapViewWithMap)>,
-    maps: Query<&Map>,
 ) {
-    for (cam_transform_g, mut cam_transform, cam, mut cam_proj, &MapViewCameraWithView(view_id)) in
+    for (cam_transform_g, mut cam_transform, cam, cam_proj, &MapViewCameraWithView(view_id)) in
         view_cameras
     {
-        if let Some((view_transform, mut view, &MapViewWithMap(map_id))) =
+        if let Some((view_transform, mut view, &MapViewWithMap(_map_id))) =
             views.get_mut(view_id).ok().soft_expect("")
-            && let Some(map) = maps.get(map_id).ok().soft_expect("")
             && let Some(cam_center_world) = cam
                 .ndc_to_world(cam_transform_g, Vec3::ZERO)
                 .soft_expect("")
@@ -280,7 +259,6 @@ pub fn reposition_view(
                         .max_element()
                         .abs()
                         >= 10000.0
-                        || cam_proj.scale.log2().abs() >= 12.0
                 }
                 _ => false,
             };
@@ -288,12 +266,6 @@ pub fn reposition_view(
             if reposition {
                 view.abs_transform.translation -= cam_center_abs - origin_abs;
                 cam_transform.translation = Vec3::ZERO;
-
-                if let Projection::Orthographic(cam_proj) = cam_proj.as_mut() {
-                    view.abs_transform.matrix2 /= cam_proj.scale as f64;
-                    view.abs_transform.translation /= cam_proj.scale as f64;
-                    cam_proj.scale = 1.0;
-                }
             }
         }
     }

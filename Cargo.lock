@@ -1350,8 +1350,6 @@ checksum = "7ef8e4b7e61dfe7719bb03c884dc270cd46a82efb40f93e9933b990c5c190c59"
 [[package]]
 name = "bevy_pancam"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2471bcedbc73d8fb715b454c80fb392eab6f4c0003a57260a5cbb3299da571de"
 dependencies = [
  "bevy",
  "bevy_egui",

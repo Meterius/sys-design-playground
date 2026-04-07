@@ -1,28 +1,27 @@
-use crate::app::geo::map::{
-    Map, MapView, MapViewAbsLocalTransformChanged, MapViewWithMap, reposition_view,
+use crate::app::geo::map::{Map, MapView, MapViewWithMap, reposition_view};
+use crate::app::geo::tile_fetcher::{
+    TileImageRequest, TileImageRequestWithMap, TileImageSprite, handle_tile_image_sprite_loaded,
 };
 use crate::app::settings::Settings;
 use crate::app::utils::SoftExpect;
 use crate::geo::coords::Projection2D;
 use crate::geo::sub_division::{SubDivision2d, TileKey};
+use crate::geo::tiling::TileServerDataset;
 use crate::utils::glam_ext::bounding::{Aabb2, AxisAlignedBoundingBox2D, DAabb2};
 use bevy::app::{App, Update};
-use bevy::color::{Color, Luminance};
+use bevy::color::Alpha;
+use bevy::prelude::IntoScheduleConfigs;
 use bevy::prelude::{
-    Added, ChildOf, Commands, Component, Entity, GlobalTransform, On, Query, Reflect, Res,
-    Transform, Visibility, With, default,
+    Added, ChildOf, Commands, Component, Entity, Query, Reflect, Res, Sprite, Transform,
+    Visibility, With,
 };
-use bevy::prelude::{Changed, IntoScheduleConfigs};
 use bevy::prelude::{Plugin, ReflectComponent};
 use bevy_inspector_egui::bevy_egui::{EguiContexts, EguiPrimaryContextPass};
-use bevy_prototype_lyon::geometry::{ShapeBuilder, ShapeBuilderBase};
-use bevy_prototype_lyon::shapes;
-use bevy_vector_shapes::painter::ShapePainter;
-use glam::{USizeVec2, Vec2, Vec3, vec2, vec3};
+use bevy_pancam::PanCamSystems;
+use glam::{USizeVec2, Vec2, dvec2, usizevec2, vec2, vec3};
+use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use crate::app::geo::tile_fetcher::{TileImageRequest, TileImageRequestWithMap, TileImageSprite};
-use crate::geo::tiling::TileServerDataset;
 
 pub struct MapViewTilingPlugin {}
 
@@ -30,23 +29,23 @@ impl Plugin for MapViewTilingPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (
-                (
-                    sync_tiles_for_view,
-                    update_tiles.after(reposition_view),
-                    setup_tiles,
-                )
-                    .chain(),
-                draw_tiles_debug,
-            ),
+            ((
+                sync_tiles_for_view.after(PanCamSystems),
+                update_tiles.after(reposition_view),
+                setup_tiles,
+                sync_tile_fade.after(handle_tile_image_sprite_loaded),
+            )
+                .chain(),),
         );
         app.add_systems(EguiPrimaryContextPass, map_tiling_ui);
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
 pub struct MapViewTiling {
-    target_tile_count: usize,
+    pub target_tile_count: usize,
+    pub target_depth_fac: f32,
+    pub target_depth: usize,
     tiles: HashMap<TileKey, Entity>,
 }
 
@@ -54,6 +53,8 @@ impl MapViewTiling {
     pub fn new(target_tile_count: usize) -> Self {
         Self {
             target_tile_count,
+            target_depth_fac: 0.0,
+            target_depth: 0,
             tiles: HashMap::new(),
         }
     }
@@ -61,11 +62,11 @@ impl MapViewTiling {
 
 fn sync_tiles_for_view(
     mut commands: Commands,
-    tilings: Query<(&mut MapViewTiling, &MapViewTilingWithView)>,
+    tilings: Query<(Entity, &mut MapViewTiling, &MapViewTilingWithView)>,
     views: Query<(Entity, &MapView, &MapViewWithMap)>,
     maps: Query<&Map>,
 ) {
-    for (mut tiling, &MapViewTilingWithView(view_id)) in tilings {
+    for (tiling_id, mut tiling, &MapViewTilingWithView(view_id)) in tilings {
         if let Some((view_id, view, &MapViewWithMap(map_id))) =
             views.get(view_id).ok().soft_expect("")
             && let Some(map) = maps.get(map_id).ok().soft_expect("")
@@ -75,8 +76,9 @@ fn sync_tiles_for_view(
                 area: map.projection.abs_bounds(),
             };
 
-            let baseline_depth =
-                sub_div.min_depth_for_tile_count(viewport_abs.size(), USizeVec2::new(1, 1));
+            let baseline_depth = sub_div
+                .min_depth_for_tile_count(viewport_abs.size(), USizeVec2::new(1, 1))
+                .saturating_sub(1);
 
             let target_depth = sub_div.min_depth_for_tile_count(
                 viewport_abs.size(),
@@ -85,16 +87,20 @@ fn sync_tiles_for_view(
 
             let mut required_tile_keys = HashSet::new();
 
-            for depth in baseline_depth..=target_depth {
-                for tile in sub_div.tile_covering(viewport_abs, depth) {
+            let viewport_abs_expanded = viewport_abs.expand(dvec2(0.1, 0.1) * viewport_abs.size());
+            for depth in baseline_depth..=(target_depth + 1) {
+                for tile in sub_div.tile_covering(viewport_abs_expanded, depth) {
                     required_tile_keys.insert(tile.key.clone());
 
-                    if let Entry::Vacant(mut entry) = tiling.tiles.entry(tile.key.clone()) {
+                    if let Entry::Vacant(entry) = tiling.tiles.entry(tile.key.clone()) {
                         let tile_id = commands
-                            .spawn(MapViewTile {
-                                area_abs: tile.area,
-                                key: tile.key.clone(),
-                            })
+                            .spawn((
+                                MapViewTile {
+                                    area_abs: tile.area,
+                                    key: tile.key.clone(),
+                                },
+                                MapViewTileWithTiling(tiling_id),
+                            ))
                             .id();
                         commands.entity(view_id).add_child(tile_id);
                         entry.insert(tile_id);
@@ -108,6 +114,23 @@ fn sync_tiles_for_view(
             {
                 commands.entity(tile_id).despawn();
             }
+
+            let at_target_size = sub_div.area_size_for_min_depth_for_tile_count(
+                target_depth,
+                usizevec2(tiling.target_tile_count, tiling.target_tile_count),
+            );
+            let before_target_size = sub_div.area_size_for_min_depth_for_tile_count(
+                target_depth.saturating_sub(1),
+                usizevec2(tiling.target_tile_count, tiling.target_tile_count),
+            );
+
+            tiling.target_depth_fac = if target_depth != 0 {
+                ((viewport_abs.size() - before_target_size) / (at_target_size - before_target_size))
+                    .max_element() as f32
+            } else {
+                1.0
+            };
+            tiling.target_depth = target_depth;
         }
     }
 }
@@ -127,32 +150,24 @@ pub struct MapViewTile {
     pub area_abs: DAabb2,
 }
 
+#[derive(Component)]
+#[relationship_target(relationship = MapViewTileWithTiling)]
+pub struct MapViewTilingsWithTiles(Vec<Entity>);
+
+#[derive(Component)]
+#[relationship(relationship_target = MapViewTilingsWithTiles)]
+pub struct MapViewTileWithTiling(pub Entity);
+
 fn map_tiling_ui(mut contexts: EguiContexts, settings: Res<Settings>) -> bevy::prelude::Result {
     if settings.debug_mode {
-        egui::Window::new("Tiling").show(contexts.ctx_mut()?, |ui| {});
+        egui::Window::new("Tiling").show(contexts.ctx_mut()?, |_ui| {});
     }
 
     Ok(())
 }
 
-fn draw_tiles_debug(
-    tiles: Query<(Entity, &MapViewTile, &ChildOf), Added<MapViewTile>>,
-    views: Query<(&GlobalTransform, &MapView)>,
-    mut painter: ShapePainter,
-    settings: Res<Settings>,
-) {
-    if settings.debug_mode {
-        for (tile_id, tile, &ChildOf(view_id)) in tiles {
-            if let Some((view_transform, view)) = views.get(view_id).ok().soft_expect("") {}
-        }
-    }
-}
-
-fn update_tiles(
-    mut tiles: Query<(Entity, &mut Transform, &MapViewTile, &ChildOf)>,
-    views: Query<(&MapView)>,
-) {
-    for (tile_id, mut tile_transform, tile, &ChildOf(view_id)) in tiles {
+fn update_tiles(tiles: Query<(&mut Transform, &MapViewTile, &ChildOf)>, views: Query<&MapView>) {
+    for (mut tile_transform, tile, &ChildOf(view_id)) in tiles {
         if let Some(view) = views.get(view_id).ok().soft_expect("") {
             let area_local = Aabb2::new(
                 view.abs_to_local(tile.area_abs.min()),
@@ -165,7 +180,7 @@ fn update_tiles(
     }
 }
 
-fn setup_tiles(
+pub fn setup_tiles(
     mut commands: Commands,
     added_tiles: Query<(Entity, &MapViewTile, &ChildOf), Added<MapViewTile>>,
     views: Query<(&MapView, &MapViewWithMap)>,
@@ -179,9 +194,7 @@ fn setup_tiles(
 
             commands.entity(tile_id).insert((
                 Transform::from_translation(
-                    area_local
-                        .center()
-                        .extend(1.0 - 0.5f32.powf(tile.key.len() as f32)),
+                    area_local.center().extend(10.0 * tile.key.len() as f32),
                 )
                 .with_scale((Vec2::ONE * area_local.size().x).extend(1.0)),
                 Visibility::default(),
@@ -189,51 +202,63 @@ fn setup_tiles(
 
             for (idx, dataset) in [
                 TileServerDataset::GibsLayerModisTerraCorrectedReflectanceTrueColor,
-                TileServerDataset::SenHubSentinel2L2a
-            ].into_iter().enumerate() {
-                let sprite_id = commands.spawn((
-                    Transform::from_translation(vec3(0.0, 0.0, 0.1 + idx as f32)),
-                    Visibility::default(),
-                    TileImageRequest {
-                        key: tile.key.clone(),
-                        dataset,
-                        priority: 0,
-                    },
-                    TileImageSprite {
-                        size: Some(vec2(1.0, area_local.size().y / area_local.size().x))
-                    },
-                    TileImageRequestWithMap(map_id),
-                )).id();
+                TileServerDataset::SenHubSentinel2L2a,
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let sprite_id = commands
+                    .spawn((
+                        Transform::from_translation(vec3(0.0, 0.0, 1.0 + idx as f32)),
+                        Visibility::default(),
+                        TileImageRequest {
+                            key: tile.key.clone(),
+                            dataset,
+                            priority: -(tile.key.len() as isize),
+                        },
+                        TileImageSprite {
+                            size: Some(vec2(1.0, area_local.size().y / area_local.size().x)),
+                        },
+                        MapViewTileFade {},
+                        MapViewTileFadeWithTile(tile_id),
+                        TileImageRequestWithMap(map_id),
+                    ))
+                    .id();
 
                 commands.entity(tile_id).add_child(sprite_id);
             }
+        }
+    }
+}
 
-            let tile_hitbox_id = commands
-                .spawn((
-                    ShapeBuilder::with(&shapes::Rectangle {
-                        extents: vec2(1.0, area_local.size().y / area_local.size().x),
-                        ..default()
-                    })
-                    .fill(Color::WHITE.with_luminance(0.3))
-                    .build(),
-                    Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
-                ))
-                .id();
+#[derive(Component, Reflect)]
+pub struct MapViewTileFade {}
 
-            commands.entity(tile_id).add_child(tile_hitbox_id);
+#[derive(Component, Reflect)]
+#[relationship(relationship_target = MapViewTileWithFades)]
+pub struct MapViewTileFadeWithTile(pub Entity);
 
-            commands.entity(tile_id).with_child((
-                ShapeBuilder::with(&shapes::Rectangle {
-                    extents: vec2(1.0, area_local.size().y / area_local.size().x),
-                    ..default()
-                })
-                .stroke((
-                    Color::WHITE.with_luminance(0.8),
-                    0.1 / tile.key.len() as f32,
-                ))
-                .build(),
-                Transform::from_translation(Vec3::new(0.0, 0.0, 500.0)),
-            ));
+#[derive(Component, Reflect)]
+#[relationship_target(relationship = MapViewTileFadeWithTile)]
+pub struct MapViewTileWithFades(Vec<Entity>);
+
+fn sync_tile_fade(
+    fades: Query<(&mut Sprite, &MapViewTileFadeWithTile), With<MapViewTileFade>>,
+    tiles: Query<(&MapViewTile, &MapViewTileWithTiling)>,
+    tilings: Query<&MapViewTiling>,
+) {
+    for (mut sprite, &MapViewTileFadeWithTile(tile_id)) in fades {
+        if let Some((tile, &MapViewTileWithTiling(tiling_id))) =
+            tiles.get(tile_id).ok().soft_expect("")
+            && let Some(tiling) = tilings.get(tiling_id).ok().soft_expect("")
+        {
+            sprite
+                .color
+                .set_alpha(match tile.key.len().cmp(&tiling.target_depth) {
+                    Ordering::Less => 1.0,
+                    Ordering::Equal => tiling.target_depth_fac,
+                    Ordering::Greater => 0.0,
+                });
         }
     }
 }

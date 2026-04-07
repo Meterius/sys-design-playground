@@ -1,4 +1,5 @@
 use crate::app::geo::map::Map;
+use crate::app::geo::tiling::setup_tiles;
 use crate::app::utils::SoftExpect;
 use crate::geo::sub_division::TileKey;
 use crate::geo::tiling::{TileServer, TileServerDataset, TileServerError};
@@ -6,8 +7,9 @@ use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use bevy_tokio_tasks::TokioTasksRuntime;
 use ratelimit::Ratelimiter;
+use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Default)]
 pub struct TileFetcherPlugin {}
@@ -15,7 +17,12 @@ pub struct TileFetcherPlugin {}
 impl Plugin for TileFetcherPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, startup);
-        app.add_systems(Update, (handle_tile_image_loading, handle_time_image_sprite_loaded).chain());
+        app.add_systems(
+            Update,
+            (handle_tile_image_loading, handle_tile_image_sprite_loaded)
+                .chain()
+                .after(setup_tiles),
+        );
     }
 }
 
@@ -61,7 +68,7 @@ pub struct TileImageStore {
     dataset_stores: HashMap<TileServerDataset, TileImageDatasetStore>,
 }
 
-#[derive(Component, Reflect)]
+#[derive(Component, Reflect, Eq, PartialEq, Hash)]
 pub struct TileImageRequest {
     pub key: TileKey,
     pub dataset: TileServerDataset,
@@ -94,40 +101,39 @@ fn handle_tile_image_loading(
     let mut requests_by_dataset = HashMap::new();
 
     for (request_id, request, &TileImageRequestWithMap(map_id)) in requests {
-        if let Some(map) = maps.get(map_id).ok().soft_expect("") {
-            if let Some(dataset_store) = store.dataset_stores.get(&request.dataset).soft_expect("")
-            {
-                if let Some(handle) = dataset_store.data.get(&request.key) {
-                    commands.entity(request_id).remove::<TileImageRequest>();
-                    commands.entity(request_id).insert(TileImageResponse {
-                        key: request.key.clone(),
-                        data: handle.clone(),
-                    });
-                } else if dataset_store.failed.contains(&request.key) {
-                    commands.entity(request_id).remove::<TileImageRequest>();
-                    commands.entity(request_id).insert(TileImageResponse {
-                        key: request.key.clone(),
-                        data: None,
-                    });
-                } else if !dataset_store.requested.contains(&request.key) {
-                    let requests = requests_by_dataset
-                        .entry(request.dataset.clone())
-                        .or_insert_with(|| Vec::new());
-                    requests.push((request.key.clone(), map.projection.clone()));
-                }
+        if let Some(map) = maps.get(map_id).ok().soft_expect("")
+            && let Some(dataset_store) = store.dataset_stores.get(&request.dataset).soft_expect("")
+        {
+            if let Some(handle) = dataset_store.data.get(&request.key) {
+                commands.entity(request_id).remove::<TileImageRequest>();
+                commands.entity(request_id).insert(TileImageResponse {
+                    key: request.key.clone(),
+                    data: handle.clone(),
+                });
+            } else if dataset_store.failed.contains(&request.key) {
+                commands.entity(request_id).remove::<TileImageRequest>();
+                commands.entity(request_id).insert(TileImageResponse {
+                    key: request.key.clone(),
+                    data: None,
+                });
+            } else if !dataset_store.requested.contains(&request.key) {
+                let requests = requests_by_dataset
+                    .entry(request.dataset.clone())
+                    .or_insert_with(Vec::new);
+                requests.push((request.key.clone(), map.projection, request.priority));
             }
         }
     }
 
-    fn translate_tile_server_path(path: &PathBuf) -> PathBuf {
+    fn translate_tile_server_path(path: &Path) -> PathBuf {
         PathBuf::from_iter(path.iter().skip(1))
     }
 
     for (dataset, mut requests) in requests_by_dataset.into_iter() {
         if let Some(dataset_store) = store.dataset_stores.get_mut(&dataset) {
-            requests.sort_by_key(|(key, _)| key.len());
+            requests.sort_by_key(|(_, _, priority)| Reverse(*priority));
 
-            for (request_tile_key, request_projection) in requests.into_iter() {
+            for (request_tile_key, request_projection, _) in requests.into_iter() {
                 match tile_server.load_tile_offline_blocking(
                     dataset.clone(),
                     &request_projection,
@@ -214,14 +220,15 @@ pub struct TileImageSprite {
     pub size: Option<Vec2>,
 }
 
-fn handle_time_image_sprite_loaded(
+pub fn handle_tile_image_sprite_loaded(
     mut commands: Commands,
     tiles: Query<(Entity, &TileImageSprite, &TileImageResponse), Added<TileImageResponse>>,
 ) {
     for (tile_id, tile_sprite, tile_res) in tiles {
         if let Some(image) = tile_res.data.clone() {
             commands.entity(tile_id).insert(Sprite {
-                image, custom_size: tile_sprite.size,
+                image,
+                custom_size: tile_sprite.size,
                 ..default()
             });
         }

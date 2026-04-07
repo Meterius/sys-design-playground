@@ -145,6 +145,17 @@ where
         }
     }
 
+    fn expand(&self, border: T) -> Self {
+        Self::new(self.min() - border, self.max() + border)
+    }
+
+    fn contains(&self, pos: T) -> bool {
+        let [x, y] = pos.to_array();
+        let [min_x, min_y] = self.min().to_array();
+        let [max_x, max_y] = self.max().to_array();
+        min_x <= x && x <= max_x && min_y <= y && y <= max_y
+    }
+
     fn closest_point(&self, pos: T) -> T {
         pos.min(self.min()).max(self.max())
     }

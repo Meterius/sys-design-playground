@@ -50,7 +50,7 @@ pub trait Projection2D {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BoundedMercatorProjection {
     pub lat_max: f64,
     pub lat_min: f64,

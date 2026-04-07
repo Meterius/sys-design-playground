@@ -5,12 +5,12 @@ use crate::geo::tiling::image_sources::{
     fetch_epsg4326_gibs_image, fetch_epsg4326_sen_hub_image, fetch_sen_hub_bearer_token,
 };
 use crate::utils::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
+use bevy::prelude::Reflect;
 use glam::{DVec2, USizeVec2, dvec2};
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use bevy::prelude::Reflect;
 use thiserror::Error;
 
 pub mod image_sources;
@@ -155,8 +155,11 @@ impl TileServer {
             let abs_pos = abs_bounds.min() + abs_bounds.size() * rel;
             let gcs_pos = projection.abs_to_gcs(abs_pos);
 
-            let img_pos_rel = dvec2(0.0, 1.0) + dvec2(1.0, -1.0) * (gcs_pos.clone() - gcs_bounds.min()) / gcs_bounds.size();
-            debug_assert!((0.0..=1.0).contains(&img_pos_rel.x) && (0.0..=1.0).contains(&img_pos_rel.y));
+            let img_pos_rel = dvec2(0.0, 1.0)
+                + dvec2(1.0, -1.0) * (gcs_pos.clone() - gcs_bounds.min()) / gcs_bounds.size();
+            debug_assert!(
+                (0.0..=1.0).contains(&img_pos_rel.x) && (0.0..=1.0).contains(&img_pos_rel.y)
+            );
 
             *pixel =
                 image::imageops::sample_bilinear(image, img_pos_rel.x as f32, img_pos_rel.y as f32)

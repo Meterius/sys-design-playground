@@ -1,4 +1,4 @@
-use crate::app::geo::map::{Map, MapView, MapViewAbsLocalTransformChanged, MapViewWithMap};
+use crate::app::geo::map::{reposition_view, Map, MapView, MapViewAbsLocalTransformChanged, MapViewWithMap};
 use crate::app::settings::Settings;
 use crate::app::utils::SoftExpect;
 use crate::geo::coords::Projection2D;
@@ -6,7 +6,7 @@ use crate::geo::sub_division::{SubDivision2d, TileKey};
 use crate::utils::glam_ext::bounding::{Aabb2, AxisAlignedBoundingBox2D, DAabb2};
 use bevy::app::{App, Update};
 use bevy::color::{Color, Luminance};
-use bevy::prelude::IntoScheduleConfigs;
+use bevy::prelude::{Changed, IntoScheduleConfigs};
 use bevy::prelude::{
     Added, ChildOf, Commands, Component, Entity, GlobalTransform, On, Query, Reflect, Res,
     Transform, Visibility, With, default,
@@ -17,7 +17,7 @@ use bevy_pancam::PanCamSystems;
 use bevy_prototype_lyon::geometry::{ShapeBuilder, ShapeBuilderBase};
 use bevy_prototype_lyon::shapes;
 use bevy_vector_shapes::painter::ShapePainter;
-use glam::{USizeVec2, Vec3};
+use glam::{vec2, USizeVec2, Vec2, Vec3};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
@@ -27,7 +27,7 @@ impl Plugin for MapViewTilingPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            ((sync_tiles_for_view, setup_tiles).chain(), draw_tiles_debug),
+            ((sync_tiles_for_view, update_tiles.after(reposition_view), setup_tiles).chain(), draw_tiles_debug),
         );
         app.add_systems(EguiPrimaryContextPass, map_tiling_ui);
     }
@@ -137,6 +137,23 @@ fn draw_tiles_debug(
     }
 }
 
+fn update_tiles(
+    mut tiles: Query<(Entity, &mut Transform, &MapViewTile, &ChildOf)>,
+    views: Query<(&MapView)>,
+) {
+    for (tile_id, mut tile_transform, tile, &ChildOf(view_id)) in tiles {
+        if let Some(view) = views.get(view_id).ok().soft_expect("") {
+            let area_local = Aabb2::new(
+                view.abs_to_local(tile.area_abs.min()),
+                view.abs_to_local(tile.area_abs.max()),
+            );
+
+            tile_transform.translation = area_local.center().extend(tile_transform.translation.z);
+            tile_transform.scale = (Vec2::ONE * area_local.size().x).extend(tile_transform.scale.z);
+        }
+    }
+}
+
 fn setup_tiles(
     mut commands: Commands,
     added_tiles: Query<(Entity, &MapViewTile, &ChildOf), Added<MapViewTile>>,
@@ -154,29 +171,14 @@ fn setup_tiles(
                     area_local
                         .center()
                         .extend(1.0 - 0.5f32.powf(tile.key.len() as f32)),
-                ),
+                ).with_scale((Vec2::ONE * area_local.size().x).extend(1.0)),
                 Visibility::default(),
             ));
-
-            commands.entity(view_id).observe(
-                move |_: On<MapViewAbsLocalTransformChanged>,
-                      mut commands: Commands,
-                      mut tiles: Query<&mut Transform, With<MapViewTile>>,
-                      views: Query<&MapView>| {
-                    if let Some(view) = views.get(view_id).ok().soft_expect("")
-                        && let Some(mut tile_transform) =
-                            tiles.get_mut(tile_id).ok().soft_expect("")
-                    {
-                        tile_transform.translation =
-                            area_local.center().extend(tile_transform.translation.z);
-                    }
-                },
-            );
 
             let tile_hitbox_id = commands
                 .spawn((
                     ShapeBuilder::with(&shapes::Rectangle {
-                        extents: area_local.size(),
+                        extents: vec2(1.0, area_local.size().y / area_local.size().x),
                         ..default()
                     })
                     .fill(Color::WHITE.with_luminance(0.3))
@@ -189,12 +191,15 @@ fn setup_tiles(
 
             commands.entity(tile_id).with_child((
                 ShapeBuilder::with(&shapes::Rectangle {
-                    extents: area_local.size(),
+                    extents: vec2(1.0, area_local.size().y / area_local.size().x),
                     ..default()
                 })
-                .stroke((Color::WHITE.with_luminance(0.9), 0.01 * area_local.size().max_element()))
+                .stroke((
+                    Color::WHITE.with_luminance(0.8),
+                    0.1 / tile.key.len() as f32,
+                ))
                 .build(),
-                Transform::from_translation(Vec3::new(0.0, 0.0, 0.1)),
+                Transform::from_translation(Vec3::new(0.0, 0.0, 5.0)),
             ));
         }
     }

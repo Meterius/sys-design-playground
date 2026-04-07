@@ -1,8 +1,6 @@
 use crate::app::geo::GeoPlugin;
-use crate::app::geo::map::{
-    Map, MapView, MapViewCamera, MapViewCameraWithView,
-    MapViewWithMap,
-};
+use crate::app::geo::map::{Map, MapView, MapViewCamera, MapViewCameraWithView, MapViewWithMap};
+use crate::app::geo::tiling::{MapViewTiling, MapViewTilingWithView};
 use crate::app::settings::SettingsPlugin;
 use crate::geo::coords::BoundedMercatorProjection;
 use bevy::DefaultPlugins;
@@ -18,7 +16,6 @@ use bevy_pancam::{PanCam, PanCamPlugin};
 use bevy_prototype_lyon::plugin::ShapePlugin;
 use bevy_vector_shapes::Shape2dPlugin;
 use std::f64::consts::PI;
-use crate::app::geo::tiling::{MapViewTiling, MapViewTilingWithView};
 
 pub fn initialize(_width: usize, _height: usize) {
     App::new()
@@ -86,7 +83,6 @@ fn setup(mut commands: Commands) {
     commands.spawn((
         Camera2d,
         PanCam {
-            min_scale: 0.001,
             ..default()
         },
         MapViewCamera {},

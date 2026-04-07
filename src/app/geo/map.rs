@@ -15,15 +15,23 @@ use bevy_prototype_lyon::shapes::RectangleOrigin;
 use bevy_vector_shapes::painter::ShapePainter;
 use bevy_vector_shapes::prelude::{DiscPainter, LinePainter, RectPainter, ShapeBundle};
 use bevy_vector_shapes::shapes::ThicknessType;
-use glam::{DAffine2, DAffine3, DVec2, dvec2};
+use glam::{DAffine2, DAffine3, DVec2, dvec2, DMat2};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use bevy::camera::CameraProjection;
+use bevy::input::ButtonState;
+use bevy::input::keyboard::KeyboardInput;
 
 pub struct MapPlugin {}
 
 impl Plugin for MapPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (adjust_pan_cam_bounds.before(PanCamSystems),));
+        app.add_systems(
+            Update,
+            (reposition_view, adjust_pan_cam_bounds)
+                .chain()
+                .before(PanCamSystems),
+        );
 
         app.add_systems(
             PostUpdate,
@@ -224,6 +232,55 @@ fn sync_view_from_camera(
                 )
             });
             view.viewport_abs = cam_view_abs;
+        }
+    }
+}
+
+pub fn reposition_view(
+    mut view_cameras: Query<
+        (
+            &GlobalTransform,
+            &mut Transform,
+            &Camera,
+            &mut Projection,
+            &MapViewCameraWithView,
+        ),
+        With<MapViewCamera>,
+    >,
+    mut views: Query<(&GlobalTransform, &mut MapView, &MapViewWithMap)>,
+    maps: Query<&Map>,
+) {
+    for (cam_transform_g, mut cam_transform, cam, mut cam_proj, &MapViewCameraWithView(view_id)) in view_cameras {
+        if let Some((view_transform, mut view, &MapViewWithMap(map_id))) =
+            views.get_mut(view_id).ok().soft_expect("")
+            && let Some(map) = maps.get(map_id).ok().soft_expect("")
+            && let Some(cam_center_world) = cam
+                .ndc_to_world(cam_transform_g, Vec3::ZERO)
+                .soft_expect("")
+        {
+            let origin_local = view_transform.affine().inverse().transform_point3(Vec3::ZERO).xy();
+            let origin_abs = view.local_to_abs(origin_local);
+
+            let cam_center_local = view_transform.affine().inverse().transform_point3(cam_center_world).xy();
+            let cam_center_abs = view.local_to_abs(cam_center_local);
+
+            let reposition = match cam_proj.as_ref() {
+                Projection::Orthographic(cam_proj) => {
+                    (cam_transform.translation.xy() / cam_proj.scale).max_element().abs() >= 10000.0 || cam_proj.scale.log2().abs() >= 12.0
+                },
+                _ => false,
+            };
+
+            if reposition {
+                view.abs_transform.translation -= cam_center_abs - origin_abs;
+                cam_transform.translation = Vec3::ZERO;
+
+                if let Projection::Orthographic(cam_proj) = cam_proj.as_mut() {
+                    view.abs_transform.matrix2 /= cam_proj.scale as f64;
+                    view.abs_transform.translation /= cam_proj.scale as f64;
+                    cam_proj.scale = 1.0;
+                }
+            }
         }
     }
 }

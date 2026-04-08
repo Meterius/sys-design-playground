@@ -3,13 +3,12 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 
 -- Create locations table
 CREATE TABLE locations (
-                           id SERIAL PRIMARY KEY,
-                           name TEXT NOT NULL,
-                           description TEXT,
-                           latitude DOUBLE PRECISION NOT NULL,
-                           longitude DOUBLE PRECISION NOT NULL,
-                           geom GEOGRAPHY(Point, 4326), -- PostGIS spatial column
-                           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    id SERIAL PRIMARY KEY,
+    tags TEXT NOT NULL,
+    latitude DOUBLE PRECISION NOT NULL,
+    longitude DOUBLE PRECISION NOT NULL,
+    geom GEOGRAPHY(Point, 4326), -- PostGIS spatial column
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Optional: populate geom from lat/lon
@@ -28,8 +27,3 @@ CREATE TRIGGER set_geom
 
 -- Spatial index for performance
 CREATE INDEX idx_locations_geom ON locations USING GIST (geom);
-
--- Seed data
-INSERT INTO locations (id, name, description, latitude, longitude)
-VALUES
-    (0, 'Berlin Center', 'Example location', 52.5200, 13.4050);

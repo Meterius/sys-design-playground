@@ -1,5 +1,5 @@
 use crate::app::geo::map::{Map, MapView, MapViewTransform, MapViewWithMap};
-use crate::app::utils::SoftExpect;
+use crate::app::utils::debug::SoftExpect;
 use crate::geo::coords::Projection2D;
 use bevy::app::{App, Plugin};
 use bevy::prelude::*;

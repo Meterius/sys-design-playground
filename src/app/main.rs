@@ -1,7 +1,7 @@
+use crate::app::common::settings::SettingsPlugin;
 use crate::app::geo::GeoPlugin;
 use crate::app::geo::map::{Map, MapView, MapViewCamera, MapViewCameraWithView, MapViewWithMap};
 use crate::app::geo::tiling::{MapViewTiling, MapViewTilingWithView};
-use crate::app::settings::SettingsPlugin;
 use crate::geo::coords::BoundedMercatorProjection;
 use crate::utils::glam_ext::bounding::AxisAlignedBoundingBox2D;
 use bevy::DefaultPlugins;

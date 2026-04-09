@@ -1,18 +1,12 @@
-use bevy::prelude::Message;
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
     execute, queue,
-    terminal::{Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{Clear, ClearType},
 };
 use futures::future::try_join_all;
 use itertools::Itertools;
 use osmpbf::Element;
-use smallvec::SmallVec;
 use std::io::Write;
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
 use std::time::{Duration, Instant};
 use tokio_postgres::NoTls;
 use tokio_postgres::types::Type;
@@ -288,7 +282,7 @@ async fn main() {
         }
     });
 
-    let producer = std::thread::spawn({ move || producer_task(prod_tx) });
+    let producer = std::thread::spawn(move || producer_task(prod_tx));
 
     producer.join().unwrap();
     distribute.await.unwrap();

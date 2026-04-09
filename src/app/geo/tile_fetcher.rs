@@ -1,6 +1,6 @@
 use crate::app::geo::map::Map;
 use crate::app::geo::tiling::setup_tiles;
-use crate::app::utils::SoftExpect;
+use crate::app::utils::debug::SoftExpect;
 use crate::geo::sub_division::TileKey;
 use crate::geo::tiling::{TileServer, TileServerDataset, TileServerError};
 use bevy::ecs::system::RunSystemOnce;

@@ -2,7 +2,8 @@ use crate::app::geo::map::{Map, MapView, MapViewWithMap};
 use crate::app::geo::tile_fetcher::{
     TileImageRequest, TileImageRequestWithMap, TileImageSprite, handle_tile_image_sprite_loaded,
 };
-use crate::app::utils::{CommandsWithSpatial, SoftExpect};
+use crate::app::utils::big_space_ext::CommandsWithSpatial;
+use crate::app::utils::debug::SoftExpect;
 use crate::geo::coords::Projection2D;
 use crate::geo::sub_division::{SubDivision2d, TileKey};
 use crate::geo::tiling::TileServerDataset;

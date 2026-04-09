@@ -1,6 +1,5 @@
 use bevy::app::App;
-use bevy::prelude::ReflectResource;
-use bevy::prelude::{Plugin, Reflect, Resource};
+use bevy::prelude::*;
 
 #[derive(Default)]
 pub struct SettingsPlugin {}

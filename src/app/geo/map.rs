@@ -1,5 +1,5 @@
-use crate::app::settings::Settings;
-use crate::app::utils::SoftExpect;
+use crate::app::common::settings::Settings;
+use crate::app::utils::debug::SoftExpect;
 use crate::geo::coords::{BoundedMercatorProjection, Projection2D, approx_lat_delta_from_len};
 use crate::utils::glam_ext::bounding::{Aabb2, AxisAlignedBoundingBox2D, DAabb2};
 use bevy::ecs::relationship::AncestorIter;

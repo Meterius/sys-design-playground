@@ -71,6 +71,7 @@ impl Projection2D for BoundedMercatorProjection {
     }
 
     fn gcs_to_abs(&self, gcs_pos: DVec2) -> DVec2 {
+        // debug_assert!(self.gcs_bounds().contains(gcs_pos));
         let gcs_pos = self.gcs_bounds().closest_point(gcs_pos);
         dvec2(gcs_pos.x, (PI / 4.0 + gcs_pos.y / 2.0).tan().ln())
     }

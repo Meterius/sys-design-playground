@@ -1,14 +1,17 @@
 use crate::app::common::settings::Settings;
 use crate::app::utils::debug::SoftExpect;
-use crate::geo::coords::{BoundedMercatorProjection, Projection2D, approx_lat_delta_from_len};
+use crate::geo::coords::{approx_lat_delta_from_len, BoundedMercatorProjection, Projection2D};
 use crate::utils::glam_ext::bounding::{Aabb2, AxisAlignedBoundingBox2D, DAabb2};
+use bevy::ecs::query::QueryData;
 use bevy::ecs::relationship::AncestorIter;
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_pancam::{PanCam, PanCamClampBounds, PanCamSystems};
 use bevy_vector_shapes::painter::ShapePainter;
 use bevy_vector_shapes::prelude::LinePainter;
 use bevy_vector_shapes::shapes::ThicknessType;
-use glam::{DAffine2, DVec2, dvec2};
+use big_space::grid::Grid;
+use glam::{dvec2, DAffine2, DVec2};
 use itertools::Itertools;
 use std::path::Ancestors;
 
@@ -53,16 +56,16 @@ impl MapView {
         }
     }
 
-    pub fn local_to_abs(&self, pos: Vec2) -> DVec2 {
-        pos.as_dvec2() / self.scale
+    pub fn local_to_abs(&self, pos: DVec2) -> DVec2 {
+        pos / self.scale
     }
 
-    pub fn abs_to_local(&self, pos: DVec2) -> Vec2 {
-        (pos * self.scale).as_vec2()
+    pub fn abs_to_local(&self, pos: DVec2) -> DVec2 {
+        pos * self.scale
     }
 
-    pub fn map_bounds_local(&self, map: &Map) -> Aabb2 {
-        Aabb2::new(
+    pub fn map_bounds_local(&self, map: &Map) -> DAabb2 {
+        DAabb2::new(
             self.abs_to_local(map.projection.abs_bounds().min()),
             self.abs_to_local(map.projection.abs_bounds().max()),
         )
@@ -90,6 +93,7 @@ fn draw_map_view_debug(
                                     .closest_point(pos.map(f64::to_degrees)),
                             ),
                         )
+                        .as_vec2()
                         .extend(0.0),
                     )
                 };
@@ -130,6 +134,42 @@ pub struct MapViewCamera {}
 #[relationship(relationship_target = MapViewWithCamera)]
 pub struct MapViewCameraWithView(pub Entity);
 
+#[derive(SystemParam)]
+pub struct MapViewContextQuery<'w, 's> {
+    maps: Query<'w, 's, &'static Map>,
+    views: Query<'w, 's, (Entity, &'static Grid, &'static MapView, &'static MapViewWithMap)>,
+    children: Query<'w, 's, &'static ChildOf>,
+}
+
+pub struct MapViewContext<'a> {
+    pub map_id: Entity,
+    pub map: &'a Map,
+
+    pub view_id: Entity,
+    pub view: &'a MapView,
+    pub view_grid: &'a Grid,
+}
+
+impl<'w, 's> MapViewContextQuery<'w, 's> {
+    pub fn get(&self, id: Entity) -> Option<MapViewContext> {
+        let view = self
+            .children
+            .iter_ancestors::<ChildOf>(id)
+            .filter_map(|p_id| self.views.get(p_id).ok())
+            .next();
+
+        view.and_then(move |(view_id, view_grid, view, &MapViewWithMap(map_id))| {
+            self.maps.get(map_id).ok().map(move |map| MapViewContext {
+                map,
+                view_grid,
+                view,
+                map_id,
+                view_id,
+            })
+        }).soft_expect("Could not construct view context")
+    }
+}
+
 fn sync_view_from_camera(
     view_cameras: Query<(&GlobalTransform, &Camera, &MapViewCameraWithView), With<MapViewCamera>>,
     mut views: Query<(&GlobalTransform, &mut MapView, &MapViewWithMap)>,
@@ -149,8 +189,8 @@ fn sync_view_from_camera(
             let view_transform_inv = view_transform.affine().inverse();
 
             let cam_view_abs = DAabb2::new(
-                view.local_to_abs(view_transform_inv.transform_point3(cam_view_world_min).xy()),
-                view.local_to_abs(view_transform_inv.transform_point3(cam_view_world_max).xy()),
+                view.local_to_abs(view_transform_inv.transform_point3(cam_view_world_min).xy().as_dvec2()),
+                view.local_to_abs(view_transform_inv.transform_point3(cam_view_world_max).xy().as_dvec2()),
             )
             .intersection(map.projection.abs_bounds());
 
@@ -184,6 +224,7 @@ fn sync_map_view_transform(
         {
             tr_transform.translation = view
                 .abs_to_local(tr_view_transform.translation)
+                .as_vec2()
                 .extend(tr_transform.translation.z);
         }
     }

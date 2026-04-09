@@ -1,28 +1,24 @@
-use crate::app::geo::map::{Map, MapView, MapViewWithMap};
+use crate::app::geo::map::{Map, MapView, MapViewContext, MapViewContextQuery, MapViewWithMap};
 use crate::app::geo::tile_fetcher::{
     TileImageRequest, TileImageRequestWithMap, TileImageSprite, handle_tile_image_sprite_loaded,
 };
 use crate::app::utils::big_space_ext::CommandsWithSpatial;
 use crate::app::utils::debug::SoftExpect;
 use crate::geo::coords::Projection2D;
-use crate::geo::sub_division::{SubDivision2d, TileKey};
+use crate::geo::sub_division::{tile_key_str, SubDivision2d, TileKey};
 use crate::geo::tiling::TileServerDataset;
 use crate::utils::glam_ext::bounding::{Aabb2, AxisAlignedBoundingBox2D, DAabb2};
 use bevy::app::{App, Update};
 use bevy::color::Alpha;
 use bevy::picking::Pickable;
-use bevy::prelude::{
-    Added, ChildOf, Commands, Component, Entity, IntoScheduleConfigs, Query, Reflect, Sprite,
-    Transform, Visibility, With,
-};
-use bevy::prelude::{MessageReader, On, Pointer, Press};
+use bevy::prelude::{Added, Commands, Component, Entity, IntoScheduleConfigs, Name, Query, Reflect, Sprite, Transform, Visibility, With};
 use bevy::prelude::{Plugin, ReflectComponent};
-use bevy_inspector_egui::bevy_egui::EguiPrimaryContextPass;
 use bevy_pancam::PanCamSystems;
-use glam::{USizeVec2, Vec2, dvec2, usizevec2, vec3};
+use glam::{USizeVec2, dvec2, usizevec2, vec3};
 use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use bevy::camera::visibility::RenderLayers;
 
 pub struct MapViewTilingPlugin {}
 
@@ -95,6 +91,7 @@ fn sync_tiles_for_view(
                         if let Entry::Vacant(entry) = tiling.tiles.entry(tile.key.clone()) {
                             let tile_id = commands
                                 .spawn_spatial((
+                                    Name::new(format!("Tile {}", tile_key_str(&tile.key))),
                                     MapViewTile {
                                         area_abs: tile.area,
                                         key: tile.key.clone(),
@@ -166,25 +163,26 @@ pub struct MapViewTileWithTiling(pub Entity);
 
 pub fn setup_tiles(
     mut commands: Commands,
-    added_tiles: Query<(Entity, &MapViewTile, &ChildOf), Added<MapViewTile>>,
-    views: Query<(&MapView, &MapViewWithMap)>,
+    added_tiles: Query<(Entity, &MapViewTile), Added<MapViewTile>>,
+    map_view_context: MapViewContextQuery,
 ) {
-    for (tile_id, tile, &ChildOf(view_id)) in added_tiles {
-        if let Some((view, &MapViewWithMap(map_id))) = views.get(view_id).ok().soft_expect("") {
+    for (tile_id, tile) in added_tiles {
+        if let Some(ctx) = map_view_context.get(tile_id)
+        {
             let area_local = Aabb2::new(
-                view.abs_to_local(tile.area_abs.min()),
-                view.abs_to_local(tile.area_abs.max()),
+                ctx.view.abs_to_local(tile.area_abs.min()).as_vec2(),
+                ctx.view.abs_to_local(tile.area_abs.max()).as_vec2(),
             );
 
             commands.entity(tile_id).insert((
                 Transform::from_translation(
-                    area_local.center().extend(10.0 * tile.key.len() as f32),
-                ),
+                    area_local.center().extend(0.1 + 0.1 * tile.key.len() as f32),
+                ).with_scale(vec3(1.0, 1.0, 0.01)),
                 Visibility::default(),
             ));
 
             for (idx, dataset) in [
-                TileServerDataset::GibsLayerModisTerraCorrectedReflectanceTrueColor,
+                // TileServerDataset::GibsLayerModisTerraCorrectedReflectanceTrueColor,
                 TileServerDataset::SenHubSentinel2L2a,
             ]
             .into_iter()
@@ -204,8 +202,9 @@ pub fn setup_tiles(
                         },
                         MapViewTileFade {},
                         MapViewTileFadeWithTile(tile_id),
-                        TileImageRequestWithMap(map_id),
+                        TileImageRequestWithMap(ctx.map_id),
                         Pickable::default(),
+                        RenderLayers::layer(1),
                     ))
                     .id();
 

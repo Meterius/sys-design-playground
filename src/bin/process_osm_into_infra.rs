@@ -1,16 +1,27 @@
-use futures::future::try_join_all;
-use itertools::Itertools;
-use osmpbf::Element;
+use bevy::prelude::Message;
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
     execute, queue,
     terminal::{Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use tokio_postgres::NoTls;
-use std::time::{Duration, Instant};
+use futures::future::try_join_all;
+use itertools::Itertools;
+use osmpbf::Element;
+use smallvec::SmallVec;
 use std::io::Write;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+use std::time::{Duration, Instant};
+use tokio_postgres::NoTls;
+use tokio_postgres::types::Type;
+use tracing::Instrument;
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::{EnvFilter, fmt};
 
-const NUM_CONSUMERS: usize = 4;
+const NUM_CONSUMERS: usize = 1024;
+const BATCH_COUNT: usize = 1;
 
 #[derive(Debug)]
 struct LocationMsg {
@@ -33,7 +44,7 @@ fn encode_tags<'a>(tags: impl Iterator<Item = (&'a str, &'a str)>) -> String {
 
 async fn consumer_task(
     idx: usize,
-    rx: async_channel::Receiver<LocationMsg>,
+    mut rx: tokio::sync::mpsc::Receiver<LocationMsg>,
     report_tx: async_channel::Sender<ReportMsg>,
 ) {
     let mut count: u64 = 0;
@@ -49,23 +60,33 @@ async fn consumer_task(
         }
     });
 
-    let mut tick = tokio::time::interval(Duration::from_secs(3));
+    let mut tick = tokio::time::interval(Duration::from_secs(5));
 
-    loop {
-        tokio::select! {
-            el = rx.recv() => {
-                let Ok(loc) = el else { break };
-                let LocationMsg { id, lon, lat, tags } = loc;
-                client
-                    .query(
-                        "INSERT INTO locations (id, latitude, longitude, tags)
+    let insert_statement = client.prepare_typed(
+        "INSERT INTO locations (id, latitude, longitude, tags)
 VALUES
     ($1, $2, $3, $4) ON CONFLICT(id)
 DO UPDATE SET (latitude, longitude, tags) = (EXCLUDED.latitude, EXCLUDED.longitude, EXCLUDED.tags);",
-                        &[&(id.rem_euclid(i32::MAX as i64) as i32), &lat, &lon, &tags],
-                    )
-                    .await
-                    .unwrap();
+        &[Type::INT4, Type::FLOAT8, Type::FLOAT8, Type::TEXT],
+    ).await.unwrap();
+
+    let mut buffer = Vec::with_capacity(BATCH_COUNT);
+
+    loop {
+        tokio::select! {
+            m = rx.recv_many(&mut buffer, BATCH_COUNT).instrument(tracing::info_span!("consumer_wait_item", worker_idx = idx)) => {
+                if m == 0 { break; }
+
+                for loc in buffer.drain(..) {
+                    let LocationMsg { id, lon, lat, tags } = loc;
+
+                    client.query(&insert_statement, &[
+                        &(id.rem_euclid(i32::MAX as i64) as i32),
+                        &lat,
+                        &lon,
+                        &tags,
+                    ]).instrument(tracing::info_span!("consumer_postgres_query", worker_idx = idx)).await.unwrap();
+                }
 
                 count += 1;
             }
@@ -77,6 +98,7 @@ DO UPDATE SET (latitude, longitude, tags) = (EXCLUDED.latitude, EXCLUDED.longitu
                         count,
                         ts: Instant::now(),
                     })
+                    .instrument(tracing::info_span!("consumer_report_tick", worker_idx = idx, count = count))
                     .await;
             }
         }
@@ -96,14 +118,14 @@ async fn ui_task(report_rx: async_channel::Receiver<ReportMsg>) {
     let mut stdout = std::io::stdout();
 
     // Enter alternate screen + hide cursor so updates don't spam the console.
-    let _ = execute!(stdout, EnterAlternateScreen, Hide, Clear(ClearType::All));
+    let _ = execute!(stdout, Hide);
 
     // Header at row 0.
     let _ = queue!(
         stdout,
         MoveTo(0, 0),
         Clear(ClearType::CurrentLine),
-        crossterm::style::Print("Worker   Count       TPS(5s)")
+        crossterm::style::Print("Worker   Count       TPS")
     );
 
     // Placeholder rows (1..=NUM_CONSUMERS).
@@ -167,42 +189,43 @@ async fn ui_task(report_rx: async_channel::Receiver<ReportMsg>) {
     }
 
     // Restore terminal.
-    let _ = execute!(stdout, Show, LeaveAlternateScreen);
+    let _ = execute!(stdout, Show);
 }
 
-fn producer_task(producer_tx: async_channel::Sender<LocationMsg>) {
+fn producer_task(producer_tx: tokio::sync::mpsc::Sender<LocationMsg>) {
     let reader =
-        osmpbf::ElementReader::from_path("assets/datasets/osm/berlin-260406.osm.pbf")
-            .unwrap();
+        osmpbf::ElementReader::from_path("assets/datasets/osm/germany-latest.osm.pbf").unwrap();
 
     let total = reader
         .par_map_reduce(
-            |el| {
-                match el {
-                    Element::Node(node) => {
+            |el| match el {
+                Element::Node(node) => {
+                    tracing::info_span!("send_produce").in_scope(|| {
                         producer_tx
-                            .send_blocking(LocationMsg {
+                            .blocking_send(LocationMsg {
                                 id: node.id(),
                                 lon: node.lon(),
                                 lat: node.lat(),
                                 tags: encode_tags(node.tags()),
                             })
                             .unwrap();
-                        1
-                    },
-                    Element::DenseNode(node) => {
-                        producer_tx
-                            .send_blocking(LocationMsg {
-                                id: node.id(),
-                                lon: node.lon(),
-                                lat: node.lat(),
-                                tags: encode_tags(node.tags()),
-                            })
-                            .unwrap();
-                        1
-                    },
-                    _ => 0,
+                    });
+                    1
                 }
+                Element::DenseNode(node) => {
+                    tracing::info_span!("send_produce").in_scope(|| {
+                        producer_tx
+                            .blocking_send(LocationMsg {
+                                id: node.id(),
+                                lon: node.lon(),
+                                lat: node.lat(),
+                                tags: encode_tags(node.tags()),
+                            })
+                            .unwrap();
+                    });
+                    1
+                }
+                _ => 0,
             },
             || 0,
             |a, b| a + b,
@@ -211,37 +234,65 @@ fn producer_task(producer_tx: async_channel::Sender<LocationMsg>) {
 
     // Use stderr so it doesn't interfere with the alternate-screen dashboard.
     eprintln!("Processed {total} elements");
-
-    producer_tx.close();
 }
 
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().unwrap();
 
-    let (tx, rx) = async_channel::bounded::<LocationMsg>(4192);
+    // Initialize tracing so spans/events added in later steps can be inspected.
+    // Configure verbosity via `RUST_LOG` (e.g. `RUST_LOG=debug`).
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let (flame_layer, _flame_guard) =
+        tracing_flame::FlameLayer::with_file("./flame.folded").unwrap();
+    tracing_subscriber::registry()
+        .with(fmt::Layer::default())
+        .with(filter)
+        .with(flame_layer)
+        .init();
+
+    let mut loc_rx = Vec::new();
+    let mut loc_tx = Vec::new();
+
+    let (prod_tx, mut prod_rx) = tokio::sync::mpsc::channel::<LocationMsg>(4192);
+
+    for _ in 0..NUM_CONSUMERS {
+        let (tx, rx) = tokio::sync::mpsc::channel::<LocationMsg>(128);
+        loc_rx.push(rx);
+        loc_tx.push(tx);
+    }
 
     // Each worker periodically reports its latest count to the main/UI thread.
     // Workers do not need to coordinate with each other.
     let (report_tx, report_rx) = async_channel::unbounded::<ReportMsg>();
 
-    let consumers = (0usize..NUM_CONSUMERS)
-        .map(|idx| {
-            let rx = rx.clone();
+    let consumers = loc_rx
+        .into_iter()
+        .enumerate()
+        .map(|(idx, loc_rx)| {
             let report_tx = report_tx.clone();
-            tokio::task::spawn(consumer_task(idx, rx, report_tx))
+            tokio::task::spawn(consumer_task(idx, loc_rx, report_tx))
         })
         .collect::<Vec<_>>();
 
     let ui_handle = tokio::task::spawn(ui_task(report_rx));
 
-    let producer = std::thread::spawn({
-        let producer_tx = tx.clone();
-        move || producer_task(producer_tx)
+    let distribute = tokio::task::spawn(async move {
+        let mut buffer = Vec::with_capacity(1024);
+        let mut count = 0;
+        while prod_rx.recv_many(&mut buffer, 1024).await != 0 {
+            for loc in buffer.drain(..) {
+                loc_tx[count].send(loc).await.unwrap();
+                count = (count + 1) % loc_tx.len();
+            }
+        }
     });
 
-    tx.closed().await;
+    let producer = std::thread::spawn({ move || producer_task(prod_tx) });
+
     producer.join().unwrap();
+    distribute.await.unwrap();
     try_join_all(consumers.into_iter()).await.unwrap();
+    report_tx.close();
     let _ = ui_handle.await;
 }

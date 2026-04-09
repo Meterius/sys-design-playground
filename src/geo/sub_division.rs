@@ -105,7 +105,7 @@ impl SubDivision2d {
                     tile_size,
                 );
 
-                if self.area.contains(tile_area.size()) {
+                if self.area.contains(tile_area.center()) {
                     let key = self.tile_path(tile_area.center(), depth);
 
                     Some(Tile2d {

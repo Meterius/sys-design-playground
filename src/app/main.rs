@@ -3,6 +3,7 @@ use crate::app::geo::map::{Map, MapView, MapViewCamera, MapViewCameraWithView, M
 use crate::app::geo::tiling::{MapViewTiling, MapViewTilingWithView};
 use crate::app::settings::SettingsPlugin;
 use crate::geo::coords::BoundedMercatorProjection;
+use crate::utils::glam_ext::bounding::AxisAlignedBoundingBox2D;
 use bevy::DefaultPlugins;
 use bevy::app::{App, PluginGroup, Startup};
 use bevy::log::{Level, LogPlugin};
@@ -14,7 +15,10 @@ use bevy_inspector_egui::bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_pancam::{PanCam, PanCamPlugin};
 use bevy_prototype_lyon::plugin::ShapePlugin;
+use bevy_tokio_tasks::TokioTasksRuntime;
 use bevy_vector_shapes::Shape2dPlugin;
+use big_space::plugin::BigSpaceDefaultPlugins;
+use big_space::prelude::{BigSpaceCommands, FloatingOrigin, Grid};
 use std::f64::consts::PI;
 
 pub fn initialize(_width: usize, _height: usize) {
@@ -42,76 +46,75 @@ pub fn initialize(_width: usize, _height: usize) {
                     }
                     .into(),
                     ..default()
-                }),
+                })
+                .disable::<TransformPlugin>(),
         )
         .add_plugins((
             PanCamPlugin,
             GeoPlugin {},
-            // MeshPickingPlugin,
+            MeshPickingPlugin,
             EguiPlugin::default(),
             WorldInspectorPlugin::new(),
             ShapePlugin,
             Shape2dPlugin::default(),
             bevy_tokio_tasks::TokioTasksPlugin::default(),
             SettingsPlugin::default(),
+            BigSpaceDefaultPlugins,
         ))
         .add_systems(Startup, setup)
         .run();
 }
 
-fn setup(mut commands: Commands) {
-    let map_id = commands
-        .spawn(Map {
-            projection: BoundedMercatorProjection {
-                lat_min: -0.45 * PI,
-                lat_max: 0.4 * PI,
-            },
-        })
-        .id();
+fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
+    let map = Map {
+        projection: BoundedMercatorProjection {
+            lat_min: -0.45 * PI,
+            lat_max: 0.4 * PI,
+        },
+    };
 
-    let map_view_id = commands
-        .spawn((
-            Transform::from_scale((50000.0 * Vec2::ONE).extend(1.0)),
-            Visibility::default(),
-            MapView::default(),
-            MapViewWithMap(map_id),
-        ))
-        .id();
+    let map_id = commands.spawn(map.clone()).id();
 
-    commands.spawn((MapViewTiling::new(6), MapViewTilingWithView(map_view_id)));
+    commands.spawn_big_space(Grid::default(), |root_grid| {
+        let map_view = MapView::new();
 
-    commands.spawn((
-        Camera2d,
-        BackgroundColor(Color::WHITE.with_luminance(0.4)),
-        PanCam { ..default() },
-        MapViewCamera {},
-        MapViewCameraWithView(map_view_id),
-    ));
+        let map_view_id = root_grid
+            .insert((
+                Visibility::default(),
+                map_view.clone(),
+                MapViewWithMap(map_id),
+            ))
+            .id();
 
-    // let mut plane_commands = commands.spawn((
-    //     Transform::default().with_scale(Vec3::ONE),
-    //     Visibility::default(),
-    //     GeoMapPlane {
-    //         projection: BoundedMercatorProjection {
-    //             lat_min: -0.45 * PI,
-    //             lat_max: 0.4 * PI,
-    //         },
-    //         scale: 500.0,
-    //     },
-    //     GeoMapPlaneView::default(),
-    // ));
-    //
-    // plane_commands.with_child((
-    //     Tiling::new(4),
-    //     Transform::default(),
-    //     Visibility::default(),
-    //     GeoMapElementOf(plane_commands.id()),
-    // ));
-    //
-    // plane_commands.with_child((
-    //     LocationsManager::default(),
-    //     Transform::from_translation(Vec3::new(0.0, 0.0, 50.0)),
-    //     Visibility::default(),
-    //     GeoMapElementOf(plane_commands.id()),
-    // ));
+        root_grid.spawn_spatial((MapViewTiling::new(6), MapViewTilingWithView(map_view_id)));
+
+        root_grid.spawn_spatial((
+            Camera2d,
+            BackgroundColor(Color::WHITE.with_luminance(0.4)),
+            PanCam { ..default() },
+            MapViewCamera {},
+            MapViewCameraWithView(map_view_id),
+            FloatingOrigin,
+        ));
+    });
+
+    // runtime.spawn_background_task(async move |mut task| {
+    //     let index = fetch_fabrik_index(&reqwest::Client::new()).await.unwrap();
+    //     task.run_on_main_thread(move |world| {
+    //         for geometry in index
+    //             .features
+    //             .into_iter()
+    //             .filter_map(|feature| feature.geometry)
+    //         {
+    //             world.world.commands().entity(map_view_id).with_child((
+    //                 Transform::from_translation(vec3(0.0, 0.0, 100.0)),
+    //                 Visibility::default(),
+    //                 Geometry {
+    //                     geometry: geometry.value,
+    //                 },
+    //             ));
+    //         }
+    //     })
+    //         .await;
+    // });
 }

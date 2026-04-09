@@ -1,13 +1,22 @@
 use crate::utils::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
+use bevy::prelude::Reflect;
 use glam::{DVec2, dvec2};
 use std::f64::consts::PI;
 
+pub const fn approx_lat_delta_from_len(len: f64) -> f64 {
+    (len / 111320.0).to_radians()
+}
+
 fn approx_vertical_len(lat_min: f64, lat_max: f64) -> f64 {
-    (lat_max - lat_min) * (360.0 / 2.0 * PI) * 111320.0
+    (lat_max - lat_min).to_degrees() * 111320.0
+}
+
+fn approx_lon_delta_from_len(lat: f64, len: f64) -> f64 {
+    (len / (111320.0 * lat.cos())).to_radians()
 }
 
 fn approx_horizontal_len(lat: f64, lon_min: f64, lon_max: f64) -> f64 {
-    (lon_max - lon_min) * 360.0 / (2.0 * PI) * 111320.0 * lat.cos()
+    (lon_max - lon_min).to_degrees() * 111320.0 * lat.cos()
 }
 
 pub fn approx_size_bound(gcs_area: DAabb2) -> DVec2 {
@@ -50,7 +59,7 @@ pub trait Projection2D {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Reflect)]
 pub struct BoundedMercatorProjection {
     pub lat_max: f64,
     pub lat_min: f64,
@@ -62,6 +71,7 @@ impl Projection2D for BoundedMercatorProjection {
     }
 
     fn gcs_to_abs(&self, gcs_pos: DVec2) -> DVec2 {
+        let gcs_pos = self.gcs_bounds().closest_point(gcs_pos);
         dvec2(gcs_pos.x, (PI / 4.0 + gcs_pos.y / 2.0).tan().ln())
     }
 

@@ -1,28 +1,25 @@
 use crate::app::settings::Settings;
 use crate::app::utils::SoftExpect;
-use crate::geo::coords::{BoundedMercatorProjection, Projection2D};
+use crate::geo::coords::{BoundedMercatorProjection, Projection2D, approx_lat_delta_from_len};
 use crate::utils::glam_ext::bounding::{Aabb2, AxisAlignedBoundingBox2D, DAabb2};
+use bevy::ecs::relationship::AncestorIter;
 use bevy::prelude::*;
 use bevy_pancam::{PanCam, PanCamClampBounds, PanCamSystems};
 use bevy_vector_shapes::painter::ShapePainter;
 use bevy_vector_shapes::prelude::LinePainter;
 use bevy_vector_shapes::shapes::ThicknessType;
 use glam::{DAffine2, DVec2, dvec2};
+use itertools::Itertools;
+use std::path::Ancestors;
 
 pub struct MapPlugin {}
 
 impl Plugin for MapPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
-            Update,
-            (reposition_view, adjust_pan_cam_bounds)
-                .chain()
-                .before(PanCamSystems),
-        );
-
-        app.add_systems(
             PostUpdate,
             (
+                sync_map_view_transform.before(TransformSystems::Propagate),
                 sync_view_from_camera.after(TransformSystems::Propagate),
                 draw_map_view_debug,
             )
@@ -31,32 +28,44 @@ impl Plugin for MapPlugin {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Clone, Reflect)]
 pub struct Map {
     pub projection: BoundedMercatorProjection,
 }
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
 #[relationship_target(relationship = MapViewWithMap)]
 pub struct MapWithViews(Vec<Entity>);
 
-#[derive(Component, Default, Reflect)]
+#[derive(Component, Clone, Reflect)]
 pub struct MapView {
-    abs_transform: DAffine2,
-
+    pub scale: f64,
     pub viewport_abs: Option<DAabb2>,
     pub viewport_gcs: Option<DAabb2>,
 }
 
 impl MapView {
+    pub fn new() -> Self {
+        Self {
+            scale: approx_lat_delta_from_len(10.0).recip(),
+            viewport_abs: None,
+            viewport_gcs: None,
+        }
+    }
+
     pub fn local_to_abs(&self, pos: Vec2) -> DVec2 {
-        self.abs_transform
-            .inverse()
-            .transform_point2(pos.as_dvec2())
+        pos.as_dvec2() / self.scale
     }
 
     pub fn abs_to_local(&self, pos: DVec2) -> Vec2 {
-        self.abs_transform.transform_point2(pos).as_vec2()
+        (pos * self.scale).as_vec2()
+    }
+
+    pub fn map_bounds_local(&self, map: &Map) -> Aabb2 {
+        Aabb2::new(
+            self.abs_to_local(map.projection.abs_bounds().min()),
+            self.abs_to_local(map.projection.abs_bounds().max()),
+        )
     }
 }
 
@@ -106,80 +115,20 @@ fn draw_map_view_debug(
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
 #[relationship(relationship_target = MapWithViews)]
 pub struct MapViewWithMap(pub Entity);
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
 #[relationship_target(relationship = MapViewCameraWithView)]
 pub struct MapViewWithCamera(Entity);
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
 pub struct MapViewCamera {}
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
 #[relationship(relationship_target = MapViewWithCamera)]
 pub struct MapViewCameraWithView(pub Entity);
-
-fn adjust_pan_cam_bounds(
-    mut commands: Commands,
-    view_cameras: Query<
-        (Entity, &mut PanCam, &mut Projection, &MapViewCameraWithView),
-        With<MapViewCamera>,
-    >,
-    mut views: Query<(&GlobalTransform, &mut MapView, &MapViewWithMap)>,
-    maps: Query<&Map>,
-) {
-    for (cam_id, mut pan_cam, mut cam_proj, &MapViewCameraWithView(view_id)) in view_cameras {
-        if let Some((view_transform, mut view, &MapViewWithMap(map_id))) =
-            views.get_mut(view_id).ok().soft_expect("")
-            && let Some(map) = maps.get(map_id).ok().soft_expect("")
-        {
-            let view_world_bounds = Aabb2::new(
-                view_transform
-                    .transform_point(
-                        view.abs_to_local(map.projection.abs_bounds().min())
-                            .extend(0.0),
-                    )
-                    .xy(),
-                view_transform
-                    .transform_point(
-                        view.abs_to_local(map.projection.abs_bounds().max())
-                            .extend(0.0),
-                    )
-                    .xy(),
-            );
-
-            if let Projection::Orthographic(cam_proj) = &mut *cam_proj {
-                let max_scale = (view_world_bounds.size()
-                    / (cam_proj.area.size() / cam_proj.scale))
-                    .min_element();
-
-                if max_scale != pan_cam.max_scale {
-                    pan_cam.max_scale = max_scale;
-                    cam_proj.scale = cam_proj.scale.min(pan_cam.max_scale);
-                    commands.trigger(PanCamClampBounds { entity: cam_id });
-                }
-
-                let pan_cam_bounds = Aabb2::new(
-                    Vec2::new(pan_cam.min_x, pan_cam.min_y),
-                    Vec2::new(pan_cam.max_x, pan_cam.max_x),
-                );
-
-                if pan_cam_bounds != view_world_bounds {
-                    pan_cam.min_x = view_world_bounds.min().x;
-                    pan_cam.min_y = view_world_bounds.min().y;
-                    pan_cam.max_x = view_world_bounds.max().x;
-                    pan_cam.max_y = view_world_bounds.max().y;
-
-                    commands.trigger(PanCamClampBounds { entity: cam_id });
-                }
-            } else {
-                warn!("Expected orthographic camera projection");
-            }
-        }
-    }
-}
 
 fn sync_view_from_camera(
     view_cameras: Query<(&GlobalTransform, &Camera, &MapViewCameraWithView), With<MapViewCamera>>,
@@ -203,8 +152,7 @@ fn sync_view_from_camera(
                 view.local_to_abs(view_transform_inv.transform_point3(cam_view_world_min).xy()),
                 view.local_to_abs(view_transform_inv.transform_point3(cam_view_world_max).xy()),
             )
-            .intersection(map.projection.abs_bounds())
-            .soft_expect("");
+            .intersection(map.projection.abs_bounds());
 
             view.viewport_gcs = cam_view_abs.as_ref().map(|cam_view_abs| {
                 DAabb2::new(
@@ -217,56 +165,26 @@ fn sync_view_from_camera(
     }
 }
 
-pub fn reposition_view(
-    view_cameras: Query<
-        (
-            &GlobalTransform,
-            &mut Transform,
-            &Camera,
-            &mut Projection,
-            &MapViewCameraWithView,
-        ),
-        With<MapViewCamera>,
-    >,
-    mut views: Query<(&GlobalTransform, &mut MapView, &MapViewWithMap)>,
+#[derive(Component, Reflect)]
+pub struct MapViewTransform {
+    pub translation: DVec2,
+}
+
+fn sync_map_view_transform(
+    transforms: Query<(Entity, &mut Transform, &MapViewTransform)>,
+    parents: Query<&ChildOf>,
+    views: Query<&MapView>,
 ) {
-    for (cam_transform_g, mut cam_transform, cam, cam_proj, &MapViewCameraWithView(view_id)) in
-        view_cameras
-    {
-        if let Some((view_transform, mut view, &MapViewWithMap(_map_id))) =
-            views.get_mut(view_id).ok().soft_expect("")
-            && let Some(cam_center_world) = cam
-                .ndc_to_world(cam_transform_g, Vec3::ZERO)
-                .soft_expect("")
+    for (tr_id, mut tr_transform, tr_view_transform) in transforms {
+        if let Some(view) = parents
+            .iter_ancestors(tr_id)
+            .filter_map(|p_id| views.get(p_id).ok())
+            .next()
+            .soft_expect("")
         {
-            let origin_local = view_transform
-                .affine()
-                .inverse()
-                .transform_point3(Vec3::ZERO)
-                .xy();
-            let origin_abs = view.local_to_abs(origin_local);
-
-            let cam_center_local = view_transform
-                .affine()
-                .inverse()
-                .transform_point3(cam_center_world)
-                .xy();
-            let cam_center_abs = view.local_to_abs(cam_center_local);
-
-            let reposition = match cam_proj.as_ref() {
-                Projection::Orthographic(cam_proj) => {
-                    (cam_transform.translation.xy() / cam_proj.scale)
-                        .max_element()
-                        .abs()
-                        >= 10000.0
-                }
-                _ => false,
-            };
-
-            if reposition {
-                view.abs_transform.translation -= cam_center_abs - origin_abs;
-                cam_transform.translation = Vec3::ZERO;
-            }
+            tr_transform.translation = view
+                .abs_to_local(tr_view_transform.translation)
+                .extend(tr_transform.translation.z);
         }
     }
 }

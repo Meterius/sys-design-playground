@@ -157,6 +157,6 @@ where
     }
 
     fn closest_point(&self, pos: T) -> T {
-        pos.min(self.min()).max(self.max())
+        pos.max(self.min()).min(self.max())
     }
 }

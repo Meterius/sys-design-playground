@@ -15,6 +15,14 @@ path = "src/bin/app.rs"
 name = "process_osm_into_infra"
 path = "src/bin/process_osm_into_infra.rs"
 
+[[bin]]
+name = "process_osm_shapefile_into_infra"
+path = "src/bin/process_osm_shapefile_into_infra.rs"
+
+[[bin]]
+name = "fetch_osm_shapefiles"
+path = "src/bin/fetch_osm_shapefiles.rs"
+
 [features]
 default = []
 debug = ["bevy/debug", "bevy/bevy_debug_stepping"]
@@ -57,6 +65,10 @@ tracing-flame = "0.2"
 cached = "0.59.0"
 big_space = "0.12.0"
 shapefile = "0.8.0"
+strum = { version = "0.28.0", features = ["derive"] }
+postgis = "0.9.0"
+clorinde = { path = "./clorinde" }
+zip = "6.0.0"
 
 [profile.release]
 debug = "line-tables-only"

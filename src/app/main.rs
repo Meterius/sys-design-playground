@@ -31,6 +31,7 @@ use glam::dvec2;
 use itertools::Itertools;
 use shapefile::dbase::FieldValue;
 use std::f64::consts::PI;
+use crate::geo::osm::layered::model::road::Road;
 
 pub fn initialize(_width: usize, _height: usize) {
     App::new()
@@ -150,6 +151,7 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
                 ("Boundary", 102.0, Some(100.0), shapefile::Reader::from_path("./assets/datasets/natural_earth_vector/10m_cultural/ne_10m_admin_0_boundary_lines_land.shp").unwrap(), Color::hsv(38.0, 0.22, 0.47)),
                 ("Railroad", 103.0, Some(15.0), shapefile::Reader::from_path("./assets/datasets/natural_earth_vector/10m_cultural/ne_10m_railroads.shp").unwrap(), Color::hsv(38.0, 0.0, 0.7)),
                 ("Road", 104.0, Some(5.0), shapefile::Reader::from_path("./assets/datasets/natural_earth_vector/10m_cultural/ne_10m_admin_0_boundary_lines_land.shp").unwrap(), Color::hsv(38.0, 0.0, 0.5)),
+                ("Hamburg Road", 104.0, Some(2.0), shapefile::Reader::from_path("./assets/datasets/osm/shapefiles/hamburg-260408-free.shp/gis_osm_roads_free_1.shp").unwrap(), Color::hsv(38.0, 0.0, 0.2)),
             ];
 
             // let index = fetch_fabrik_index(&reqwest::Client::new()).await.unwrap();

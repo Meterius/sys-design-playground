@@ -1,4 +1,4 @@
-use clorinde::types as sql_types;
+use generated_queries::types as sql_types;
 use glam::DVec2;
 use std::str::FromStr;
 use strum::{AsRefStr, Display, EnumString};

@@ -2377,18 +2377,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "clorinde"
-version = "0.0.0"
-dependencies = [
- "deadpool-postgres",
- "futures 0.3.32",
- "postgres",
- "postgres-protocol",
- "postgres-types",
- "tokio-postgres",
-]
-
-[[package]]
 name = "cmake"
 version = "0.1.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3613,6 +3601,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "generated_queries"
+version = "0.0.0"
+dependencies = [
+ "deadpool-postgres",
+ "futures 0.3.32",
+ "postgres",
+ "postgres-protocol",
+ "postgres-types",
+ "tokio-postgres",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3714,11 +3714,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0de51e6874e94e7bf76d726fc5d13ba782deca734ff60d5bb2fb2607c7406555"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "r-efi 6.0.0",
  "rand_core 0.10.0",
  "wasip2",
  "wasip3",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -4515,12 +4517,12 @@ dependencies = [
  "bevy_vector_shapes",
  "big_space",
  "cached",
- "clorinde",
  "crossterm",
  "dotenvy",
  "egui",
  "fs",
  "futures 0.3.32",
+ "generated_queries",
  "geojson",
  "glam",
  "hex",
@@ -5946,6 +5948,7 @@ dependencies = [
  "byteorder",
  "bytes 1.11.1",
  "fallible-iterator",
+ "getrandom 0.4.2",
  "hmac 0.13.0",
  "md-5",
  "memchr",

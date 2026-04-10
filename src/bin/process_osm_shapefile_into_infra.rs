@@ -1,4 +1,4 @@
-use clorinde::queries::osm_roads_queries::{
+use generated_queries::queries::osm_roads_queries::{
     UpsertRoadStreamingTransferStmt, UpsertRoadsStreamingCommitStmt, UpsertRoadsStreamingEndStmt,
     upsert_road_streaming_transfer, upsert_roads_streaming_commit, upsert_roads_streaming_end,
     upsert_roads_streaming_start,
@@ -310,7 +310,7 @@ pub async fn main() {
         .compact()
         .init();
 
-    let shapefile_dirs = collect_shapefile_dirs(Path::new("./assets/datasets/osm/shapefiles"));
+    let shapefile_dirs = collect_shapefile_dirs(Path::new("./datasets/osm/shapefiles"));
 
     let worker_count = MAX_PARALLEL_DIRS.max(1);
     let mut senders = Vec::with_capacity(worker_count);

@@ -3,6 +3,10 @@ name = "jlh_sys_design_playground"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+resolver = "3"
+members = ["crates/generated_queries"]
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 path = "src/lib.rs"
@@ -24,6 +28,7 @@ default = []
 debug = ["bevy/debug", "bevy/bevy_debug_stepping"]
 
 [dependencies]
+generated_queries = { path = "./crates/generated_queries" }
 bevy = { version = "0.18.1", features = ["jpeg"] }
 bevy_pancam = { version = "0.20.0", features = ["bevy_egui_0_39"] }
 bevy_prototype_lyon = "0.16.0"
@@ -63,7 +68,6 @@ big_space = "0.12.0"
 shapefile = "0.8.0"
 strum = { version = "0.28.0", features = ["derive"] }
 postgis = "0.9.0"
-clorinde = { path = "./clorinde" }
 zip = "6.0.0"
 
 [profile.release]

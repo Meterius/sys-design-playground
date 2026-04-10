@@ -10,7 +10,7 @@ use tracing::{info, warn};
 use zip::ZipArchive;
 
 const TARGET: &str = "europe";
-const SHAPEFILES_ROOT: &str = "./assets/datasets/osm/shapefiles";
+const SHAPEFILES_ROOT: &str = "./datasets/osm/shapefiles";
 const MAX_PARALLEL_DOWNLOADS: usize = 8;
 
 #[derive(Clone)]

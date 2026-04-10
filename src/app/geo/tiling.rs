@@ -5,20 +5,23 @@ use crate::app::geo::tile_fetcher::{
 use crate::app::utils::big_space_ext::CommandsWithSpatial;
 use crate::app::utils::debug::SoftExpect;
 use crate::geo::coords::Projection2D;
-use crate::geo::sub_division::{tile_key_str, SubDivision2d, TileKey};
+use crate::geo::sub_division::{SubDivision2d, TileKey, tile_key_str};
 use crate::geo::tiling::TileServerDataset;
 use crate::utils::glam_ext::bounding::{Aabb2, AxisAlignedBoundingBox2D, DAabb2};
 use bevy::app::{App, Update};
+use bevy::camera::visibility::RenderLayers;
 use bevy::color::Alpha;
 use bevy::picking::Pickable;
-use bevy::prelude::{Added, Commands, Component, Entity, IntoScheduleConfigs, Name, Query, Reflect, Sprite, Transform, Visibility, With};
+use bevy::prelude::{
+    Added, Commands, Component, Entity, IntoScheduleConfigs, Name, Query, Reflect, Sprite,
+    Transform, Visibility, With,
+};
 use bevy::prelude::{Plugin, ReflectComponent};
 use bevy_pancam::PanCamSystems;
 use glam::{USizeVec2, dvec2, usizevec2, vec3};
 use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use bevy::camera::visibility::RenderLayers;
 
 pub struct MapViewTilingPlugin {}
 
@@ -167,8 +170,7 @@ pub fn setup_tiles(
     map_view_context: MapViewContextQuery,
 ) {
     for (tile_id, tile) in added_tiles {
-        if let Some(ctx) = map_view_context.get(tile_id)
-        {
+        if let Some(ctx) = map_view_context.get(tile_id) {
             let area_local = Aabb2::new(
                 ctx.view.abs_to_local(tile.area_abs.min()).as_vec2(),
                 ctx.view.abs_to_local(tile.area_abs.max()).as_vec2(),
@@ -176,8 +178,11 @@ pub fn setup_tiles(
 
             commands.entity(tile_id).insert((
                 Transform::from_translation(
-                    area_local.center().extend(0.1 + 0.1 * tile.key.len() as f32),
-                ).with_scale(vec3(1.0, 1.0, 0.01)),
+                    area_local
+                        .center()
+                        .extend(0.1 + 0.1 * tile.key.len() as f32),
+                )
+                .with_scale(vec3(1.0, 1.0, 0.01)),
                 Visibility::default(),
             ));
 

@@ -1,6 +1,6 @@
 use crate::app::common::settings::Settings;
 use crate::app::utils::debug::SoftExpect;
-use crate::geo::coords::{approx_lat_delta_from_len, BoundedMercatorProjection, Projection2D};
+use crate::geo::coords::{BoundedMercatorProjection, Projection2D, approx_lat_delta_from_len};
 use crate::utils::glam_ext::bounding::{Aabb2, AxisAlignedBoundingBox2D, DAabb2};
 use bevy::ecs::query::QueryData;
 use bevy::ecs::relationship::AncestorIter;
@@ -11,7 +11,7 @@ use bevy_vector_shapes::painter::ShapePainter;
 use bevy_vector_shapes::prelude::LinePainter;
 use bevy_vector_shapes::shapes::ThicknessType;
 use big_space::grid::Grid;
-use glam::{dvec2, DAffine2, DVec2};
+use glam::{DAffine2, DVec2, dvec2};
 use itertools::Itertools;
 use std::path::Ancestors;
 
@@ -137,7 +137,16 @@ pub struct MapViewCameraWithView(pub Entity);
 #[derive(SystemParam)]
 pub struct MapViewContextQuery<'w, 's> {
     maps: Query<'w, 's, &'static Map>,
-    views: Query<'w, 's, (Entity, &'static Grid, &'static MapView, &'static MapViewWithMap)>,
+    views: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static Grid,
+            &'static MapView,
+            &'static MapViewWithMap,
+        ),
+    >,
     children: Query<'w, 's, &'static ChildOf>,
 }
 
@@ -166,7 +175,8 @@ impl<'w, 's> MapViewContextQuery<'w, 's> {
                 map_id,
                 view_id,
             })
-        }).soft_expect("Could not construct view context")
+        })
+        .soft_expect("Could not construct view context")
     }
 }
 
@@ -189,8 +199,18 @@ fn sync_view_from_camera(
             let view_transform_inv = view_transform.affine().inverse();
 
             let cam_view_abs = DAabb2::new(
-                view.local_to_abs(view_transform_inv.transform_point3(cam_view_world_min).xy().as_dvec2()),
-                view.local_to_abs(view_transform_inv.transform_point3(cam_view_world_max).xy().as_dvec2()),
+                view.local_to_abs(
+                    view_transform_inv
+                        .transform_point3(cam_view_world_min)
+                        .xy()
+                        .as_dvec2(),
+                ),
+                view.local_to_abs(
+                    view_transform_inv
+                        .transform_point3(cam_view_world_max)
+                        .xy()
+                        .as_dvec2(),
+                ),
             )
             .intersection(map.projection.abs_bounds());
 

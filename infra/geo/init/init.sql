@@ -19,7 +19,7 @@ CREATE TABLE osm_roads (
   osm_id        bigint primary key,
   class         ROAD_CLASS not null,
   category      ROAD_CLASS_CATEGORY not null,
-  reference     text not null default '',
+  reference     text not null,
   oneway        ROAD_ONEWAY not null,
   max_speed     integer,
   layer         integer not null,

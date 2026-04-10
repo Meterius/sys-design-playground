@@ -1,9 +1,9 @@
-use std::fmt::Display;
 use crate::utils::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use bevy::prelude::Reflect;
 use glam::{DVec2, USizeVec2, dvec2};
 use itertools::Itertools;
 use smallvec::SmallVec;
+use std::fmt::Display;
 
 pub type TileKey = SmallVec<[SubDivisionKey; 10]>;
 
@@ -26,12 +26,14 @@ pub struct Tile2d {
 }
 
 pub fn tile_key_str(key: &TileKey) -> String {
-    key.iter().map(|key| match key {
-        SubDivisionKey::BottomLeft => "BL",
-        SubDivisionKey::BottomRight => "BR",
-        SubDivisionKey::TopRight => "TR",
-        SubDivisionKey::TopLeft => "TL",
-    }).join("_")
+    key.iter()
+        .map(|key| match key {
+            SubDivisionKey::BottomLeft => "BL",
+            SubDivisionKey::BottomRight => "BR",
+            SubDivisionKey::TopRight => "TR",
+            SubDivisionKey::TopLeft => "TL",
+        })
+        .join("_")
 }
 
 impl SubDivision2d {

@@ -1,12 +1,13 @@
-use strum::{AsRefStr, Display, EnumString};
-use std::str::FromStr;
 use clorinde::types as sql_types;
+use glam::DVec2;
+use std::str::FromStr;
+use strum::{AsRefStr, Display, EnumString};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OneWay {
     ForwardsOnly,
     BackwardsOnly,
-    Bidirectional
+    Bidirectional,
 }
 
 impl From<OneWay> for sql_types::RoadOneway {
@@ -221,11 +222,9 @@ impl From<sql_types::RoadClass> for RoadClass {
 impl RoadClass {
     pub const fn category(self) -> RoadClassCategory {
         match self {
-            Self::Motorway
-            | Self::Trunk
-            | Self::Primary
-            | Self::Secondary
-            | Self::Tertiary => RoadClassCategory::MajorRoads,
+            Self::Motorway | Self::Trunk | Self::Primary | Self::Secondary | Self::Tertiary => {
+                RoadClassCategory::MajorRoads
+            }
 
             Self::Unclassified
             | Self::Residential
@@ -247,11 +246,9 @@ impl RoadClass {
             | Self::TrackGrade4
             | Self::TrackGrade5 => RoadClassCategory::VerySmallRoads,
 
-            Self::Bridleway
-            | Self::Cycleway
-            | Self::Footway
-            | Self::Path
-            | Self::Steps => RoadClassCategory::PathsUnsuitableForCars,
+            Self::Bridleway | Self::Cycleway | Self::Footway | Self::Path | Self::Steps => {
+                RoadClassCategory::PathsUnsuitableForCars
+            }
 
             Self::Unknown => RoadClassCategory::Unknown,
         }
@@ -265,8 +262,10 @@ pub struct Road {
     pub oneway: OneWay,
     pub max_speed: Option<u32>,
     pub layer: i32,
-    pub bridge: bool,
-    pub tunnel: bool,
+    pub is_bridge: bool,
+    pub is_tunnel: bool,
+
+    pub geometry: Vec<DVec2>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -278,7 +277,31 @@ pub enum RoadRecordParseError {
 }
 
 impl Road {
-    pub fn from_record(record: &shapefile::dbase::Record) -> Result<Self, RoadRecordParseError> {
+    pub fn from_shapefile_item(
+        (shape, record): (&shapefile::Shape, &shapefile::dbase::Record),
+    ) -> Result<Self, RoadRecordParseError> {
+        let geometry = match shape {
+            shapefile::Shape::Polyline(poly) => {
+                if poly.parts().len() != 1 {
+                    return Err(RoadRecordParseError::InvalidField {
+                        field: "shape",
+                        value: format!("expected one polyline part, got {}", poly.parts().len()),
+                    });
+                }
+                poly.part(0)
+                    .unwrap_or(&vec![])
+                    .iter()
+                    .map(|p| DVec2::new(p.x, p.y))
+                    .collect::<Vec<_>>()
+            }
+            other => {
+                return Err(RoadRecordParseError::InvalidField {
+                    field: "shape",
+                    value: format!("unsupported shape type"),
+                });
+            }
+        };
+
         let class_str = match record.get("fclass") {
             Some(shapefile::dbase::FieldValue::Character(Some(v))) => v.trim().to_owned(),
             Some(other) => {
@@ -289,10 +312,11 @@ impl Road {
             }
             None => return Err(RoadRecordParseError::MissingField("fclass")),
         };
-        let class = RoadClass::from_str(&class_str).map_err(|_| RoadRecordParseError::InvalidField {
-            field: "fclass",
-            value: class_str.clone(),
-        })?;
+        let class =
+            RoadClass::from_str(&class_str).map_err(|_| RoadRecordParseError::InvalidField {
+                field: "fclass",
+                value: class_str.clone(),
+            })?;
 
         let oneway = match record.get("oneway") {
             Some(shapefile::dbase::FieldValue::Character(Some(v))) => match v.trim() {
@@ -388,14 +412,17 @@ impl Road {
         Ok(Self {
             class,
             osm_id: match record.get("osm_id") {
-                Some(shapefile::dbase::FieldValue::Character(Some(v))) => i64::from_str(v).map_err(|_| RoadRecordParseError::InvalidField {
-                    field: "osm_id",
-                    value: v.to_string(),
-                })?,
-                other => return Err(RoadRecordParseError::InvalidField {
-                    field: "osm_id",
-                    value: format!("{other:?}"),
-                }),
+                Some(shapefile::dbase::FieldValue::Character(Some(v))) => i64::from_str(v)
+                    .map_err(|_| RoadRecordParseError::InvalidField {
+                        field: "osm_id",
+                        value: v.to_string(),
+                    })?,
+                other => {
+                    return Err(RoadRecordParseError::InvalidField {
+                        field: "osm_id",
+                        value: format!("{other:?}"),
+                    });
+                }
             },
             reference: match record.get("ref") {
                 Some(shapefile::dbase::FieldValue::Character(Some(v))) => v.trim().to_owned(),
@@ -404,8 +431,9 @@ impl Road {
             oneway,
             max_speed,
             layer,
-            bridge,
-            tunnel,
+            is_bridge: bridge,
+            is_tunnel: tunnel,
+            geometry,
         })
     }
 }

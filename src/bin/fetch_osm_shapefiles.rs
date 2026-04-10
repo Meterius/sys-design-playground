@@ -1,11 +1,11 @@
 use futures::stream::{self, StreamExt};
 use geojson::Feature;
+use itertools::Itertools;
 use jlh_sys_design_playground::geo::osm::client::fetch_fabrik_index;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use itertools::Itertools;
 use tracing::{info, warn};
 use zip::ZipArchive;
 
@@ -21,9 +21,7 @@ struct RegionNode {
 }
 
 fn prop_str<'a>(feature: &'a Feature, key: &str) -> Option<&'a str> {
-    feature
-        .property(key)
-        .and_then(|v| v.as_str())
+    feature.property(key).and_then(|v| v.as_str())
 }
 
 fn shp_url(feature: &Feature) -> Option<String> {
@@ -79,7 +77,10 @@ fn descendants_including_target(nodes: &HashMap<String, RegionNode>, target: &st
     ordered
 }
 
-fn extract_zip_bytes(bytes: &[u8], out_dir: &Path) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+fn extract_zip_bytes(
+    bytes: &[u8],
+    out_dir: &Path,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let reader = Cursor::new(bytes);
     let mut archive = ZipArchive::new(reader)?;
 
@@ -145,7 +146,9 @@ async fn main() {
         .init();
 
     let client = reqwest::Client::new();
-    let index = fetch_fabrik_index(&client).await.expect("failed to fetch geofabrik index");
+    let index = fetch_fabrik_index(&client)
+        .await
+        .expect("failed to fetch geofabrik index");
     let nodes = build_nodes(&index.features);
     let targets = nodes.keys().cloned().collect_vec(); // descendants_including_target(&nodes, TARGET);
 
@@ -153,7 +156,10 @@ async fn main() {
         panic!("target `{TARGET}` not found in geofabrik index");
     }
 
-    info!("target={TARGET} descendants_including_target={}", targets.len());
+    info!(
+        "target={TARGET} descendants_including_target={}",
+        targets.len()
+    );
     let root = PathBuf::from(SHAPEFILES_ROOT);
     fs::create_dir_all(&root).expect("failed to create shapefiles root directory");
 
@@ -169,7 +175,11 @@ async fn main() {
 
         let out_dir = root.join(&id);
         if out_dir.exists() {
-            info!("skip id={} reason=already_exists path={}", id, out_dir.display());
+            info!(
+                "skip id={} reason=already_exists path={}",
+                id,
+                out_dir.display()
+            );
             continue;
         }
         jobs.push((id, url.to_owned(), out_dir));
@@ -186,4 +196,3 @@ async fn main() {
         .collect::<Vec<_>>()
         .await;
 }
-

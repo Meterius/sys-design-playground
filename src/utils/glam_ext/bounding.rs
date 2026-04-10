@@ -59,7 +59,9 @@ impl Vector<f32> for Vec2 {
         Vec2::max(self, other)
     }
 
-    fn from_array(arr: [f32; 2]) -> Self { Self::from_array(arr) }
+    fn from_array(arr: [f32; 2]) -> Self {
+        Self::from_array(arr)
+    }
 
     fn to_array(&self) -> [f32; 2] {
         self.to_array()
@@ -75,7 +77,9 @@ impl Vector<f64> for DVec2 {
         DVec2::max(self, other)
     }
 
-    fn from_array(arr: [f64; 2]) -> Self { Self::from_array(arr) }
+    fn from_array(arr: [f64; 2]) -> Self {
+        Self::from_array(arr)
+    }
 
     fn to_array(&self) -> [f64; 2] {
         self.to_array()
@@ -123,6 +127,10 @@ where
     fn max(&self) -> T;
 
     fn new(min: T, max: T) -> Self;
+    
+    fn from_corners(a: T, b: T) -> Self {
+        Self::new(a.min(b), b.max(a))
+    }
 
     fn from_center(center: T, size: T) -> Self {
         debug_assert!(size.to_array().into_iter().all(|v| v >= V::zero()));
@@ -175,6 +183,7 @@ where
             T::from_array([min_x, max_y]),
             T::from_array([max_x, max_y]),
             T::from_array([max_x, min_y]),
-        ].into_iter()
+        ]
+        .into_iter()
     }
 }

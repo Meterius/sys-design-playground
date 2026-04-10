@@ -12,10 +12,6 @@ name = "app"
 path = "src/bin/app.rs"
 
 [[bin]]
-name = "process_osm_into_infra"
-path = "src/bin/process_osm_into_infra.rs"
-
-[[bin]]
 name = "process_osm_shapefile_into_infra"
 path = "src/bin/process_osm_shapefile_into_infra.rs"
 

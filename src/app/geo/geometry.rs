@@ -1,4 +1,4 @@
-use crate::app::geo::map::{MapViewContextQuery};
+use crate::app::geo::map::MapViewContextQuery;
 use crate::geo::coords::Projection2D;
 use crate::utils::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use bevy::prelude::*;

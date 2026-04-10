@@ -1,16 +1,14 @@
 use clorinde::queries::osm_roads_queries::{
+    UpsertRoadStreamingTransferStmt, UpsertRoadsStreamingCommitStmt, UpsertRoadsStreamingEndStmt,
     upsert_road_streaming_transfer, upsert_roads_streaming_commit, upsert_roads_streaming_end,
-    upsert_roads_streaming_start, UpsertRoadStreamingTransferStmt,
-    UpsertRoadsStreamingCommitStmt, UpsertRoadsStreamingEndStmt,
+    upsert_roads_streaming_start,
 };
 use futures::stream::{self, StreamExt};
-use glam::{dvec2, DVec2};
-use itertools::Itertools;
+use glam::DVec2;
 use jlh_sys_design_playground::geo::osm::layered::model::road::Road;
 use postgis::ewkb::{AsEwkbLineString, EwkbWrite, LineString, Point};
-use shapefile::Shape;
-use std::pin::Pin;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::time::{Duration, Instant};
 use tokio_postgres::binary_copy::BinaryCopyInWriter;
 use tokio_postgres::types::Type;
@@ -26,7 +24,7 @@ struct DirStats {
     merged: u64,
 }
 
-fn linestring_to_ewkb(points: &[glam::DVec2], srid: u32) -> Vec<u8> {
+fn linestring_to_ewkb(points: &[DVec2], srid: u32) -> Vec<u8> {
     let line = LineString {
         points: points
             .iter()
@@ -86,7 +84,7 @@ impl<'a> RoadStreamingWriter<'a> {
         let copy_sink = client
             .copy_in(
                 "COPY tmp_upsert_roads_streaming (
-                    osm_id, class, category, oneway, max_speed, layer,
+                    osm_id, reference, class, category, oneway, max_speed, layer,
                     is_bridge, is_tunnel, geom
                 ) FROM stdin binary",
             )
@@ -96,6 +94,7 @@ impl<'a> RoadStreamingWriter<'a> {
             copy_sink,
             &[
                 Type::INT8,
+                Type::TEXT,
                 Type::TEXT,
                 Type::TEXT,
                 Type::TEXT,
@@ -116,8 +115,8 @@ impl<'a> RoadStreamingWriter<'a> {
         })
     }
 
-    async fn write(&mut self, road: Road, points: Vec<DVec2>) -> Result<(), tokio_postgres::Error> {
-        let geom_ewkb = linestring_to_ewkb(&points, 4326);
+    async fn write(&mut self, road: Road) -> Result<(), tokio_postgres::Error> {
+        let geom_ewkb = linestring_to_ewkb(&road.geometry, 4326);
         let class = road.class.as_ref();
         let category_enum = road.class.category();
         let category = category_enum.as_ref();
@@ -138,13 +137,14 @@ impl<'a> RoadStreamingWriter<'a> {
             .as_mut()
             .write(&[
                 &road.osm_id,
+                &road.reference,
                 &class,
                 &category,
                 &oneway,
                 &max_speed,
                 &road.layer,
-                &road.bridge,
-                &road.tunnel,
+                &road.is_bridge,
+                &road.is_tunnel,
                 &geom_ewkb,
             ])
             .await
@@ -188,10 +188,10 @@ async fn process_shapefile_dir(
         };
         let mut found = None;
         for item in probe_reader.iter_shapes_and_records() {
-            let Ok((_shape, rec)) = item else {
+            let Ok((shape, rec)) = item else {
                 continue;
             };
-            if let Ok(road) = Road::from_record(&rec) {
+            if let Ok(road) = Road::from_shapefile_item((&shape, &rec)) {
                 found = Some(road.osm_id);
                 break;
             }
@@ -201,7 +201,10 @@ async fn process_shapefile_dir(
 
     if let Some(first_id) = first_osm_id {
         let exists = client
-            .query_one("SELECT EXISTS(SELECT 1 FROM osm_roads WHERE osm_id = $1)", &[&first_id])
+            .query_one(
+                "SELECT EXISTS(SELECT 1 FROM osm_roads WHERE osm_id = $1)",
+                &[&first_id],
+            )
             .await?
             .get::<_, bool>(0);
         if exists {
@@ -214,44 +217,38 @@ async fn process_shapefile_dir(
         }
     }
 
-    let mut writer = RoadStreamingWriter::begin(&client).await?;
+    let mut writer = RoadStreamingWriter::begin(client).await?;
     let started_at = Instant::now();
     let mut stats = DirStats::default();
     let mut window_count: u64 = 0;
     let mut last_tps_log = Instant::now();
     for item in reader.iter_shapes_and_records() {
         match item {
-            Ok((shape, rec)) => {
-                match Road::from_record(&rec) {
-                    Ok(road) => {
-                        let points = if let Shape::Polyline(poly) = shape {
-                            if poly.parts().len() != 1 {
-                                error!("Expected one line, but got {}. Rec={rec:?}", poly.parts().len());
-                                continue;
-                            }
+            Ok((shape, rec)) => match Road::from_shapefile_item((&shape, &rec)) {
+                Ok(road) => {
+                    writer.write(road).await?;
+                    stats.processed += 1;
+                    window_count += 1;
 
-                            poly.part(0).unwrap_or(&vec![]).iter().map(|p| dvec2(p.x, p.y)).collect_vec()
-                        } else {
-                            error!("Unsupported Rec={rec:?}");
-                            continue;
-                        };
-                        writer.write(road, points).await?;
-
-                        stats.processed += 1;
-                        window_count += 1;
-
-                        let elapsed = last_tps_log.elapsed();
-                        if elapsed >= Duration::from_secs(5) {
-                            let tps = (window_count as f64) / elapsed.as_secs_f64();
-                            info!("ingest_tps={tps:.2} processed={} path={}", stats.processed, shp_path.display());
-                            window_count = 0;
-                            last_tps_log = Instant::now();
-                        }
-                    },
-                    Err(err) => { error!("Error={err:?} Rec={rec:?}"); },
+                    let elapsed = last_tps_log.elapsed();
+                    if elapsed >= Duration::from_secs(5) {
+                        let tps = (window_count as f64) / elapsed.as_secs_f64();
+                        info!(
+                            "ingest_tps={tps:.2} processed={} path={}",
+                            stats.processed,
+                            shp_path.display()
+                        );
+                        window_count = 0;
+                        last_tps_log = Instant::now();
+                    }
+                }
+                Err(err) => {
+                    error!("Error={err:?} Rec={rec:?}");
                 }
             },
-            Err(err) => { error!("Error: {err:?}"); },
+            Err(err) => {
+                error!("Error: {err:?}");
+            }
         }
     }
 
@@ -294,7 +291,7 @@ async fn worker_task(worker_idx: usize, mut rx: tokio::sync::mpsc::Receiver<Path
                 totals.merged += stats.merged;
             }
             Err(err) => error!(
-                "dir_processing_error worker={} dir={} err={}",
+                "dir_processing_error worker={} dir={} err={:?}",
                 worker_idx,
                 dir.display(),
                 err
@@ -332,7 +329,7 @@ pub async fn main() {
     drop(senders);
 
     let mut totals = DirStats::default();
-    let results = stream::iter(workers).then(|h| async { h.await }).collect::<Vec<_>>().await;
+    let results = stream::iter(workers).then(|h| h).collect::<Vec<_>>().await;
     for result in results {
         match result {
             Ok(stats) => {
@@ -345,5 +342,8 @@ pub async fn main() {
     }
 
     info!("copy_complete rows={}", totals.copied);
-    info!("merge_complete rows={} processed={}", totals.merged, totals.processed);
+    info!(
+        "merge_complete rows={} processed={}",
+        totals.merged, totals.processed
+    );
 }

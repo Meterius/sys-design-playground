@@ -1,14 +1,14 @@
+use crate::app::geo::geometry::GeometryPlugin;
 use crate::app::geo::map::MapPlugin;
 use crate::app::geo::tile_fetcher::TileFetcherPlugin;
 use crate::app::geo::tiling::MapViewTilingPlugin;
 use bevy::app::App;
 use bevy::prelude::Plugin;
-use crate::app::geo::geometry::GeometryPlugin;
 
+pub mod geometry;
 pub mod map;
 mod tile_fetcher;
 pub mod tiling;
-pub mod geometry;
 
 pub struct GeoPlugin {}
 

@@ -7,8 +7,9 @@ use crate::app::geo::map::{
 use crate::app::geo::tiling::{MapViewTiling, MapViewTilingWithView};
 use crate::app::utils::big_space_ext::CommandsWithSpatial;
 use crate::geo::coords::{BoundedMercatorProjection, Projection2D};
-use crate::geo::osm::client::fetch_fabrik_index;
-use crate::utils::glam_ext::bounding::AxisAlignedBoundingBox2D;
+use crate::geo::osm::client::{OsmClient, OsmError, fetch_fabrik_index};
+use crate::geo::osm::layered::model::road::{Road, RoadClassCategory};
+use crate::utils::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use bevy::DefaultPlugins;
 use bevy::app::{App, PluginGroup, Startup};
 use bevy::camera::visibility::RenderLayers;
@@ -26,12 +27,12 @@ use bevy_tokio_tasks::TokioTasksRuntime;
 use bevy_vector_shapes::Shape2dPlugin;
 use big_space::plugin::BigSpaceDefaultPlugins;
 use big_space::prelude::{BigSpaceCommands, FloatingOrigin, Grid};
+use futures::TryStreamExt;
 use geojson::GeometryValue;
 use glam::dvec2;
 use itertools::Itertools;
 use shapefile::dbase::FieldValue;
 use std::f64::consts::PI;
-use crate::geo::osm::layered::model::road::Road;
 
 pub fn initialize(_width: usize, _height: usize) {
     App::new()
@@ -131,7 +132,7 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
             ))
             .id();
 
-        root_grid.spawn_spatial((Name::new("Tiling"), MapViewTiling::new(6), MapViewTilingWithView(map_view_id)));
+        // root_grid.spawn_spatial((Name::new("Tiling"), MapViewTiling::new(6), MapViewTilingWithView(map_view_id)));
 
         root_grid.spawn_spatial((
             Camera2d,
@@ -144,14 +145,54 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
         ));
 
         runtime.spawn_background_task(async move |mut task| {
+            if let Ok(client) = OsmClient::connect().await.inspect_err(|err| error!("{:?}", err)) {
+                let bounds = DAabb2::from_corners(dvec2(9.728113, 53.682394), dvec2(10.312654, 53.341041));
+
+                if let Ok(roads_iter) = client.fetch_roads(bounds).await.inspect_err(|err| error!("Query {:?}", err))
+                    && let Ok(roads) = roads_iter.try_collect::<Vec<Road>>().await.inspect_err(|err| error!("{:?}", err)) {
+                    info!("Found {} roads", roads.len());
+
+                    task.run_on_main_thread(move |world| {
+                        for road in roads.iter() {
+                            let per_id = world
+                                .world
+                                .commands()
+                                .spawn_spatial((
+                                    Transform::from_translation(vec3(0.0, 0.0, 1000.0)),
+                                    Name::new("Road"),
+                                    MapLine::new(
+                                        road.geometry
+                                            .iter()
+                                            .map(|pos| dvec2(pos.x.to_radians(), pos.y.to_radians()))
+                                            .collect_vec(),
+                                        match road.class.category() {
+                                            RoadClassCategory::HighwayLinks => 8.0,
+                                            RoadClassCategory::MajorRoads => 4.0,
+                                            RoadClassCategory::MinorRoads => 2.0,
+                                            RoadClassCategory::Unknown => 0.5,
+                                            RoadClassCategory::VerySmallRoads => 0.5,
+                                            RoadClassCategory::PathsUnsuitableForCars => 0.5,
+                                        },
+                                        Color::hsv(38.0, 0.0, 0.7),
+                                    ),
+                                    RenderLayers::layer(2),
+                                ))
+                                .id();
+                            world.world.commands().entity(map_view_id).add_child(per_id);
+                        }
+                    }).await;
+                }
+            }
+        });
+
+        runtime.spawn_background_task(async move |mut task| {
             let mut layers = [
                 ("Land", -5.0, None, shapefile::Reader::from_path("./assets/datasets/natural_earth_vector/10m_physical/ne_10m_land.shp").unwrap(), Color::hsv(38.0, 0.32, 0.75)),
                 ("Lake", -4.0, None, shapefile::Reader::from_path("./assets/datasets/natural_earth_vector/10m_physical/ne_10m_lakes.shp").unwrap(), Color::hsv(206.0, 0.27, 0.87)),
                 ("River", -3.0, None, shapefile::Reader::from_path("./assets/datasets/natural_earth_vector/10m_physical/ne_10m_rivers_lake_centerlines.shp").unwrap(), Color::hsv(206.0, 0.27, 0.87)),
                 ("Boundary", 102.0, Some(100.0), shapefile::Reader::from_path("./assets/datasets/natural_earth_vector/10m_cultural/ne_10m_admin_0_boundary_lines_land.shp").unwrap(), Color::hsv(38.0, 0.22, 0.47)),
-                ("Railroad", 103.0, Some(15.0), shapefile::Reader::from_path("./assets/datasets/natural_earth_vector/10m_cultural/ne_10m_railroads.shp").unwrap(), Color::hsv(38.0, 0.0, 0.7)),
-                ("Road", 104.0, Some(5.0), shapefile::Reader::from_path("./assets/datasets/natural_earth_vector/10m_cultural/ne_10m_admin_0_boundary_lines_land.shp").unwrap(), Color::hsv(38.0, 0.0, 0.5)),
-                ("Hamburg Road", 104.0, Some(2.0), shapefile::Reader::from_path("./assets/datasets/osm/shapefiles/hamburg-260408-free.shp/gis_osm_roads_free_1.shp").unwrap(), Color::hsv(38.0, 0.0, 0.2)),
+                //("Railroad", 103.0, Some(15.0), shapefile::Reader::from_path("./assets/datasets/natural_earth_vector/10m_cultural/ne_10m_railroads.shp").unwrap(), Color::hsv(38.0, 0.0, 0.7)),
+                //("Road", 104.0, Some(5.0), shapefile::Reader::from_path("./assets/datasets/natural_earth_vector/10m_cultural/ne_10m_admin_0_boundary_lines_land.shp").unwrap(), Color::hsv(38.0, 0.0, 0.5)),
             ];
 
             // let index = fetch_fabrik_index(&reqwest::Client::new()).await.unwrap();
@@ -197,7 +238,7 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
 
                                     world.world.commands().entity(map_view_id).add_child(per_id);
                                 }
-                            },
+                            }
                             shapefile::Shape::Polyline(poly) => {
                                 let scale = if let Some(FieldValue::Numeric(scale)) = rec.get("scalerank") { scale.clone() } else { None };
 
@@ -222,46 +263,13 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
 
                                     world.world.commands().entity(map_view_id).add_child(per_id);
                                 }
-                            },
+                            }
                             _ => { error!("Unexpected shape") }
                         }
                     }
                 }
-
-                // for geometry in index
-                //     .features
-                //     .into_iter()
-                //     .filter_map(|feature| feature.geometry)
-                // {
-                //     let perimeters = match &geometry.value {
-                //         GeometryValue::MultiPolygon { coordinates } => {
-                //             coordinates.iter().flat_map(Clone::clone).collect_vec()
-                //         }
-                //         GeometryValue::Polygon { coordinates } => coordinates.clone(),
-                //         _ => vec![],
-                //     };
-                //
-                //     for perimeter in perimeters {
-                //         let per_id = world
-                //             .world
-                //             .commands()
-                //             .spawn_spatial((
-                //                 Name::new("Geometry"),
-                //                 MapRegion::new(
-                //                     perimeter
-                //                         .iter()
-                //                         .map(|pos| dvec2(pos[0].to_radians(), pos[1].to_radians()))
-                //                         .collect_vec(),
-                //                 ),
-                //                 RenderLayers::layer(2),
-                //             ))
-                //             .id();
-                //
-                //         world.world.commands().entity(map_view_id).add_child(per_id);
-                //     }
-                // }
             })
-            .await;
+                .await;
         });
     });
 }

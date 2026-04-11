@@ -4546,6 +4546,7 @@ dependencies = [
  "tracing",
  "tracing-flame",
  "tracing-subscriber",
+ "utilities",
  "walkdir",
  "zip",
 ]
@@ -7904,6 +7905,14 @@ name = "utf8_iter"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
+
+[[package]]
+name = "utilities"
+version = "0.1.0"
+dependencies = [
+ "bevy_reflect",
+ "glam",
+]
 
 [[package]]
 name = "uuid"

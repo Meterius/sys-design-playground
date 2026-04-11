@@ -1,20 +1,23 @@
-use bevy::prelude::Reflect;
+#[cfg(feature = "bevy-reflect")]
+use bevy_reflect::Reflect;
 use glam::{DVec2, Vec2};
 use std::ops::{Add, Div, Sub};
 
-#[derive(Debug, Clone, Copy, PartialEq, Reflect)]
+#[cfg_attr(feature = "bevy-reflect", derive(Reflect))]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Aabb2 {
     min: Vec2,
     max: Vec2,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Reflect)]
+#[cfg_attr(feature = "bevy-reflect", derive(Reflect))]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DAabb2 {
     min: DVec2,
     max: DVec2,
 }
 
-trait Scalar {
+pub trait Scalar {
     fn two() -> Self;
 
     fn zero() -> Self;
@@ -40,7 +43,7 @@ impl Scalar for f64 {
     }
 }
 
-trait Vector<V> {
+pub trait Vector<V> {
     fn min(self, other: Self) -> Self;
 
     fn max(self, other: Self) -> Self;
@@ -86,36 +89,6 @@ impl Vector<f64> for DVec2 {
     }
 }
 
-impl AxisAlignedBoundingBox2D<Vec2, f32> for Aabb2 {
-    fn min(&self) -> Vec2 {
-        self.min
-    }
-
-    fn max(&self) -> Vec2 {
-        self.max
-    }
-
-    fn new(min: Vec2, max: Vec2) -> Self {
-        debug_assert!(min.x <= max.x && min.y <= max.y);
-        Self { min, max }
-    }
-}
-
-impl AxisAlignedBoundingBox2D<DVec2, f64> for DAabb2 {
-    fn min(&self) -> DVec2 {
-        self.min
-    }
-
-    fn max(&self) -> DVec2 {
-        self.max
-    }
-
-    fn new(min: DVec2, max: DVec2) -> Self {
-        debug_assert!(min.x <= max.x && min.y <= max.y);
-        Self { min, max }
-    }
-}
-
 pub trait AxisAlignedBoundingBox2D<T, V>
 where
     Self: Sized,
@@ -127,7 +100,7 @@ where
     fn max(&self) -> T;
 
     fn new(min: T, max: T) -> Self;
-    
+
     fn from_corners(a: T, b: T) -> Self {
         Self::new(a.min(b), b.max(a))
     }
@@ -185,5 +158,35 @@ where
             T::from_array([max_x, min_y]),
         ]
         .into_iter()
+    }
+}
+
+impl AxisAlignedBoundingBox2D<Vec2, f32> for Aabb2 {
+    fn min(&self) -> Vec2 {
+        self.min
+    }
+
+    fn max(&self) -> Vec2 {
+        self.max
+    }
+
+    fn new(min: Vec2, max: Vec2) -> Self {
+        debug_assert!(min.x <= max.x && min.y <= max.y);
+        Self { min, max }
+    }
+}
+
+impl AxisAlignedBoundingBox2D<DVec2, f64> for DAabb2 {
+    fn min(&self) -> DVec2 {
+        self.min
+    }
+
+    fn max(&self) -> DVec2 {
+        self.max
+    }
+
+    fn new(min: DVec2, max: DVec2) -> Self {
+        debug_assert!(min.x <= max.x && min.y <= max.y);
+        Self { min, max }
     }
 }

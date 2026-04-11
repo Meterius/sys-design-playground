@@ -5,7 +5,7 @@ edition = "2024"
 
 [workspace]
 resolver = "3"
-members = ["crates/generated_queries"]
+members = ["crates/generated_queries", "crates/utilities"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -29,6 +29,7 @@ debug = ["bevy/debug", "bevy/bevy_debug_stepping"]
 
 [dependencies]
 generated_queries = { path = "./crates/generated_queries" }
+utilities = { path = "./crates/utilities", features = ["bevy-reflect"] }
 bevy = { version = "0.18.1", features = ["jpeg"] }
 bevy_pancam = { version = "0.20.0", features = ["bevy_egui_0_39"] }
 bevy_prototype_lyon = "0.16.0"

@@ -9,7 +9,7 @@ use crate::app::utils::big_space_ext::CommandsWithSpatial;
 use crate::geo::coords::{BoundedMercatorProjection, Projection2D};
 use crate::geo::osm::client::{OsmClient, OsmError, fetch_fabrik_index};
 use crate::geo::osm::layered::model::road::{Road, RoadClassCategory};
-use crate::utils::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
+use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use bevy::DefaultPlugins;
 use bevy::app::{App, PluginGroup, Startup};
 use bevy::camera::visibility::RenderLayers;

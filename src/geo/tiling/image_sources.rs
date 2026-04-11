@@ -1,4 +1,4 @@
-use crate::utils::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
+use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use bevy::prelude::error;
 use glam::DVec2;
 use image::RgbImage;

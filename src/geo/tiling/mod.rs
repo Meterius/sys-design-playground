@@ -4,7 +4,7 @@ use crate::geo::tiling::image_sources::{
     Epsg4326TileParams, GibsEpsg4326Params, LAYER_MODIS_TERRA_CORRECTED_REFLECTANCE_TRUE_COLOR,
     fetch_epsg4326_gibs_image, fetch_epsg4326_sen_hub_image, fetch_sen_hub_bearer_token,
 };
-use crate::utils::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
+use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use bevy::prelude::Reflect;
 use glam::{DVec2, USizeVec2, dvec2};
 use itertools::Itertools;

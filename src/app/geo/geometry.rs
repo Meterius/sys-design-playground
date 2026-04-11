@@ -1,6 +1,6 @@
 use crate::app::geo::map::MapViewContextQuery;
 use crate::geo::coords::Projection2D;
-use crate::utils::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
+use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use bevy::prelude::*;
 use bevy_prototype_lyon::path::ShapePath;
 use bevy_prototype_lyon::prelude::{ShapeBuilder, ShapeBuilderBase};

@@ -1,0 +1,11 @@
+[package]
+name = "utilities"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+bevy-reflect = ["bevy_reflect"]
+
+[dependencies]
+glam = "0.30"
+bevy_reflect = { version = "0.18.1", features = ["glam"], optional = true }

@@ -7,7 +7,7 @@ use crate::app::utils::debug::SoftExpect;
 use crate::geo::coords::Projection2D;
 use crate::geo::sub_division::{SubDivision2d, TileKey, tile_key_str};
 use crate::geo::tiling::TileServerDataset;
-use crate::utils::glam_ext::bounding::{Aabb2, AxisAlignedBoundingBox2D, DAabb2};
+use utilities::glam_ext::bounding::{Aabb2, AxisAlignedBoundingBox2D, DAabb2};
 use bevy::app::{App, Update};
 use bevy::camera::visibility::RenderLayers;
 use bevy::color::Alpha;

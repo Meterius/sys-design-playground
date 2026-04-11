@@ -1,5 +1,5 @@
 use crate::geo::osm::layered::model::road::Road;
-use crate::utils::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
+use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use bevy::tasks::futures_lite::StreamExt;
 use generated_queries::queries::osm_roads_queries::fetch_roads_by_area;
 use geojson::FeatureCollection;

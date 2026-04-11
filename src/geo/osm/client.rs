@@ -1,5 +1,4 @@
 use crate::geo::osm::layered::model::road::Road;
-use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use bevy::tasks::futures_lite::StreamExt;
 use generated_queries::queries::osm_roads_queries::fetch_roads_by_area;
 use geojson::FeatureCollection;
@@ -9,6 +8,7 @@ use std::env;
 use thiserror::Error;
 use tokio_postgres::NoTls;
 use tracing::error;
+use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 
 const GEO_FABRIK_INDEX: &str = "https://download.geofabrik.de/index-v1.json";
 

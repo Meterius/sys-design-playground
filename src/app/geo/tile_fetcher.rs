@@ -1,7 +1,6 @@
 use crate::app::geo::map::Map;
 use crate::app::geo::tiling::setup_tiles;
 use crate::app::utils::debug::SoftExpect;
-use crate::geo::sub_division::TileKey;
 use crate::geo::tiling::{TileServer, TileServerDataset, TileServerError};
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
@@ -10,6 +9,7 @@ use ratelimit::Ratelimiter;
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use utilities::glam_ext::sub_division::TileKey;
 
 #[derive(Default)]
 pub struct TileFetcherPlugin {}
@@ -89,6 +89,7 @@ pub struct TileImageRequestWithMap(pub Entity);
 #[relationship_target(relationship = TileImageRequestWithMap)]
 pub struct MapWithRequests(Vec<Entity>);
 
+#[allow(clippy::type_complexity)]
 fn handle_tile_image_loading(
     mut commands: Commands,
     mut store: NonSendMut<TileImageStore>,

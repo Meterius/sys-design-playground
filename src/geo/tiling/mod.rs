@@ -1,10 +1,8 @@
 use crate::geo::coords::{BoundedMercatorProjection, Projection2D, approx_size_bound};
-use crate::geo::sub_division::{SubDivision2d, SubDivisionKey, TileKey};
 use crate::geo::tiling::image_sources::{
     Epsg4326TileParams, GibsEpsg4326Params, LAYER_MODIS_TERRA_CORRECTED_REFLECTANCE_TRUE_COLOR,
     fetch_epsg4326_gibs_image, fetch_epsg4326_sen_hub_image, fetch_sen_hub_bearer_token,
 };
-use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use bevy::prelude::Reflect;
 use glam::{DVec2, USizeVec2, dvec2};
 use itertools::Itertools;
@@ -12,6 +10,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
+use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
+use utilities::glam_ext::sub_division::{SubDivision2d, SubDivisionKey, TileKey};
 
 pub mod image_sources;
 
@@ -56,6 +56,7 @@ impl TileServer {
         }
     }
 
+    #[allow(clippy::useless_asref)]
     async fn get_sen_hub_bearer_token(&self) -> Result<String, TileServerError> {
         {
             let token_mtx = self.sen_hub_bearer_token.lock().await;
@@ -156,7 +157,7 @@ impl TileServer {
             let gcs_pos = projection.abs_to_gcs(abs_pos);
 
             let img_pos_rel = dvec2(0.0, 1.0)
-                + dvec2(1.0, -1.0) * (gcs_pos.clone() - gcs_bounds.min()) / gcs_bounds.size();
+                + dvec2(1.0, -1.0) * (gcs_pos - gcs_bounds.min()) / gcs_bounds.size();
             debug_assert!(
                 (0.0..=1.0).contains(&img_pos_rel.x) && (0.0..=1.0).contains(&img_pos_rel.y)
             );
@@ -246,7 +247,7 @@ impl TileServer {
         )
     }
 
-    fn tile_resolution(&self, gcs_bounds: DAabb2) -> USizeVec2 {
+    fn tile_resolution(&self, _gcs_bounds: DAabb2) -> USizeVec2 {
         // let gcs_size = Vec2::from(gcs_bbox.1.clone()) - Vec2::from(gcs_bbox.0.clone());
         // USizeVec2::new(self.tile_resolution_width, (self.tile_resolution_width as f32 * gcs_size.y / gcs_size.x).ceil() as usize)
         USizeVec2::new(self.tile_resolution_width, self.tile_resolution_width)

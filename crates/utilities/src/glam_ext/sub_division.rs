@@ -1,9 +1,9 @@
-use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
-use bevy::prelude::Reflect;
+use crate::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
+#[cfg(feature = "bevy-reflect")]
+use bevy_reflect::Reflect;
 use glam::{DVec2, USizeVec2, dvec2};
 use itertools::Itertools;
 use smallvec::SmallVec;
-use std::fmt::Display;
 
 pub type TileKey = SmallVec<[SubDivisionKey; 10]>;
 
@@ -11,7 +11,8 @@ pub struct SubDivision2d {
     pub area: DAabb2,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Reflect)]
+#[cfg_attr(feature = "bevy-reflect", derive(Reflect))]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum SubDivisionKey {
     TopLeft,
     TopRight,

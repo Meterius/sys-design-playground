@@ -1,12 +1,12 @@
 use crate::app::geo::map::MapViewContextQuery;
 use crate::geo::coords::Projection2D;
-use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use bevy::prelude::*;
 use bevy_prototype_lyon::path::ShapePath;
 use bevy_prototype_lyon::prelude::{ShapeBuilder, ShapeBuilderBase};
 use bevy_prototype_lyon::shapes;
 use glam::DVec2;
 use itertools::Itertools;
+use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 
 pub struct GeometryPlugin {}
 

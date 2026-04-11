@@ -294,10 +294,10 @@ impl Road {
                     .map(|p| DVec2::new(p.x, p.y))
                     .collect::<Vec<_>>()
             }
-            other => {
+            _ => {
                 return Err(RoadRecordParseError::InvalidField {
                     field: "shape",
-                    value: format!("unsupported shape type"),
+                    value: "unsupported shape type".to_string(),
                 });
             }
         };

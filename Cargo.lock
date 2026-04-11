@@ -7912,6 +7912,8 @@ version = "0.1.0"
 dependencies = [
  "bevy_reflect",
  "glam",
+ "itertools 0.14.0",
+ "smallvec",
 ]
 
 [[package]]

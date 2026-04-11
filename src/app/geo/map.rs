@@ -1,19 +1,14 @@
 use crate::app::common::settings::Settings;
 use crate::app::utils::debug::SoftExpect;
 use crate::geo::coords::{BoundedMercatorProjection, Projection2D, approx_lat_delta_from_len};
-use utilities::glam_ext::bounding::{Aabb2, AxisAlignedBoundingBox2D, DAabb2};
-use bevy::ecs::query::QueryData;
-use bevy::ecs::relationship::AncestorIter;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use bevy_pancam::{PanCam, PanCamClampBounds, PanCamSystems};
 use bevy_vector_shapes::painter::ShapePainter;
 use bevy_vector_shapes::prelude::LinePainter;
 use bevy_vector_shapes::shapes::ThicknessType;
 use big_space::grid::Grid;
-use glam::{DAffine2, DVec2, dvec2};
-use itertools::Itertools;
-use std::path::Ancestors;
+use glam::{DVec2, dvec2};
+use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 
 pub struct MapPlugin {}
 
@@ -45,6 +40,12 @@ pub struct MapView {
     pub scale: f64,
     pub viewport_abs: Option<DAabb2>,
     pub viewport_gcs: Option<DAabb2>,
+}
+
+impl Default for MapView {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MapView {
@@ -160,7 +161,7 @@ pub struct MapViewContext<'a> {
 }
 
 impl<'w, 's> MapViewContextQuery<'w, 's> {
-    pub fn get(&self, id: Entity) -> Option<MapViewContext> {
+    pub fn get(&self, id: Entity) -> Option<MapViewContext<'_>> {
         let view = self
             .children
             .iter_ancestors::<ChildOf>(id)

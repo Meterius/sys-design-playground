@@ -1,7 +1,7 @@
-use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use bevy::prelude::Reflect;
 use glam::{DVec2, dvec2};
 use std::f64::consts::PI;
+use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 
 pub const fn approx_lat_delta_from_len(len: f64) -> f64 {
     (len / 111320.0).to_radians()
@@ -9,10 +9,6 @@ pub const fn approx_lat_delta_from_len(len: f64) -> f64 {
 
 fn approx_vertical_len(lat_min: f64, lat_max: f64) -> f64 {
     (lat_max - lat_min).to_degrees() * 111320.0
-}
-
-fn approx_lon_delta_from_len(lat: f64, len: f64) -> f64 {
-    (len / (111320.0 * lat.cos())).to_radians()
 }
 
 fn approx_horizontal_len(lat: f64, lon_min: f64, lon_max: f64) -> f64 {

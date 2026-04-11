@@ -1,13 +1,11 @@
-use crate::app::geo::map::{Map, MapView, MapViewContext, MapViewContextQuery, MapViewWithMap};
+use crate::app::geo::map::{Map, MapView, MapViewContextQuery, MapViewWithMap};
 use crate::app::geo::tile_fetcher::{
     TileImageRequest, TileImageRequestWithMap, TileImageSprite, handle_tile_image_sprite_loaded,
 };
 use crate::app::utils::big_space_ext::CommandsWithSpatial;
 use crate::app::utils::debug::SoftExpect;
 use crate::geo::coords::Projection2D;
-use crate::geo::sub_division::{SubDivision2d, TileKey, tile_key_str};
 use crate::geo::tiling::TileServerDataset;
-use utilities::glam_ext::bounding::{Aabb2, AxisAlignedBoundingBox2D, DAabb2};
 use bevy::app::{App, Update};
 use bevy::camera::visibility::RenderLayers;
 use bevy::color::Alpha;
@@ -22,6 +20,8 @@ use glam::{USizeVec2, dvec2, usizevec2, vec3};
 use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use utilities::glam_ext::bounding::{Aabb2, AxisAlignedBoundingBox2D, DAabb2};
+use utilities::glam_ext::sub_division::{SubDivision2d, TileKey, tile_key_str};
 
 pub struct MapViewTilingPlugin {}
 

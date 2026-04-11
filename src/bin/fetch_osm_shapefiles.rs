@@ -52,6 +52,7 @@ fn build_nodes(features: &[Feature]) -> HashMap<String, RegionNode> {
     nodes
 }
 
+#[allow(unused)]
 fn descendants_including_target(nodes: &HashMap<String, RegionNode>, target: &str) -> Vec<String> {
     let mut children: HashMap<&str, Vec<&str>> = HashMap::new();
     for node in nodes.values() {

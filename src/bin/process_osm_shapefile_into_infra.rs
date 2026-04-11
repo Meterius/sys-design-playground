@@ -1,9 +1,9 @@
+use futures::stream::{self, StreamExt};
 use generated_queries::queries::osm_roads_queries::{
     UpsertRoadStreamingTransferStmt, UpsertRoadsStreamingCommitStmt, UpsertRoadsStreamingEndStmt,
     upsert_road_streaming_transfer, upsert_roads_streaming_commit, upsert_roads_streaming_end,
     upsert_roads_streaming_start,
 };
-use futures::stream::{self, StreamExt};
 use glam::DVec2;
 use jlh_sys_design_playground::geo::osm::layered::model::road::Road;
 use postgis::ewkb::{AsEwkbLineString, EwkbWrite, LineString, Point};

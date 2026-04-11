@@ -4,12 +4,10 @@ use crate::app::geo::geometry::{MapLine, MapRegion};
 use crate::app::geo::map::{
     Map, MapView, MapViewCamera, MapViewCameraWithView, MapViewContextQuery, MapViewWithMap,
 };
-use crate::app::geo::tiling::{MapViewTiling, MapViewTilingWithView};
 use crate::app::utils::big_space_ext::CommandsWithSpatial;
 use crate::geo::coords::{BoundedMercatorProjection, Projection2D};
-use crate::geo::osm::client::{OsmClient, OsmError, fetch_fabrik_index};
+use crate::geo::osm::client::OsmClient;
 use crate::geo::osm::layered::model::road::{Road, RoadClassCategory};
-use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use bevy::DefaultPlugins;
 use bevy::app::{App, PluginGroup, Startup};
 use bevy::camera::visibility::RenderLayers;
@@ -28,11 +26,11 @@ use bevy_vector_shapes::Shape2dPlugin;
 use big_space::plugin::BigSpaceDefaultPlugins;
 use big_space::prelude::{BigSpaceCommands, FloatingOrigin, Grid};
 use futures::TryStreamExt;
-use geojson::GeometryValue;
 use glam::dvec2;
 use itertools::Itertools;
 use shapefile::dbase::FieldValue;
 use std::f64::consts::PI;
+use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 
 pub fn initialize(_width: usize, _height: usize) {
     App::new()
@@ -186,7 +184,7 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
         });
 
         runtime.spawn_background_task(async move |mut task| {
-            let mut layers = [
+            let layers = [
                 ("Land", -5.0, None, shapefile::Reader::from_path("./assets/datasets/natural_earth_vector/10m_physical/ne_10m_land.shp").unwrap(), Color::hsv(38.0, 0.32, 0.75)),
                 ("Lake", -4.0, None, shapefile::Reader::from_path("./assets/datasets/natural_earth_vector/10m_physical/ne_10m_lakes.shp").unwrap(), Color::hsv(206.0, 0.27, 0.87)),
                 ("River", -3.0, None, shapefile::Reader::from_path("./assets/datasets/natural_earth_vector/10m_physical/ne_10m_rivers_lake_centerlines.shp").unwrap(), Color::hsv(206.0, 0.27, 0.87)),
@@ -213,7 +211,7 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
 
                 world.world.commands().entity(map_view_id).add_child(ocean);
 
-                for (idx, (label, depth, width, mut shapes, color)) in layers.into_iter().enumerate() {
+                for (label, depth, width, mut shapes, color) in layers.into_iter() {
                     for (shape, rec) in shapes.read().unwrap() {
                         match shape {
                             shapefile::Shape::Polygon(poly) => {
@@ -240,7 +238,7 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
                                 }
                             }
                             shapefile::Shape::Polyline(poly) => {
-                                let scale = if let Some(FieldValue::Numeric(scale)) = rec.get("scalerank") { scale.clone() } else { None };
+                                let scale = if let Some(FieldValue::Numeric(scale)) = rec.get("scalerank") { *scale } else { None };
 
                                 for part in poly.parts() {
                                     let per_id = world

@@ -1,22 +1,31 @@
-use bevy::prelude::error;
-use glam::DVec2;
-use image::RgbImage;
+use backend_model::earth_tiling_service_model::{GibsLayer, LocalLayer};
+use glam::{DVec2, USizeVec2, dvec2, ivec2, uvec2};
+use image::{GenericImage, RgbImage};
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
+use std::path::PathBuf;
+use tracing::{error, info};
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
+use utilities::glam_ext::sub_division::{SubDivision2d, tile_key_str};
 
-pub const LAYER_MODIS_TERRA_CORRECTED_REFLECTANCE_TRUE_COLOR: &str =
-    "MODIS_Terra_CorrectedReflectance_TrueColor";
+pub fn gibs_layer_name(layer: GibsLayer) -> &'static str {
+    match layer {
+        GibsLayer::LayerModisTerraCorrectedReflectanceTrueColor => {
+            "MODIS_Terra_CorrectedReflectance_TrueColor"
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct Epsg4326TileParams {
     pub resolution: (usize, usize),
+    /// Bounds in degrees.
     pub gcs_bounds: DAabb2,
 }
 
 pub struct GibsEpsg4326Params {
-    pub layers: String,
+    pub layer: GibsLayer,
     pub tile_params: Epsg4326TileParams,
 }
 
@@ -31,14 +40,14 @@ fn fetch_gibs_epsg4326_url(params: &GibsEpsg4326Params) -> String {
     } = params.tile_params.gcs_bounds.max();
 
     let (width, height) = params.tile_params.resolution;
-    let layers = &params.layers;
+    let layers = gibs_layer_name(params.layer);
 
     format!(
         "https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?\
-    version=1.3.0&service=WMS&request=GetMap&format=image/png\
-    &STYLE=default&bbox={min_lat:.6},{min_lon:.6},{max_lat:.6},{max_lon:.6}&CRS=EPSG:4326\
-    &HEIGHT={height}&WIDTH={width}\
-    &TIME=2021-03-01&layers={layers}"
+        version=1.3.0&service=WMS&request=GetMap&format=image/png\
+        &STYLE=default&bbox={min_lat:.6},{min_lon:.6},{max_lat:.6},{max_lon:.6}&CRS=EPSG:4326\
+        &HEIGHT={height}&WIDTH={width}\
+        &TIME=2021-03-01&layers={layers}"
     )
 }
 
@@ -177,4 +186,75 @@ pub async fn fetch_epsg4326_sen_hub_image(
         let img = image::load_from_memory(&response.bytes().await?).unwrap();
         Ok(img.to_rgb8())
     }
+}
+
+pub async fn fetch_epsg4326_local_image(
+    layer: LocalLayer,
+    params: Epsg4326TileParams,
+) -> Result<RgbImage, image::ImageError> {
+    const TILE_DIR: &str = "assets/epsg4326_tiles/";
+    const TILE_RES: (usize, usize) = (1024, 1024);
+
+    let sub_div = SubDivision2d {
+        area: DAabb2::new(dvec2(-180.0, -90.0), dvec2(180.0, 90.0)),
+    };
+
+    let target_depth = sub_div
+        .min_depth_for_tile_count(
+            params.gcs_bounds.size()
+                * dvec2(params.resolution.0 as f64, params.resolution.1 as f64)
+                / dvec2(TILE_RES.0 as f64, TILE_RES.1 as f64),
+            USizeVec2::ONE,
+        )
+        .min(7);
+
+    let tile_counts = sub_div.tile_covering_count(params.gcs_bounds, target_depth);
+    let tile_bounds = sub_div.tile_covering_bounds(params.gcs_bounds, target_depth);
+    let tile_size = tile_bounds.size() / tile_counts.as_dvec2();
+
+    let mut merged = RgbImage::new(
+        (tile_counts.x * TILE_RES.0) as u32,
+        (tile_counts.y * TILE_RES.1) as u32,
+    );
+
+    for tile in sub_div.tile_covering(params.gcs_bounds, target_depth) {
+        let tile_path = PathBuf::from_iter([
+            TILE_DIR,
+            match layer {
+                LocalLayer::GlobalMosaicSen2 => "global_mosaic_sen_2",
+            },
+            format!("{}_{}.jpg", tile.key.len(), tile_key_str(&tile.key)).as_str(),
+        ]);
+
+        let index = ((tile.area.min() - tile_bounds.min()) / tile_size).as_ivec2();
+        let pos = ((ivec2(0, tile_counts.y as i32 - 1) + ivec2(1, -1) * index)
+            * ivec2(TILE_RES.0 as i32, TILE_RES.1 as i32))
+        .as_uvec2();
+
+        let tile_img = image::open(tile_path)?;
+        merged.copy_from(tile_img.as_rgb8().unwrap(), pos.x, pos.y)?;
+    }
+
+    let crop_bounds = DAabb2::new(
+        (params.gcs_bounds.min() - tile_bounds.min()) * dvec2(TILE_RES.0 as f64, TILE_RES.1 as f64) / tile_size,
+        (params.gcs_bounds.max() - tile_bounds.min()) * dvec2(TILE_RES.0 as f64, TILE_RES.1 as f64) / tile_size,
+    );
+
+    let cropped = image::imageops::crop_imm(
+        &merged,
+        crop_bounds.min().x as u32,
+        merged.height() - crop_bounds.max().y as u32,
+        crop_bounds.size().x as u32,
+        crop_bounds.size().y as u32,
+    )
+        .to_image();
+
+    let out = image::imageops::resize(
+        &cropped,
+        params.resolution.0 as u32,
+        params.resolution.1 as u32,
+        image::imageops::FilterType::Lanczos3,
+    );
+
+    Ok(out)
 }

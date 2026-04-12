@@ -1,10 +1,9 @@
 use crate::geo::coords::{BoundedMercatorProjection, Projection2D, approx_size_bound};
-use crate::geo::tiling::image_sources::{
-    Epsg4326TileParams, GibsEpsg4326Params, LAYER_MODIS_TERRA_CORRECTED_REFLECTANCE_TRUE_COLOR,
-    fetch_epsg4326_gibs_image, fetch_epsg4326_sen_hub_image, fetch_sen_hub_bearer_token,
+use backend_model::earth_tiling_service_model::{
+    GetTileRequestParams, GibsLayer, Layer, TileSubKey,
 };
 use bevy::prelude::Reflect;
-use glam::{DVec2, USizeVec2, dvec2};
+use glam::{USizeVec2, dvec2};
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -13,8 +12,6 @@ use thiserror::Error;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use utilities::glam_ext::sub_division::{SubDivision2d, SubDivisionKey, TileKey};
 
-pub mod image_sources;
-
 #[derive(Clone)]
 pub struct TileServer {
     pub file_cache_dir: PathBuf,
@@ -22,7 +19,6 @@ pub struct TileServer {
 
     client: reqwest::Client,
     cache: Arc<tokio::sync::RwLock<HashMap<PathBuf, Option<PathBuf>>>>,
-    sen_hub_bearer_token: Arc<tokio::sync::Mutex<Option<Result<String, TileServerError>>>>,
 }
 
 #[derive(Debug, Error)]
@@ -52,43 +48,7 @@ impl TileServer {
             client: reqwest::Client::new(),
             cache: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
             file_cache_dir: PathBuf::from(cache_dir.as_ref()),
-            sen_hub_bearer_token: Arc::new(tokio::sync::Mutex::new(None)),
         }
-    }
-
-    #[allow(clippy::useless_asref)]
-    async fn get_sen_hub_bearer_token(&self) -> Result<String, TileServerError> {
-        {
-            let token_mtx = self.sen_hub_bearer_token.lock().await;
-            if let Some(token) = &*token_mtx {
-                return token
-                    .as_ref()
-                    .map(Clone::clone)
-                    .map_err(|_| TileServerError::RetryError);
-            }
-        }
-
-        let mut token_mtx = self.sen_hub_bearer_token.lock().await;
-
-        if let Some(token) = &*token_mtx {
-            return token
-                .as_ref()
-                .map(Clone::clone)
-                .map_err(|_| TileServerError::RetryError);
-        }
-
-        let token: Result<String, TileServerError> = fetch_sen_hub_bearer_token(&self.client)
-            .await
-            .map_err(Into::into);
-
-        *token_mtx = Some(
-            token
-                .as_ref()
-                .map(Clone::clone)
-                .map_err(|_| TileServerError::RetryError),
-        );
-
-        token
     }
 
     fn is_tile_available(
@@ -106,7 +66,7 @@ impl TileServer {
         match dataset {
             TileServerDataset::SenHubSentinel2L2a => (5.0..=1400.0).contains(&meters_per_pixel),
             TileServerDataset::GibsLayerModisTerraCorrectedReflectanceTrueColor => {
-                meters_per_pixel > 1400.0
+                meters_per_pixel > 50.0
             }
         }
     }
@@ -134,40 +94,6 @@ impl TileServer {
             )
             .as_str(),
         ])
-    }
-
-    fn reprojected(
-        image: &image::RgbImage,
-        projection: &impl Projection2D,
-        gcs_bounds: DAabb2,
-    ) -> Result<image::RgbImage, TileServerError> {
-        let mut out = image::RgbImage::new(image.width(), image.height());
-
-        let abs_bounds = DAabb2::new(
-            projection.gcs_to_abs(gcs_bounds.min()),
-            projection.gcs_to_abs(gcs_bounds.max()),
-        );
-
-        let image_size = DVec2::new(image.width() as f64, image.height() as f64);
-
-        for (x, y, pixel) in out.enumerate_pixels_mut() {
-            let rel = dvec2(0.0, 1.0) + dvec2(x as f64 + 0.5, -(y as f64 + 0.5)) / image_size;
-            debug_assert!((0.0..=1.0).contains(&rel.x) && (0.0..=1.0).contains(&rel.y));
-            let abs_pos = abs_bounds.min() + abs_bounds.size() * rel;
-            let gcs_pos = projection.abs_to_gcs(abs_pos);
-
-            let img_pos_rel = dvec2(0.0, 1.0)
-                + dvec2(1.0, -1.0) * (gcs_pos - gcs_bounds.min()) / gcs_bounds.size();
-            debug_assert!(
-                (0.0..=1.0).contains(&img_pos_rel.x) && (0.0..=1.0).contains(&img_pos_rel.y)
-            );
-
-            *pixel =
-                image::imageops::sample_bilinear(image, img_pos_rel.x as f32, img_pos_rel.y as f32)
-                    .ok_or_else(|| TileServerError::ReprojectionError)?;
-        }
-
-        Ok(out)
     }
 
     fn get_tile_file_path(
@@ -276,39 +202,35 @@ impl TileServer {
             return Ok(Some(file_path));
         }
 
-        let rad_gcs_bbox = self.tile_gcs_bbox(projection, tile_key);
-        let [res_width, res_height] = self.tile_resolution(rad_gcs_bbox).to_array();
-
-        let tile_params = Epsg4326TileParams {
-            gcs_bounds: DAabb2::new(
-                rad_gcs_bbox.min().map(|a| a.to_degrees()),
-                rad_gcs_bbox.max().map(|a| a.to_degrees()),
-            ),
-            resolution: (res_width, res_height),
-        };
-
-        let img = match &dataset {
-            TileServerDataset::GibsLayerModisTerraCorrectedReflectanceTrueColor => {
-                fetch_epsg4326_gibs_image(
-                    &self.client,
-                    GibsEpsg4326Params {
-                        layers: LAYER_MODIS_TERRA_CORRECTED_REFLECTANCE_TRUE_COLOR.to_owned(),
-                        tile_params,
+        let res = self
+            .client
+            .get("http://localhost:80/tile")
+            .json(&GetTileRequestParams {
+                tile_key: backend_model::earth_tiling_service_model::TileKey::from_iter(
+                    tile_key.iter().map(|x| match x {
+                        SubDivisionKey::BottomLeft => TileSubKey::BottomLeft,
+                        SubDivisionKey::BottomRight => TileSubKey::BottomRight,
+                        SubDivisionKey::TopLeft => TileSubKey::TopLeft,
+                        SubDivisionKey::TopRight => TileSubKey::TopRight,
+                    }),
+                ),
+                projection:
+                    backend_model::earth_tiling_service_model::Projection::BoundedMercator {
+                        min_lat: projection.lat_min.to_degrees(),
+                        max_lat: projection.lat_max.to_degrees(),
                     },
-                )
-                .await?
-            }
-            TileServerDataset::SenHubSentinel2L2a => {
-                fetch_epsg4326_sen_hub_image(
-                    &self.client,
-                    self.get_sen_hub_bearer_token().await?,
-                    tile_params,
-                )
-                .await?
-            }
-        };
+                layer: match dataset {
+                    TileServerDataset::GibsLayerModisTerraCorrectedReflectanceTrueColor => {
+                        Layer::Gibs(GibsLayer::LayerModisTerraCorrectedReflectanceTrueColor)
+                    }
+                    TileServerDataset::SenHubSentinel2L2a => Layer::SenHub,
+                },
+            })
+            .send()
+            .await?
+            .error_for_status()?;
 
-        let img = Self::reprojected(&img, projection, rad_gcs_bbox)?;
+        let img = image::load_from_memory(&res.bytes().await?)?;
 
         if let Some(file_dir) = file_path.parent() {
             tokio::fs::create_dir_all(file_dir).await?;

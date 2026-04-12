@@ -4,7 +4,9 @@
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$/crates/generated_queries/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/backend/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/utilities/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/backend_model/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

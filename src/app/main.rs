@@ -31,6 +31,7 @@ use itertools::Itertools;
 use shapefile::dbase::FieldValue;
 use std::f64::consts::PI;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
+use crate::app::geo::tiling::{MapViewTiling, MapViewTilingWithView};
 
 pub fn initialize(_width: usize, _height: usize) {
     App::new()
@@ -130,7 +131,7 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
             ))
             .id();
 
-        // root_grid.spawn_spatial((Name::new("Tiling"), MapViewTiling::new(6), MapViewTilingWithView(map_view_id)));
+        root_grid.spawn_spatial((Name::new("Tiling"), MapViewTiling::new(6), MapViewTilingWithView(map_view_id)));
 
         root_grid.spawn_spatial((
             Camera2d,

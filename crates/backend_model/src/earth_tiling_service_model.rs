@@ -39,7 +39,7 @@ pub enum Layer {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GetTileRequestParams {
+pub struct GetTileRequest {
     pub layer: Layer,
     pub projection: Projection,
     pub tile_key: TileKey,

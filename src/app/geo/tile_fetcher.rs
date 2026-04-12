@@ -42,6 +42,10 @@ fn startup(world: &mut World) {
                 TileServerDataset::GibsLayerModisTerraCorrectedReflectanceTrueColor,
                 TileImageDatasetStore::new(Ratelimiter::new(100)),
             ),
+            (
+                TileServerDataset::GlobalMosaicSen2,
+                TileImageDatasetStore::new(Ratelimiter::new(18)),
+            ),
         ]),
     });
 }

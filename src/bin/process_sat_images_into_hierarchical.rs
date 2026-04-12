@@ -1,16 +1,18 @@
-use std::fs::File;
-use std::io::BufWriter;
-use glam::{IVec2, dvec2, ivec2, usizevec2};
+use glam::{IVec2, dvec2, ivec2, usizevec2, UVec2};
+use image::codecs::jpeg::JpegEncoder;
 use image::imageops::crop_imm;
+use image::{EncodableLayout, ImageEncoder, RgbImage};
 use itertools::Itertools;
 use rayon::prelude::*;
+use std::fs::File;
+use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use image::codecs::jpeg::JpegEncoder;
-use image::{EncodableLayout, ImageEncoder};
-use tracing::info;
+use bevy::pbr::Falloff::Linear;
+use tiff::decoder::ChunkType::Tile;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use utilities::glam_ext::sub_division::{SubDivision2d, SubDivisionKey, TileKey};
+use utilities::tiled_imaging::{LinearTiledImage, TiledImage, TiledImageSource};
 
 pub const SOURCE_RES: usize = 10000;
 pub const SOURCE_DIV: usize = 4;
@@ -79,6 +81,25 @@ fn base_tiles_out_file_path(bounds: (IVec2, IVec2)) -> PathBuf {
         .with_added_extension("tiff")
 }
 
+#[derive(Clone)]
+struct BaseTileSource {
+    pub tiles_dir: PathBuf,
+    pub gcs_size: IVec2,
+}
+
+impl TiledImageSource for BaseTileSource {
+    type Error = image::ImageError;
+
+    fn load_tile(&self, tile_index: UVec2) -> Result<RgbImage, Self::Error> {
+        let count = ivec2(360, 180) / self.gcs_size;
+        let start = ivec2(-180, -90) + self.gcs_size * (ivec2(0, count.y - 1) + ivec2(1, -1) * tile_index.as_ivec2());
+        let end = start + self.gcs_size;
+
+        let tile_path = self.tiles_dir.join(format!("{}_{}_{}_{}.tiff", start.x, start.y, end.x, end.y));
+        Ok(image::open(tile_path)?.to_rgb8())
+    }
+}
+
 fn process_base_tile(tile_path: &Path, bounds: (IVec2, IVec2)) {
     let div_size = (SOURCE_RES / SOURCE_DIV, SOURCE_RES / SOURCE_DIV);
     let div_bound_size = (bounds.1 - bounds.0) / (SOURCE_DIV as i32);
@@ -118,8 +139,10 @@ fn process_base_tile(tile_path: &Path, bounds: (IVec2, IVec2)) {
             )
             .to_image()
             .save(&base_tiles_out_file_path((
-                bounds.0 + ivec2(i as i32, (SOURCE_DIV as i32 - 1 - j as i32)) * div_bound_size,
-                bounds.0 + ivec2(i as i32, (SOURCE_DIV as i32 - 1 - j as i32)) * div_bound_size + div_bound_size,
+                bounds.0 + ivec2(i as i32, SOURCE_DIV as i32 - 1 - j as i32) * div_bound_size,
+                bounds.0
+                    + ivec2(i as i32, SOURCE_DIV as i32 - 1 - j as i32) * div_bound_size
+                    + div_bound_size,
             )))
             .unwrap();
         }
@@ -151,97 +174,23 @@ fn sub_div_tile_out_file_path(tile_key: &TileKey) -> PathBuf {
 fn save_sub_div_image(path: &Path, image: &image::RgbImage) -> Result<(), image::ImageError> {
     let buffered_file_write = &mut BufWriter::new(File::create(path)?); // always seekable
     let encoder = JpegEncoder::new_with_quality(buffered_file_write, 95);
-    encoder.write_image(image.as_bytes(), image.width(), image.height(), image::ExtendedColorType::Rgb8)
-}
-
-fn process_sub_div_base_tile(tile_key: TileKey, bounds: DAabb2, base_size: IVec2) {
-    let base_sz = dvec2(base_size.x as f64, base_size.y as f64);
-
-    // Grid-aligned extent (integer degrees) that fully contains bounds
-    let grid_min = ((bounds.min() - dvec2(180.0, 90.0)) / base_sz)
-        .floor()
-        .as_ivec2()
-        * base_size
-        + ivec2(180, 90);
-    let grid_max = ((bounds.max() - dvec2(180.0, 90.0)) / base_sz)
-        .ceil()
-        .as_ivec2()
-        * base_size
-        + ivec2(180, 90);
-
-    // Collect candidate tile bounds
-    let candidate_bounds: Vec<(IVec2, IVec2)> = (grid_min.x..grid_max.x)
-        .step_by(base_size.x as usize)
-        .flat_map(|tx| {
-            (grid_min.y..grid_max.y)
-                .step_by(base_size.y as usize)
-                .map(move |ty| (ivec2(tx, ty), ivec2(tx + base_size.x, ty + base_size.y)))
-        })
-        .collect();
-
-    // Load existing tiles in parallel
-    let loaded: Vec<((IVec2, IVec2), image::RgbImage)> = candidate_bounds
-        .into_par_iter()
-        .map(|tb| {
-            (
-                tb,
-                image::open(base_tiles_out_file_path(tb)).unwrap().to_rgb8(),
-            )
-        })
-        .collect();
-
-    if loaded.is_empty() {
-        return;
-    }
-
-    let (_, first_img) = &loaded[0];
-    let tile_px_w = first_img.width();
-    let tile_px_h = first_img.height();
-    // Pixels per degree (assumes all base tiles share the same resolution)
-    let px_per_deg_x = tile_px_w as f64 / base_size.x as f64;
-    let px_per_deg_y = tile_px_h as f64 / base_size.y as f64;
-
-    let canvas_min = dvec2(grid_min.x as f64, grid_min.y as f64);
-    let canvas_max = dvec2(grid_max.x as f64, grid_max.y as f64);
-    let canvas_w = ((canvas_max.x - canvas_min.x) * px_per_deg_x).round() as u32;
-    let canvas_h = ((canvas_max.y - canvas_min.y) * px_per_deg_y).round() as u32;
-
-    // Blit each tile onto the canvas.
-    // Images are stored north-up: pixel (0,0) = northwest = (min_lon, max_lat).
-    // Canvas y=0 is the north edge (canvas_max.y).
-    let mut canvas = image::RgbImage::new(canvas_w, canvas_h);
-    for ((tb_min, tb_max), tile_img) in &loaded {
-        let off_x = ((tb_min.x as f64 - canvas_min.x) * px_per_deg_x).round() as i64;
-        let off_y = ((canvas_max.y - tb_max.y as f64) * px_per_deg_y).round() as i64;
-        image::imageops::replace(&mut canvas, tile_img, off_x, off_y);
-    }
-
-    // Crop canvas to bounds (north-up: y measured from top = canvas_max.y)
-    let crop_x = ((bounds.min().x - canvas_min.x) * px_per_deg_x).round() as u32;
-    let crop_y = ((canvas_max.y - bounds.max().y) * px_per_deg_y).round() as u32;
-    let crop_w = (bounds.size().x * px_per_deg_x).round() as u32;
-    let crop_h = (bounds.size().y * px_per_deg_y).round() as u32;
-
-    let cropped = crop_imm(&canvas, crop_x, crop_y, crop_w, crop_h).to_image();
-
-    // Resize to target resolution with Lanczos3 (cubic-quality)
-    let out = image::imageops::resize(
-        &cropped,
-        SUB_DIV_RES as u32,
-        SUB_DIV_RES as u32,
-        image::imageops::FilterType::Lanczos3,
-    );
-
-    save_sub_div_image(sub_div_tile_out_file_path(&tile_key).as_path(), &out).unwrap();
+    encoder.write_image(
+        image.as_bytes(),
+        image.width(),
+        image.height(),
+        image::ExtendedColorType::Rgb8,
+    )
 }
 
 fn merge_sub_div_tiles(tile_key: TileKey) {
     let mut merged = image::RgbImage::new(2 * SUB_DIV_RES as u32, 2 * SUB_DIV_RES as u32);
 
     for key in SubDivisionKey::all() {
-        let src = image::open(
-            sub_div_tile_out_file_path(&TileKey::from_iter(tile_key.iter().cloned().chain([key.clone()])))
-        ).unwrap().to_rgb8();
+        let src = image::open(sub_div_tile_out_file_path(&TileKey::from_iter(
+            tile_key.iter().cloned().chain([key.clone()]),
+        )))
+        .unwrap()
+        .to_rgb8();
 
         let offset = match key {
             SubDivisionKey::BottomLeft => usizevec2(0, SUB_DIV_RES),
@@ -253,7 +202,12 @@ fn merge_sub_div_tiles(tile_key: TileKey) {
         image::imageops::replace(&mut merged, &src, offset.x as i64, offset.y as i64);
     }
 
-    let out = image::imageops::resize(&merged, SUB_DIV_RES as u32, SUB_DIV_RES as u32, image::imageops::FilterType::Lanczos3);
+    let out = image::imageops::resize(
+        &merged,
+        SUB_DIV_RES as u32,
+        SUB_DIV_RES as u32,
+        image::imageops::FilterType::Lanczos3,
+    );
 
     save_sub_div_image(sub_div_tile_out_file_path(&tile_key).as_path(), &out).unwrap();
 }
@@ -263,8 +217,8 @@ where
     F: Fn(T) + Send + Sync,
 {
     use std::io::Write;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     let total = items.len();
     let done = Arc::new(AtomicUsize::new(0));
@@ -282,9 +236,14 @@ where
                 err,
                 crossterm::cursor::MoveToColumn(0),
                 crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine),
-                crossterm::style::Print(
-                    format!("[{}] {}/{} (~{:.0} TPS)", label, n, total, (n - last_publish_n) as f64 / Instant::now().duration_since(last_publish).as_secs_f64())
-                ),
+                crossterm::style::Print(format!(
+                    "[{}] {}/{} (~{:.0} TPS)",
+                    label,
+                    n,
+                    total,
+                    (n - last_publish_n) as f64
+                        / Instant::now().duration_since(last_publish).as_secs_f64()
+                )),
             );
             last_publish_n = n;
             last_publish = Instant::now();
@@ -304,7 +263,7 @@ where
     thread.join().unwrap();
 }
 
- #[tokio::main]
+#[tokio::main]
 async fn main() {
     dotenvy::dotenv().unwrap();
 
@@ -364,8 +323,21 @@ async fn main() {
         .map(|key| (key.clone(), sub_div.tile_bbox(&key)))
         .collect_vec();
 
+    let base_tile_image = LinearTiledImage {
+        tiled_image: TiledImage {
+            source: BaseTileSource {
+                tiles_dir: base_tiles_out_dir(base_size),
+                gcs_size: base_size,
+            },
+            tile_count: (ivec2(360, 180) / base_size).as_uvec2(),
+            tile_resolution: UVec2::ONE * (SOURCE_RES / SOURCE_DIV) as u32,
+        },
+        bounds: DAabb2::new(dvec2(-180.0, -90.0), dvec2(180.0, 90.0)),
+    };
+
     with_progress("sub-div base", base_sub_div_tiles, |(key, bounds)| {
-        process_sub_div_base_tile(key, bounds, base_size);
+        let out = base_tile_image.load_sub_image(bounds, UVec2::ONE * SUB_DIV_RES as u32).unwrap();
+        save_sub_div_image(sub_div_tile_out_file_path(&key).as_path(), &out).unwrap();
     });
 
     for depth in (0..base_depth).rev() {

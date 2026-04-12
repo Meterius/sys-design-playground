@@ -1,6 +1,6 @@
 use crate::geo::coords::{BoundedMercatorProjection, Projection2D, approx_size_bound};
 use backend_model::earth_tiling_service_model::{
-    GetTileRequestParams, GibsLayer, Layer, TileSubKey,
+    GetTileRequest, GibsLayer, Layer, LocalLayer, TileSubKey,
 };
 use bevy::prelude::Reflect;
 use glam::{USizeVec2, dvec2};
@@ -39,6 +39,7 @@ pub enum TileServerError {
 pub enum TileServerDataset {
     GibsLayerModisTerraCorrectedReflectanceTrueColor,
     SenHubSentinel2L2a,
+    GlobalMosaicSen2,
 }
 
 impl TileServer {
@@ -68,6 +69,7 @@ impl TileServer {
             TileServerDataset::GibsLayerModisTerraCorrectedReflectanceTrueColor => {
                 meters_per_pixel > 50.0
             }
+            TileServerDataset::GlobalMosaicSen2 => tile_key.len() <= 9,
         }
     }
 
@@ -205,7 +207,7 @@ impl TileServer {
         let res = self
             .client
             .get("http://localhost:80/tile")
-            .json(&GetTileRequestParams {
+            .json(&GetTileRequest {
                 tile_key: backend_model::earth_tiling_service_model::TileKey::from_iter(
                     tile_key.iter().map(|x| match x {
                         SubDivisionKey::BottomLeft => TileSubKey::BottomLeft,
@@ -224,6 +226,9 @@ impl TileServer {
                         Layer::Gibs(GibsLayer::LayerModisTerraCorrectedReflectanceTrueColor)
                     }
                     TileServerDataset::SenHubSentinel2L2a => Layer::SenHub,
+                    TileServerDataset::GlobalMosaicSen2 => {
+                        Layer::Local(LocalLayer::GlobalMosaicSen2)
+                    }
                 },
             })
             .send()

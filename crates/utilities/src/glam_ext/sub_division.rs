@@ -22,7 +22,12 @@ pub enum SubDivisionKey {
 
 impl SubDivisionKey {
     pub fn all() -> [SubDivisionKey; 4] {
-        [SubDivisionKey::TopLeft, SubDivisionKey::TopRight, SubDivisionKey::BottomLeft, SubDivisionKey::BottomRight]
+        [
+            SubDivisionKey::TopLeft,
+            SubDivisionKey::TopRight,
+            SubDivisionKey::BottomLeft,
+            SubDivisionKey::BottomRight,
+        ]
     }
 }
 
@@ -45,7 +50,10 @@ pub fn tile_key_str(key: &TileKey) -> String {
 
 impl SubDivision2d {
     pub fn sub_div_keys(depth: usize) -> impl Iterator<Item = TileKey> {
-        (0..depth).map(|_| SubDivisionKey::all()).multi_cartesian_product().map(TileKey::from_vec)
+        (0..depth)
+            .map(|_| SubDivisionKey::all())
+            .multi_cartesian_product()
+            .map(TileKey::from_vec)
     }
 
     pub fn area_size_for_min_depth_for_tile_count(
@@ -113,7 +121,7 @@ impl SubDivision2d {
 
         DAabb2::new(bb_min, bb_min + rem_tile_size)
     }
-    
+
     pub fn tile_covering_count(&self, area: DAabb2, depth: usize) -> USizeVec2 {
         let tile_size = self.area.size() / 2.0f64.powf(depth as f64);
 
@@ -122,14 +130,14 @@ impl SubDivision2d {
         let end = self.area.min() + tile_size * ((area.max() - self.area.min()) / tile_size).ceil();
         ((end - start) / tile_size).ceil().as_usizevec2()
     }
-    
+
     pub fn tile_covering_bounds(&self, area: DAabb2, depth: usize) -> DAabb2 {
         let tile_size = self.area.size() / 2.0f64.powf(depth as f64);
 
         let start =
             self.area.min() + tile_size * ((area.min() - self.area.min()) / tile_size).floor();
         let end = self.area.min() + tile_size * ((area.max() - self.area.min()) / tile_size).ceil();
-        
+
         DAabb2::new(start, end)
     }
 

@@ -1,9 +1,7 @@
 use actix_files as fs;
 use actix_web::error::{ErrorInternalServerError, ErrorNotFound};
 use actix_web::{App, HttpServer, get, web};
-use backend_model::earth_tiling_service_model::{
-    GetTileRequestParams, Layer, Projection, TileSubKey,
-};
+use backend_model::earth_tiling_service_model::{GetTileRequest, Layer, Projection, TileSubKey};
 use cached::proc_macro::once;
 use glam::{DVec2, dvec2};
 use image::RgbImage;
@@ -49,7 +47,7 @@ async fn get_sen_hub_bearer_token_cached(
         .map_err(|err| Arc::new(Box::new(err)))
 }
 
-fn tile_sub_dir(params: &GetTileRequestParams) -> PathBuf {
+fn tile_sub_dir(params: &GetTileRequest) -> PathBuf {
     PathBuf::from_iter([
         format!("{:?}", params.layer).as_str(),
         hex::encode(format!("{:?}", params.projection)).as_str(),
@@ -112,7 +110,7 @@ fn reprojected(
 
 async fn produce_tile(
     state: &AppState,
-    params: &GetTileRequestParams,
+    params: &GetTileRequest,
     dest_path: &PathBuf,
 ) -> Result<(), TileGenError> {
     let projection = match &params.projection {
@@ -190,7 +188,7 @@ async fn produce_tile(
 #[get("/tile")]
 async fn get_tile_request(
     state: web::Data<AppState>,
-    params: web::Json<GetTileRequestParams>,
+    params: web::Json<GetTileRequest>,
 ) -> Result<fs::NamedFile, actix_web::Error> {
     let file_key = PathBuf::from(TILE_DIR).join(tile_sub_dir(&params.0));
 

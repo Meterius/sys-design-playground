@@ -4,6 +4,7 @@ use crate::app::geo::geometry::{MapLine, MapRegion};
 use crate::app::geo::map::{
     Map, MapView, MapViewCamera, MapViewCameraWithView, MapViewContextQuery, MapViewWithMap,
 };
+use crate::app::geo::tiling::{MapViewTiling, MapViewTilingWithView};
 use crate::app::utils::big_space_ext::CommandsWithSpatial;
 use crate::geo::coords::{BoundedMercatorProjection, Projection2D};
 use crate::geo::osm::client::OsmClient;
@@ -31,7 +32,6 @@ use itertools::Itertools;
 use shapefile::dbase::FieldValue;
 use std::f64::consts::PI;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
-use crate::app::geo::tiling::{MapViewTiling, MapViewTilingWithView};
 
 pub fn initialize(_width: usize, _height: usize) {
     App::new()

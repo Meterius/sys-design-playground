@@ -187,8 +187,9 @@ pub fn setup_tiles(
             ));
 
             for (idx, dataset) in [
-                TileServerDataset::GibsLayerModisTerraCorrectedReflectanceTrueColor,
+                // TileServerDataset::GibsLayerModisTerraCorrectedReflectanceTrueColor,
                 // TileServerDataset::SenHubSentinel2L2a,
+                TileServerDataset::GlobalMosaicSen2,
             ]
             .into_iter()
             .enumerate()

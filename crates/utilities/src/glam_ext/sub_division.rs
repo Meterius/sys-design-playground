@@ -3,6 +3,7 @@ use crate::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use bevy_reflect::Reflect;
 use glam::{DVec2, USizeVec2, dvec2};
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 pub type TileKey = SmallVec<[SubDivisionKey; 10]>;
@@ -12,7 +13,7 @@ pub struct SubDivision2d {
 }
 
 #[cfg_attr(feature = "bevy-reflect", derive(Reflect))]
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum SubDivisionKey {
     TopLeft,
     TopRight,

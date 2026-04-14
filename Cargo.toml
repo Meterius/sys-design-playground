@@ -35,7 +35,7 @@ debug = ["bevy/debug", "bevy/bevy_debug_stepping"]
 backend_model = { path = "./crates/backend_model" }
 generated_queries = { path = "./crates/generated_queries" }
 utilities = { path = "./crates/utilities", features = ["bevy-reflect"] }
-bevy = { version = "0.18.1", features = ["jpeg"] }
+bevy = { version = "0.18.1", features = ["http", "https", "jpeg"] }
 bevy_pancam = { version = "0.20.0", features = ["bevy_egui_0_39"] }
 bevy_prototype_lyon = "0.16.0"
 geojson = "1.0.0"
@@ -59,7 +59,6 @@ async = "0.0.0"
 fs = "0.0.5"
 lru-cache = "0.1.2"
 serde_json = "1.0.149"
-tokio-rate-limit = "0.8.1"
 ratelimit = "1.0.0"
 tokio-postgres = "0.7.17"
 priority-queue = "2.7.0"
@@ -78,6 +77,7 @@ strum = { version = "0.28.0", features = ["derive"] }
 postgis = "0.9.0"
 zip = "6.0.0"
 regex = "1.12.3"
+geoconvert = "1.0.2"
 
 [profile.release]
 debug = "line-tables-only"

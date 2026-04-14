@@ -1,17 +1,17 @@
 use crate::app::geo::map::{Map, MapView, MapViewContextQuery, MapViewWithMap};
-use crate::app::geo::tile_fetcher::{
-    TileImageRequest, TileImageRequestWithMap, TileImageSprite, handle_tile_image_sprite_loaded,
-};
+use crate::app::geo::tile_fetcher::{TileImageSprite, handle_tile_image_sprite_loaded};
+use crate::app::geo::tile_requests::{TileImageRequest, TileRequestManagersByDataset};
+use crate::app::utils::async_requests::RequestWithManager;
 use crate::app::utils::big_space_ext::CommandsWithSpatial;
 use crate::app::utils::debug::SoftExpect;
 use crate::geo::coords::Projection2D;
-use crate::geo::tiling::TileServerDataset;
+use backend_model::earth_tiling_service_model::{Layer, LocalLayer};
 use bevy::app::{App, Update};
 use bevy::camera::visibility::RenderLayers;
 use bevy::color::Alpha;
 use bevy::picking::Pickable;
 use bevy::prelude::{
-    Added, Commands, Component, Entity, IntoScheduleConfigs, Name, Query, Reflect, Sprite,
+    Added, Commands, Component, Entity, IntoScheduleConfigs, Name, Query, Reflect, Res, Sprite,
     Transform, Visibility, With,
 };
 use bevy::prelude::{Plugin, ReflectComponent};
@@ -165,6 +165,7 @@ pub struct MapViewTilingsWithTiles(Vec<Entity>);
 pub struct MapViewTileWithTiling(pub Entity);
 
 pub fn setup_tiles(
+    req_managers_by_layer: Option<Res<TileRequestManagersByDataset>>,
     mut commands: Commands,
     added_tiles: Query<(Entity, &MapViewTile), Added<MapViewTile>>,
     map_view_context: MapViewContextQuery,
@@ -186,35 +187,36 @@ pub fn setup_tiles(
                 Visibility::default(),
             ));
 
-            for (idx, dataset) in [
-                // TileServerDataset::GibsLayerModisTerraCorrectedReflectanceTrueColor,
-                // TileServerDataset::SenHubSentinel2L2a,
-                TileServerDataset::GlobalMosaicSen2,
-            ]
-            .into_iter()
-            .enumerate()
+            for (idx, layer) in [Layer::Local(LocalLayer::GlobalMosaicSen2)]
+                .into_iter()
+                .enumerate()
             {
-                let sprite_id = commands
-                    .spawn((
-                        Transform::from_translation(vec3(0.0, 0.0, 1.0 + idx as f32)),
-                        Visibility::default(),
-                        TileImageRequest {
-                            key: tile.key.clone(),
-                            dataset,
-                            priority: -(tile.key.len() as isize),
-                        },
-                        TileImageSprite {
-                            size: Some(area_local.size()),
-                        },
-                        MapViewTileFade {},
-                        MapViewTileFadeWithTile(tile_id),
-                        TileImageRequestWithMap(ctx.map_id),
-                        Pickable::default(),
-                        RenderLayers::layer(1),
-                    ))
-                    .id();
+                if let Some(&req_manager_id) = req_managers_by_layer
+                    .as_ref()
+                    .and_then(|m| m.managers.get(&layer))
+                    .soft_expect("")
+                {
+                    let sprite_id = commands
+                        .spawn((
+                            Transform::from_translation(vec3(0.0, 0.0, 1.0 + idx as f32)),
+                            Visibility::default(),
+                            TileImageRequest::new(
+                                (ctx.map.projection, tile.key.clone()),
+                                -(tile.key.len() as isize),
+                            ),
+                            RequestWithManager(req_manager_id),
+                            TileImageSprite {
+                                size: Some(area_local.size()),
+                            },
+                            MapViewTileFade {},
+                            MapViewTileFadeWithTile(tile_id),
+                            Pickable::default(),
+                            RenderLayers::layer(1),
+                        ))
+                        .id();
 
-                commands.entity(tile_id).add_child(sprite_id);
+                    commands.entity(tile_id).add_child(sprite_id);
+                }
             }
         }
     }

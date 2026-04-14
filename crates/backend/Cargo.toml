@@ -30,4 +30,4 @@ serde_repr = "0.1.20"
 strum = { version = "0.28.0", features = ["derive"] }
 tracing = "0.1"
 cached = { version = "0.59.0", features = ["async", "proc_macro"] }
-tracing-subscriber = "0.3.23"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

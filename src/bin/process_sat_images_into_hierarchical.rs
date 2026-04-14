@@ -1,4 +1,4 @@
-use glam::{IVec2, dvec2, ivec2, usizevec2, UVec2};
+use glam::{IVec2, UVec2, dvec2, ivec2, usizevec2};
 use image::codecs::jpeg::JpegEncoder;
 use image::imageops::crop_imm;
 use image::{EncodableLayout, ImageEncoder, RgbImage};
@@ -8,20 +8,38 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use bevy::pbr::Falloff::Linear;
-use tiff::decoder::ChunkType::Tile;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
-use utilities::glam_ext::sub_division::{SubDivision2d, SubDivisionKey, TileKey};
-use utilities::tiled_imaging::{LinearTiledImage, TiledImage, TiledImageSource};
+use utilities::glam_ext::sub_division::{SubDivisionKey, TileKey};
+use utilities::tiled_imaging::TiledImageSource;
 
-pub const SOURCE_RES: usize = 10000;
+//pub const SOURCE_RES: usize = 10000;
+pub const SOURCE_RES: usize = 10008;
 pub const SOURCE_DIV: usize = 4;
 pub const SUB_DIV_RES: usize = 1024;
 
-pub const SOURCE_DIR: &str = "./datasets/sat/Sentinel-2_mosaic_2025_Q4/";
-pub const OUT_DIR: &str = "./datasets/sat/Sentinel-2_mosaic_2025_Q4_conv/";
+pub const SOURCE_DIR: &str = "E:/sen2/Global-Mosaics/Sentinel-2/S2MSI_L3__MCQ/2025/07/01";
+pub const OUT_DIR: &str = "./datasets/sat/Sentinel-2_mosaic_2025_Q3_HQ_conv/";
 
-fn tile_name_to_bounds(tile_name: &str) -> Option<(IVec2, IVec2)> {
+fn tile_name_to_bounds_mgrs_based(tile_name: &str) -> Option<DAabb2> {
+    let re = regex::Regex::new(r"_([0-9]{2}[A-Z]{3})_").ok()?;
+    let caps = re.captures(tile_name)?;
+
+    let a = geoconvert::Mgrs::parse_str(format!("{}0000000000", &caps[1]).as_str())
+        .unwrap()
+        .to_latlon();
+    let b = geoconvert::Mgrs::parse_str(format!("{}9999999999", &caps[1]).as_str())
+        .unwrap()
+        .to_latlon();
+
+    println!("{tile_name} {:?}", (a, b));
+
+    Some(DAabb2::new(
+        dvec2(a.longitude(), a.latitude()),
+        dvec2(b.longitude(), b.latitude()),
+    ))
+}
+
+fn tile_name_to_bounds_card_offset_based(tile_name: &str) -> Option<(IVec2, IVec2)> {
     let re = regex::Regex::new(r"([NS])(\d+)([EW])(\d+)").ok()?;
     let caps = re.captures(tile_name)?;
 
@@ -67,16 +85,19 @@ fn read_tiff_band(path: impl AsRef<Path>) -> TiffBand {
     }
 }
 
-fn base_tiles_out_dir(size: IVec2) -> PathBuf {
-    PathBuf::from(OUT_DIR).join(format!("{}_{}", size.x, size.y))
+fn base_tiles_out_dir() -> PathBuf {
+    PathBuf::from(OUT_DIR).join("combined")
 }
 
-fn base_tiles_out_file_path(bounds: (IVec2, IVec2)) -> PathBuf {
+fn base_tiles_out_file_path(bounds: DAabb2) -> PathBuf {
     let out_name = format!(
-        "{}_{}_{}_{}",
-        bounds.0.x, bounds.0.y, bounds.1.x, bounds.1.y
+        "{:.10}_{:.10}_{:.10}_{:.10}",
+        bounds.min().x,
+        bounds.min().y,
+        bounds.max().x,
+        bounds.max().y
     );
-    base_tiles_out_dir(bounds.1 - bounds.0)
+    base_tiles_out_dir()
         .join(out_name)
         .with_added_extension("tiff")
 }
@@ -92,17 +113,21 @@ impl TiledImageSource for BaseTileSource {
 
     fn load_tile(&self, tile_index: UVec2) -> Result<RgbImage, Self::Error> {
         let count = ivec2(360, 180) / self.gcs_size;
-        let start = ivec2(-180, -90) + self.gcs_size * (ivec2(0, count.y - 1) + ivec2(1, -1) * tile_index.as_ivec2());
+        let start = ivec2(-180, -90)
+            + self.gcs_size * (ivec2(0, count.y - 1) + ivec2(1, -1) * tile_index.as_ivec2());
         let end = start + self.gcs_size;
 
-        let tile_path = self.tiles_dir.join(format!("{}_{}_{}_{}.tiff", start.x, start.y, end.x, end.y));
+        let tile_path = self
+            .tiles_dir
+            .join(format!("{}_{}_{}_{}.tiff", start.x, start.y, end.x, end.y));
         Ok(image::open(tile_path)?.to_rgb8())
     }
 }
 
-fn process_base_tile(tile_path: &Path, bounds: (IVec2, IVec2)) {
+// fn process_base_tile(tile_path: &Path, bounds: (IVec2, IVec2)) {
+fn process_base_tile(tile_path: &Path, bounds: DAabb2) {
     let div_size = (SOURCE_RES / SOURCE_DIV, SOURCE_RES / SOURCE_DIV);
-    let div_bound_size = (bounds.1 - bounds.0) / (SOURCE_DIV as i32);
+    let div_bound_size = bounds.size() / (SOURCE_DIV as f64);
 
     let ((r, g), b) = rayon::join(
         || {
@@ -130,21 +155,36 @@ fn process_base_tile(tile_path: &Path, bounds: (IVec2, IVec2)) {
 
     for i in 0..SOURCE_DIV {
         for j in 0..SOURCE_DIV {
-            crop_imm(
+            let base_tile = crop_imm(
                 &out,
                 (div_size.0 * i) as u32,
                 (div_size.1 * j) as u32,
                 div_size.0 as u32,
                 div_size.1 as u32,
             )
-            .to_image()
-            .save(&base_tiles_out_file_path((
-                bounds.0 + ivec2(i as i32, SOURCE_DIV as i32 - 1 - j as i32) * div_bound_size,
-                bounds.0
-                    + ivec2(i as i32, SOURCE_DIV as i32 - 1 - j as i32) * div_bound_size
-                    + div_bound_size,
-            )))
+            .to_image();
+
+            save_sub_div_image(
+                &base_tiles_out_file_path(DAabb2::new(
+                    bounds.min()
+                        + dvec2(i as f64, SOURCE_DIV as f64 - 1.0 - j as f64) * div_bound_size,
+                    bounds.max()
+                        + dvec2(i as f64, SOURCE_DIV as f64 - 1.0 - j as f64) * div_bound_size
+                        + div_bound_size,
+                ))
+                .with_extension("jpg"),
+                &base_tile,
+            )
             .unwrap();
+
+            // base_tile
+            // .save(&base_tiles_out_file_path(DAabb2::new(
+            //     bounds.min() + dvec2(i as f64, SOURCE_DIV as f64 - 1.0 - j as f64) * div_bound_size,
+            //     bounds.max()
+            //         + dvec2(i as f64, SOURCE_DIV as f64 - 1.0 - j as f64) * div_bound_size
+            //         + div_bound_size,
+            // )))
+            // .unwrap();
         }
     }
 }
@@ -281,22 +321,25 @@ async fn main() {
         .map(|t| {
             (
                 t.path(),
-                tile_name_to_bounds(t.file_name().to_str().unwrap()).unwrap(),
+                // tile_name_to_bounds_card_offset_based(t.file_name().to_str().unwrap()).unwrap(),
+                tile_name_to_bounds_mgrs_based(t.file_name().to_str().unwrap()).unwrap(),
             )
         })
         .collect::<Vec<_>>();
 
-    let base_size = tiles[0].1.1 - tiles[0].1.0;
+    let base_size = tiles[0].1.size();
+    // let base_size = tiles[0].1.1 - tiles[0].1.0;
 
-    assert_eq!(base_size.x, base_size.y);
-    assert_eq!(base_size.x % SOURCE_DIV as i32, 0);
-    assert_eq!(base_size.y % SOURCE_DIV as i32, 0);
+    // assert_eq!(base_size.x, base_size.y);
+    // assert_eq!(base_size.x % SOURCE_DIV as i32, 0);
+    // assert_eq!(base_size.y % SOURCE_DIV as i32, 0);
 
     for tile in tiles.iter() {
-        assert_eq!(tile.1.1 - tile.1.0, base_size);
+        // assert_eq!(tile.1.1 - tile.1.0, base_size);
+        // assert_eq!(tile.1.size(), base_size);
     }
 
-    tokio::fs::create_dir_all(base_tiles_out_dir(base_size / SOURCE_DIV as i32))
+    tokio::fs::create_dir_all(base_tiles_out_dir())
         .await
         .unwrap();
 
@@ -304,47 +347,47 @@ async fn main() {
         process_base_tile(&tile_path, bounds);
     });
 
-    let base_size = base_size / SOURCE_DIV as i32;
+    // let base_size = base_size / SOURCE_DIV as i32;
+    //
+    // let sub_div = SubDivision2d {
+    //     area: DAabb2::new(dvec2(-180.0, -90.0), dvec2(180.0, 90.0)),
+    // };
+    //
+    // let base_depth = sub_div.min_depth_for_tile_count(
+    //     base_size.as_dvec2() * (SUB_DIV_RES as f64 / (SOURCE_RES as f64 / SOURCE_DIV as f64)),
+    //     usizevec2(1, 1),
+    // );
 
-    let sub_div = SubDivision2d {
-        area: DAabb2::new(dvec2(-180.0, -90.0), dvec2(180.0, 90.0)),
-    };
+    // tokio::fs::create_dir_all(sub_div_tile_out_dir())
+    //     .await
+    //     .unwrap();
 
-    let base_depth = sub_div.min_depth_for_tile_count(
-        base_size.as_dvec2() * (SUB_DIV_RES as f64 / (SOURCE_RES as f64 / SOURCE_DIV as f64)),
-        usizevec2(1, 1),
-    );
-
-    tokio::fs::create_dir_all(sub_div_tile_out_dir())
-        .await
-        .unwrap();
-
-    let base_sub_div_tiles = SubDivision2d::sub_div_keys(base_depth)
-        .map(|key| (key.clone(), sub_div.tile_bbox(&key)))
-        .collect_vec();
-
-    let base_tile_image = LinearTiledImage {
-        tiled_image: TiledImage {
-            source: BaseTileSource {
-                tiles_dir: base_tiles_out_dir(base_size),
-                gcs_size: base_size,
-            },
-            tile_count: (ivec2(360, 180) / base_size).as_uvec2(),
-            tile_resolution: UVec2::ONE * (SOURCE_RES / SOURCE_DIV) as u32,
-        },
-        bounds: DAabb2::new(dvec2(-180.0, -90.0), dvec2(180.0, 90.0)),
-    };
-
-    with_progress("sub-div base", base_sub_div_tiles, |(key, bounds)| {
-        let out = base_tile_image.load_sub_image(bounds, UVec2::ONE * SUB_DIV_RES as u32).unwrap();
-        save_sub_div_image(sub_div_tile_out_file_path(&key).as_path(), &out).unwrap();
-    });
-
-    for depth in (0..base_depth).rev() {
-        let tile_keys = SubDivision2d::sub_div_keys(depth).collect_vec();
-
-        with_progress(&format!("merge depth {depth}"), tile_keys, |key| {
-            merge_sub_div_tiles(key);
-        });
-    }
+    // let base_sub_div_tiles = SubDivision2d::sub_div_keys(base_depth)
+    //     .map(|key| (key.clone(), sub_div.tile_bbox(&key)))
+    //     .collect_vec();
+    //
+    // let base_tile_image = LinearTiledImage {
+    //     tiled_image: TiledImage {
+    //         source: BaseTileSource {
+    //             tiles_dir: base_tiles_out_dir(),
+    //             gcs_size: base_size,
+    //         },
+    //         tile_count: (ivec2(360, 180) / base_size).as_uvec2(),
+    //         tile_resolution: UVec2::ONE * (SOURCE_RES / SOURCE_DIV) as u32,
+    //     },
+    //     bounds: DAabb2::new(dvec2(-180.0, -90.0), dvec2(180.0, 90.0)),
+    // };
+    //
+    // with_progress("sub-div base", base_sub_div_tiles, |(key, bounds)| {
+    //     let out = base_tile_image.load_sub_image(bounds, UVec2::ONE * SUB_DIV_RES as u32).unwrap();
+    //     save_sub_div_image(sub_div_tile_out_file_path(&key).as_path(), &out).unwrap();
+    // });
+    //
+    // for depth in (0..base_depth).rev() {
+    //     let tile_keys = SubDivision2d::sub_div_keys(depth).collect_vec();
+    //
+    //     with_progress(&format!("merge depth {depth}"), tile_keys, |key| {
+    //         merge_sub_div_tiles(key);
+    //     });
+    // }
 }

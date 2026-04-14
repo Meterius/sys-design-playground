@@ -20,17 +20,17 @@ pub enum TileSubKey {
 
 pub type TileKey = SmallVec<[TileSubKey; 10]>;
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, Display, EnumString)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, Display, EnumString)]
 pub enum GibsLayer {
     LayerModisTerraCorrectedReflectanceTrueColor,
 }
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, Display, EnumString)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, Display, EnumString)]
 pub enum LocalLayer {
     GlobalMosaicSen2,
 }
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum Layer {
     Gibs(GibsLayer),
     SenHub,

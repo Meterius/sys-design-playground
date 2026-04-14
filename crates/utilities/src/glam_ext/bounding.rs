@@ -11,7 +11,7 @@ pub struct Aabb2 {
 }
 
 #[cfg_attr(feature = "bevy-reflect", derive(Reflect))]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DAabb2 {
     min: DVec2,
     max: DVec2,

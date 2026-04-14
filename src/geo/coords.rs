@@ -1,6 +1,7 @@
 use bevy::prelude::Reflect;
 use glam::{DVec2, dvec2};
 use std::f64::consts::PI;
+use std::hash::{Hash, Hasher};
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 
 pub const fn approx_lat_delta_from_len(len: f64) -> f64 {
@@ -59,6 +60,17 @@ pub trait Projection2D {
 pub struct BoundedMercatorProjection {
     pub lat_max: f64,
     pub lat_min: f64,
+}
+
+impl Eq for BoundedMercatorProjection {
+    fn assert_receiver_is_total_eq(&self) {}
+}
+
+impl Hash for BoundedMercatorProjection {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(self.lat_max.to_bits());
+        state.write_u64(self.lat_min.to_bits());
+    }
 }
 
 impl Projection2D for BoundedMercatorProjection {

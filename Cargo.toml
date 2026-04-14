@@ -27,6 +27,10 @@ path = "src/bin/fetch_osm_shapefiles.rs"
 name = "process_sat_images_into_hierarchical"
 path = "src/bin/process_sat_images_into_hierarchical.rs"
 
+[[bin]]
+name = "sat_ingest"
+path = "src/bin/sat_ingest.rs"
+
 [features]
 default = []
 debug = ["bevy/debug", "bevy/bevy_debug_stepping"]
@@ -66,6 +70,8 @@ bevy-inspector-egui = "0.36.0"
 egui = "0.33.3"
 glam = "0.30.10"
 dotenvy = "0.15.7"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
 crossterm = "0.28"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

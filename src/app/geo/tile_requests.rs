@@ -94,7 +94,9 @@ impl TileImageRequestClient {
         Ok(tile_dir.join(key_hex).with_added_extension("jpg"))
     }
 
-    fn get_asset_tile_path(tile_key: &TileKey) -> bevy::prelude::Result<PathBuf, TileImageRequestError> {
+    fn get_asset_tile_path(
+        tile_key: &TileKey,
+    ) -> bevy::prelude::Result<PathBuf, TileImageRequestError> {
         let tile_dir = Self::get_asset_tile_dir();
         let key_hex = hex::encode(serde_json::to_string(&tile_key)?);
         Ok(tile_dir.join(key_hex).with_added_extension("jpg"))

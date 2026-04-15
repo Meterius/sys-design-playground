@@ -1,0 +1,37 @@
+[package]
+name = "irox-carto"
+description = "Cartographic & Geospatial Library"
+keywords = ["irox", "coordinate", "transforms", "epsg", "projections"]
+categories = ["aerospace", "data-structures", "science::geo", "mathematics"]
+version= "0.6.5"
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+license.workspace = true
+exclude.workspace = true
+readme.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+windows = ["dep:windows"]
+std = ["irox-tools/std", "irox-units/std"]
+
+[dependencies]
+irox-units = { workspace = true }
+irox-tools.workspace = true
+irox-enums.workspace = true
+irox-time.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, optional = true }
+
+[build-dependencies]
+irox-csv.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

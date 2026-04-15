@@ -1,6 +1,6 @@
 use crate::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use anyhow::Context;
-use glam::{DVec2, UVec2, dvec2, IVec2, ivec2};
+use glam::{DVec2, IVec2, UVec2, dvec2};
 use rayon::iter::IntoParallelIterator;
 use rayon::iter::ParallelIterator;
 use rstar::{AABB, RTree, RTreeObject};
@@ -109,7 +109,10 @@ impl DistributedMappedImage {
             .tree
             .locate_in_envelope_intersecting(&query)
             .filter(|entry| {
-                entry.bounds.intersection(area).is_some_and(|overlap| overlap.size().min_element() > 0.0)
+                entry
+                    .bounds
+                    .intersection(area)
+                    .is_some_and(|overlap| overlap.size().min_element() > 0.0)
             })
             .collect::<Vec<_>>()
             .into_par_iter()
@@ -154,8 +157,12 @@ impl DistributedMappedImage {
                     && start.x <= end.x
                     && start.y <= end.y
                 {
-                    let start = start.clamp(IVec2::ZERO, resolution.as_ivec2() - IVec2::ONE).as_uvec2();
-                    let end = end.clamp(IVec2::ZERO, resolution.as_ivec2() - IVec2::ONE).as_uvec2();
+                    let start = start
+                        .clamp(IVec2::ZERO, resolution.as_ivec2() - IVec2::ONE)
+                        .as_uvec2();
+                    let end = end
+                        .clamp(IVec2::ZERO, resolution.as_ivec2() - IVec2::ONE)
+                        .as_uvec2();
 
                     for oy in start.y..=end.y {
                         for ox in start.x..=end.x {

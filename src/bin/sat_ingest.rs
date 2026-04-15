@@ -14,6 +14,7 @@ use std::time::Instant;
 use utilities::distributed_mapped_image::{DistributedMappedImage, TileMeta};
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use utilities::glam_ext::sub_division::{SubDivision2d, tile_key_str};
+use utilities::sen2::{convert_sen2_img_to_epsg4326, extract_bounds_offset, UserData};
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
 #[derive(Parser)]
@@ -76,122 +77,13 @@ fn detect_mode(first_tile_dir: &Path) -> anyhow::Result<Mode> {
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("");
-    if regex::Regex::new(r"[NS]\d+[EW]\d+").unwrap().is_match(name) {
+    if regex::Regex::new(r"[NS]\d+[EW]\d+")?.is_match(name) {
         return Ok(Mode::Offset);
     }
     bail!(
         "Cannot detect dataset mode from {first_tile_dir:?}: \
          no userdata.json found and directory name does not match the cardinal-offset pattern"
     )
-}
-
-// ── Bounds extraction ─────────────────────────────────────────────────────────
-
-#[derive(serde::Deserialize)]
-struct UserData {
-    #[serde(rename = "GeoFootprint")]
-    geo_footprint: GeoFootprintField,
-}
-
-#[derive(serde::Deserialize)]
-struct GeoFootprintField {
-    /// `coordinates[0]` is the outer ring; each element is `[lon, lat]`.
-    coordinates: Vec<Vec<[f64; 2]>>,
-}
-
-/// Extract bounds from `tile_dir/userdata.json`.
-///
-/// The `GeoFootprint` polygon must be axis-aligned (i.e. it must have exactly
-/// 2 unique longitude values and 2 unique latitude values). Returns `Err`
-/// otherwise.
-fn extract_bounds_mgrs(tile_dir: &Path) -> anyhow::Result<DAabb2> {
-    let path = tile_dir.join("userdata.json");
-    let ud: UserData =
-        serde_json::from_reader(File::open(&path).with_context(|| format!("opening {path:?}"))?)
-            .with_context(|| format!("parsing {path:?}"))?;
-
-    let ring = ud
-        .geo_footprint
-        .coordinates
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow!("{path:?}: GeoFootprint has no coordinate rings"))?;
-
-    // Drop the closing vertex if it repeats the first.
-    let verts: Vec<[f64; 2]> = if ring.len() >= 2 && ring.first() == ring.last() {
-        ring[..ring.len() - 1].to_vec()
-    } else {
-        ring
-    };
-
-    if verts.len() != 4 {
-        bail!(
-            "{path:?}: expected 4 polygon vertices for an AABB, got {}",
-            verts.len()
-        );
-    }
-
-    const TOL: f64 = 1e-6;
-    let unique_lons = unique_f64_values(verts.iter().map(|v| v[0]), TOL);
-    let unique_lats = unique_f64_values(verts.iter().map(|v| v[1]), TOL);
-
-    // if unique_lons.len() != 2 || unique_lats.len() != 2 {
-    //     bail!(
-    //         "{path:?}: GeoFootprint is not axis-aligned: \
-    //          found {} unique longitude(s) and {} unique latitude(s)",
-    //         unique_lons.len(),
-    //         unique_lats.len()
-    //     );
-    // }
-
-    // Every vertex must land exactly on one of the 4 expected corners.
-    for v in &verts {
-        let lon_ok = unique_lons.iter().any(|&u| (v[0] - u).abs() < TOL);
-        let lat_ok = unique_lats.iter().any(|&u| (v[1] - u).abs() < TOL);
-        if !lon_ok || !lat_ok {
-            bail!("{path:?}: vertex {v:?} does not coincide with an AABB corner");
-        }
-    }
-
-    let min_lon = unique_lons[0].min(unique_lons[1]);
-    let max_lon = unique_lons[0].max(unique_lons[1]);
-    let min_lat = unique_lats[0].min(unique_lats[1]);
-    let max_lat = unique_lats[0].max(unique_lats[1]);
-
-    Ok(DAabb2::new(
-        dvec2(min_lon, min_lat),
-        dvec2(max_lon, max_lat),
-    ))
-}
-
-fn unique_f64_values(iter: impl Iterator<Item = f64>, tol: f64) -> Vec<f64> {
-    let mut uniq: Vec<f64> = Vec::new();
-    for v in iter {
-        if !uniq.iter().any(|&u| (v - u).abs() < tol) {
-            uniq.push(v);
-        }
-    }
-    uniq
-}
-
-/// Extract bounds from a cardinal-offset directory name, e.g. `N18E000`.
-/// Each tile covers a 36° × 36° cell.
-fn extract_bounds_offset(dir_name: &str) -> anyhow::Result<DAabb2> {
-    let re = regex::Regex::new(r"([NS])(\d+)([EW])(\d+)").unwrap();
-    let caps = re
-        .captures(dir_name)
-        .ok_or_else(|| anyhow!("No cardinal-offset pattern found in {dir_name:?}"))?;
-
-    let lat_val: f64 = caps[2].parse()?;
-    let lon_val: f64 = caps[4].parse()?;
-
-    let min_lat = if &caps[1] == "S" { -lat_val } else { lat_val };
-    let min_lon = if &caps[3] == "W" { -lon_val } else { lon_val };
-
-    Ok(DAabb2::new(
-        dvec2(min_lon, min_lat),
-        dvec2(min_lon + 36.0, min_lat + 36.0),
-    ))
 }
 
 // ── Band I/O ──────────────────────────────────────────────────────────────────
@@ -297,12 +189,12 @@ fn save_dist_tile_jpeg(
         File::create(&meta_path).with_context(|| format!("creating {meta_path:?}"))?,
         &TileMeta { bounds },
     )
-    .with_context(|| format!("writing {meta_path:?}"))
+        .with_context(|| format!("writing {meta_path:?}"))
 }
 
 fn ingest_tile(
     tile_dir: &Path,
-    bounds: DAabb2,
+    mode: Mode,
     out_dir: &Path,
     max_res: Option<u32>,
 ) -> anyhow::Result<()> {
@@ -311,7 +203,29 @@ fn ingest_tile(
         .and_then(|n| n.to_str())
         .ok_or_else(|| anyhow!("Cannot derive stem from {tile_dir:?}"))?;
 
+    let start = Instant::now();
     let merged = merge_bands(tile_dir)?;
+    println!("{:.2}", Instant::now().duration_since(start).as_secs_f32());
+    let start = Instant::now();
+    let (merged, bounds) = match mode {
+        Mode::Mgrs => {
+            let path = tile_dir.join("userdata.json");
+            let ud: UserData =
+                serde_json::from_reader(File::open(&path).with_context(|| format!("opening {path:?}"))?)
+                    .with_context(|| format!("parsing {path:?}"))?;
+            convert_sen2_img_to_epsg4326(&merged, &ud)?
+        }
+        Mode::Offset => {
+            let name = tile_dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_owned();
+            (merged, extract_bounds_offset(&name)?)
+        }
+    };
+    println!("{:.2}", Instant::now().duration_since(start).as_secs_f32());
+
     let (w, h) = (merged.width(), merged.height());
 
     let (d_w, d_h) = match max_res {
@@ -413,6 +327,7 @@ fn ingest_source_as_dist_img(
         .collect::<anyhow::Result<Vec<_>>>()?
         .into_par_iter()
         .filter(|e| e.file_type().map(|ft| ft.is_dir()).unwrap_or(false))
+        .filter(|e| e.path().to_str().unwrap().ends_with("Sentinel-2_mosaic_2025_Q3_43TDF_0_0"))
         .map(|e| e.path())
         .collect();
 
@@ -432,31 +347,11 @@ fn ingest_source_as_dist_img(
         tile_dirs.len()
     );
 
-    // Extract bounds single-threaded for clear, ordered error messages.
-    let tiles: Vec<(PathBuf, DAabb2)> = tile_dirs
-        .into_par_iter()
-        .map(|dir| {
-            let bounds = match mode {
-                Mode::Mgrs => extract_bounds_mgrs(&dir),
-                Mode::Offset => {
-                    let name = dir
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("")
-                        .to_owned();
-                    extract_bounds_offset(&name)
-                }
-            }
-            .with_context(|| format!("extracting bounds for {dir:?}"))?;
-            Ok((dir, bounds))
-        })
-        .collect::<anyhow::Result<_>>()?;
-
     std::fs::create_dir_all(output)
         .with_context(|| format!("creating output directory {output:?}"))?;
 
-    with_progress("ingest", tiles, |(tile_dir, bounds)| {
-        if let Err(e) = ingest_tile(&tile_dir, bounds, output, max_res) {
+    with_progress("ingest", tile_dirs, |tile_dir| {
+        if let Err(e) = ingest_tile(&tile_dir, mode, output, max_res) {
             eprintln!("\nError ingesting {tile_dir:?}: {e:#}");
         }
     });
@@ -509,8 +404,8 @@ fn process_dist_img_into_hierarchical_tiles(
                         &out,
                         bounds,
                     )
-                    .with_context(|| format!("saving tile for key {key:?}"))
-                    .inspect_err(|e| eprintln!("Error saving tile for key {key:?}: {e:#}"));
+                        .with_context(|| format!("saving tile for key {key:?}"))
+                        .inspect_err(|e| eprintln!("Error saving tile for key {key:?}: {e:#}"));
                 }
             },
         );

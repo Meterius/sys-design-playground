@@ -10,6 +10,12 @@ pub struct Aabb2 {
     max: Vec2,
 }
 
+impl From<Aabb2> for DAabb2 {
+    fn from(val: Aabb2) -> Self {
+        DAabb2::new(val.min.as_dvec2(), val.max.as_dvec2())
+    }
+}
+
 #[cfg_attr(feature = "bevy-reflect", derive(Reflect))]
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DAabb2 {

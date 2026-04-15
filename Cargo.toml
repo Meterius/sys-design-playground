@@ -24,10 +24,6 @@ name = "fetch_osm_shapefiles"
 path = "src/bin/fetch_osm_shapefiles.rs"
 
 [[bin]]
-name = "process_sat_images_into_hierarchical"
-path = "src/bin/process_sat_images_into_hierarchical.rs"
-
-[[bin]]
 name = "sat_ingest"
 path = "src/bin/sat_ingest.rs"
 
@@ -43,10 +39,7 @@ bevy = { version = "0.18.1", features = ["http", "https", "jpeg"] }
 bevy_pancam = { version = "0.20.0", features = ["bevy_egui_0_39"] }
 bevy_prototype_lyon = "0.16.0"
 geojson = "1.0.0"
-osmpbf = "0.3.8"
 tokio = { version = "1.50.0", features = ["sync", "rt", "rt-multi-thread", "macros", "fs", "time", "signal"] }
-walkdir = "2.5.0"
-serde = { version = "1.0.228", features = ["derive"] }
 bevy_vector_shapes = "0.12.0"
 itertools = "0.14.0"
 reqwest = { version = "0.13.2", features = ["json", "form"] }
@@ -55,19 +48,14 @@ tiff = "0.9"
 rayon = "1"
 futures = "0.3.32"
 bevy-tokio-tasks = "0.18.0"
-async-channel = "2.5.0"
 smallvec = "1.15.1"
 thiserror = "2.0.18"
 hex = "0.4.3"
-async = "0.0.0"
-fs = "0.0.5"
-lru-cache = "0.1.2"
 serde_json = "1.0.149"
 ratelimit = "1.0.0"
 tokio-postgres = "0.7.17"
 priority-queue = "2.7.0"
 bevy-inspector-egui = "0.36.0"
-egui = "0.33.3"
 glam = "0.30.10"
 dotenvy = "0.15.7"
 anyhow = "1"
@@ -75,15 +63,12 @@ clap = { version = "4", features = ["derive"] }
 crossterm = "0.28"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tracing-flame = "0.2"
-cached = "0.59.0"
 big_space = "0.12.0"
 shapefile = "0.8.0"
 strum = { version = "0.28.0", features = ["derive"] }
 postgis = "0.9.0"
-zip = "6.0.0"
 regex = "1.12.3"
-geoconvert = "1.0.2"
+zip = "8.5.1"
 
 [profile.release]
 debug = "line-tables-only"

@@ -165,14 +165,14 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
                                             .map(|pos| dvec2(pos.x.to_radians(), pos.y.to_radians()))
                                             .collect_vec(),
                                         match road.class.category() {
-                                            RoadClassCategory::HighwayLinks => 8.0,
-                                            RoadClassCategory::MajorRoads => 4.0,
-                                            RoadClassCategory::MinorRoads => 2.0,
-                                            RoadClassCategory::Unknown => 0.5,
-                                            RoadClassCategory::VerySmallRoads => 0.5,
-                                            RoadClassCategory::PathsUnsuitableForCars => 0.5,
+                                            RoadClassCategory::HighwayLinks => 6.0,
+                                            RoadClassCategory::MajorRoads => 3.0,
+                                            RoadClassCategory::MinorRoads => 1.0,
+                                            RoadClassCategory::Unknown => 0.1,
+                                            RoadClassCategory::VerySmallRoads => 0.2,
+                                            RoadClassCategory::PathsUnsuitableForCars => 0.25,
                                         },
-                                        Color::hsv(38.0, 0.0, 0.7),
+                                        Color::hsva(38.0, 0.0, 0.7, 0.5),
                                     ),
                                     RenderLayers::layer(2),
                                 ))

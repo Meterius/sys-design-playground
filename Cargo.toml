@@ -69,9 +69,20 @@ strum = { version = "0.28.0", features = ["derive"] }
 postgis = "0.9.0"
 regex = "1.12.3"
 zip = "8.5.1"
+geoconvert = "1.0.2"
+crossbeam = "0.8.4"
 
 [profile.release]
-debug = "line-tables-only"
+opt-level = 3
+lto = "fat"
+#debug = 2
+#split-debuginfo = "packed"
+
+#opt-level = 3
+#debug = 2
+#split-debuginfo = "packed"
+#lto = "thin"   # NOT fat
+#codegen-units = 1
 
 [profile.dev]
 opt-level = 0
@@ -79,3 +90,8 @@ incremental = true
 
 [profile.dev.package."*"]
 opt-level = 3
+
+[package.metadata.vcpkg]
+git = "https://github.com/microsoft/vcpkg"
+rev = "296b892"
+dependencies = ["sqlite3"]

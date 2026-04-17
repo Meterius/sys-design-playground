@@ -8,8 +8,7 @@
 use irox_units::units::angle::Angle;
 use irox_units::units::length;
 use irox_units::units::length::Length;
-use std::simd::{Simd, StdFloat};
-
+use std::simd::Simd;
 use crate::coordinate::{CartesianCoordinate, EllipticalCoordinate, Latitude, Longitude};
 use crate::geo::ellipsoid::Ellipsoid;
 use crate::geo::standards::StandardShapes;
@@ -33,6 +32,8 @@ pub struct TransverseMercator {
     center: EllipticalCoordinate,
     /// Shape of the Ellipsoid in use, defaults to WGS84
     shape: Ellipsoid,
+
+    meridian_calc: DeakinHunterKarneyMeridianCalculator,
 
     /// The false northing offset on the X axis, defaults to `0` in the northern hemisphere, and
     /// `10_000_000m` in the southern hemisphere
@@ -75,6 +76,7 @@ impl TMBuilder {
     #[must_use]
     pub fn with_shape(mut self, shape: Ellipsoid) -> Self {
         self.tm.shape = shape;
+        self.tm.meridian_calc = DeakinHunterKarneyMeridianCalculator::new(&shape);
         self
     }
 
@@ -125,7 +127,12 @@ impl TransverseMercator {
         lon_rads: Simd<f64, N>,
         lat_rads: Simd<f64, N>,
     ) -> (Simd<f64, N>, Simd<f64, N>) {
-        let w = (lon_rads - Simd::splat(self.center.get_longitude().0.as_radians().value()));
+        let center_lon = Simd::splat(self.center.get_longitude().0.as_radians().value());
+        let center_lat = Simd::splat(self.center.get_latitude().0.as_radians().value());
+
+        let w = lon_rads - center_lon;
+
+        // balanced powers (better ILP)
         let w2 = w * w;
         let w3 = w2 * w;
         let w4 = w2 * w2;
@@ -134,63 +141,69 @@ impl TransverseMercator {
         let w7 = w6 * w;
         let w8 = w4 * w4;
 
-        let delta_lat = lat_rads - Simd::splat(self.center.get_latitude().0.as_radians().value());
-
-        let v = self.shape.radius_curvature_prime_vertical_meters_batched(lat_rads);
-
         let phi = lat_rads;
-        let sin_phi = phi.sin();
-        let cos_phi = phi.cos();
-        let cos2_phi = cos_phi * cos_phi;
-        let cos3_phi = cos2_phi * cos_phi;
-        let cos5_phi = cos3_phi * cos2_phi;
-        let cos7_phi = cos5_phi * cos2_phi;
+        let delta_lat = phi - center_lat;
 
-        let sin2_phi = sin_phi * sin_phi;
-        let tan2_phi = sin2_phi / cos2_phi;
-        let tan4_phi = tan2_phi * tan2_phi;
-        let tan6_phi = tan4_phi * tan2_phi;
+        let (sin_phi, cos_phi) = sleef::f64x::sincos_u35(phi);
 
+        let sin2 = sin_phi * sin_phi;
+        let cos2 = cos_phi * cos_phi;
+
+        let cos3 = cos2 * cos_phi;
+        let cos5 = cos3 * cos2;
+        let cos7 = cos5 * cos2;
+
+        let tan2 = sin2 / cos2;
+        let tan4 = tan2 * tan2;
+        let tan6 = tan4 * tan2;
 
         let ep2 = Simd::splat(self.shape.second_eccentricity_squared);
-        let ep2cos2 = ep2 * cos2_phi;
+        let ep2cos2 = ep2 * cos2;
         let ep4cos4 = ep2cos2 * ep2cos2;
         let ep6cos6 = ep4cos4 * ep2cos2;
-        let ep8cos8 = ep6cos6 * ep2cos2;
+        let ep8cos8 = ep4cos4 * ep4cos4;
 
-        let t1 = Simd::splat(self.scale_factor)
-            * DeakinHunterKarneyMeridianCalculator::new(&self.shape)
-            .meridional_arc_distance_meters_batch(delta_lat);
+        let v = self.shape.radius_curvature_prime_vertical_meters_batched(phi);
 
-        let k = v * Simd::splat(self.scale_factor);
+        let scale = Simd::splat(self.scale_factor);
+        let k = v * scale;
+
         let k_sin = k * sin_phi;
         let k_cos = k * cos_phi;
 
-        let t2 = k_sin * cos_phi * Simd::splat(0.5);
+        let t1 = scale * self.meridian_calc.meridional_arc_distance_meters_batch(delta_lat);
 
-        let t3 = (k_sin * cos3_phi) * Simd::splat(1.0 / 24.0)
-            * (Simd::splat(5.0) - tan2_phi + Simd::splat(9.0) * ep2cos2 + Simd::splat(4.0) * ep4cos4);
+        let half = Simd::splat(0.5);
+        let inv24 = Simd::splat(1.0 / 24.0);
+        let inv720 = Simd::splat(1.0 / 720.0);
+        let inv40320 = Simd::splat(1.0 / 40320.0);
+        let inv6 = Simd::splat(1.0 / 6.0);
+        let inv120 = Simd::splat(1.0 / 120.0);
+        let inv5040 = Simd::splat(1.0 / 5040.0);
 
-        let t4 = (k_sin * cos5_phi) * Simd::splat(1.0 / 720.0)
-            * (
-            Simd::splat(61.0)
-                - Simd::splat(58.0) * tan2_phi
-                + tan4_phi
+        let t2 = k_sin * cos_phi * half;
+
+        let t3 = (k_sin * cos3) * inv24
+            * (Simd::splat(5.0) - tan2 + Simd::splat(9.0) * ep2cos2 + Simd::splat(4.0) * ep4cos4);
+
+        let t4 = (k_sin * cos5) * inv720
+            * (Simd::splat(61.0)
+                - Simd::splat(58.0) * tan2
+                + tan4
                 + Simd::splat(270.0) * ep2cos2
-                - Simd::splat(330.0) * tan2_phi * ep2cos2
+                - Simd::splat(330.0) * tan2 * ep2cos2
                 + Simd::splat(445.0) * ep4cos4
                 + Simd::splat(324.0) * ep6cos6
-                - Simd::splat(680.0) * tan2_phi * ep4cos4
+                - Simd::splat(680.0) * tan2 * ep4cos4
                 + Simd::splat(88.0) * ep8cos8
-                - Simd::splat(600.0) * tan2_phi * ep6cos6
-                - Simd::splat(192.0) * tan2_phi * ep8cos8
-        );
+                - Simd::splat(600.0) * tan2 * ep6cos6
+                - Simd::splat(192.0) * tan2 * ep8cos8);
 
-        let t5 = (k_sin * cos7_phi) * Simd::splat(1.0 / 40320.0)
+        let t5 = (k_sin * cos7) * inv40320
             * (Simd::splat(1385.0)
-            - Simd::splat(3111.0) * tan2_phi
-            + Simd::splat(543.0) * tan4_phi
-            - tan6_phi);
+                - Simd::splat(3111.0) * tan2
+                + Simd::splat(543.0) * tan4
+                - tan6);
 
         let northing = Simd::splat(self.false_northing.as_meters().value())
             + t1
@@ -199,30 +212,26 @@ impl TransverseMercator {
             + w6 * t4
             + w8 * t5;
 
-        // --- easting ---
         let t6 = k_cos;
 
-        let t7 = (k * cos3_phi) * Simd::splat(1.0 / 6.0)
-            * (Simd::splat(1.0) - tan2_phi + ep2cos2);
+        let t7 = (k * cos3) * inv6 * (Simd::splat(1.0) - tan2 + ep2cos2);
 
-        let t8 = (k * cos5_phi) * Simd::splat(1.0 / 120.0)
-            * (
-            Simd::splat(5.0)
-                - Simd::splat(18.0) * tan2_phi
-                + tan4_phi
+        let t8 = (k * cos5) * inv120
+            * (Simd::splat(5.0)
+                - Simd::splat(18.0) * tan2
+                + tan4
                 + Simd::splat(14.0) * ep2cos2
-                - Simd::splat(58.0) * tan2_phi * ep2cos2
+                - Simd::splat(58.0) * tan2 * ep2cos2
                 + Simd::splat(13.0) * ep4cos4
                 + Simd::splat(4.0) * ep6cos6
-                - Simd::splat(64.0) * tan2_phi * ep4cos4
-                - Simd::splat(24.0) * tan2_phi * ep6cos6
-        );
+                - Simd::splat(64.0) * tan2 * ep4cos4
+                - Simd::splat(24.0) * tan2 * ep6cos6);
 
-        let t9 = (k * cos7_phi) * Simd::splat(1.0 / 5040.0)
+        let t9 = (k * cos7) * inv5040
             * (Simd::splat(61.0)
-            - Simd::splat(479.0) * tan2_phi
-            + Simd::splat(179.0) * tan4_phi
-            - tan6_phi);
+                - Simd::splat(479.0) * tan2
+                + Simd::splat(179.0) * tan4
+                - tan6);
 
         let easting = Simd::splat(self.false_easting.as_meters().value())
             + w * t6
@@ -231,6 +240,113 @@ impl TransverseMercator {
             + w7 * t9;
 
         (easting, northing)
+
+        // let w = (lon_rads - Simd::splat(self.center.get_longitude().0.as_radians().value()));
+        // let w2 = w * w;
+        // let w3 = w2 * w;
+        // let w4 = w2 * w2;
+        // let w5 = w4 * w;
+        // let w6 = w3 * w3;
+        // let w7 = w6 * w;
+        // let w8 = w4 * w4;
+        //
+        // let delta_lat = lat_rads - Simd::splat(self.center.get_latitude().0.as_radians().value());
+        //
+        // let v = self.shape.radius_curvature_prime_vertical_meters_batched(lat_rads);
+        //
+        // let phi = lat_rads;
+        // let sin_phi = phi.sin();
+        // let cos_phi = phi.cos();
+        // let cos2_phi = cos_phi * cos_phi;
+        // let cos3_phi = cos2_phi * cos_phi;
+        // let cos5_phi = cos3_phi * cos2_phi;
+        // let cos7_phi = cos5_phi * cos2_phi;
+        //
+        // let sin2_phi = sin_phi * sin_phi;
+        // let tan2_phi = sin2_phi / cos2_phi;
+        // let tan4_phi = tan2_phi * tan2_phi;
+        // let tan6_phi = tan4_phi * tan2_phi;
+        //
+        //
+        // let ep2 = Simd::splat(self.shape.second_eccentricity_squared);
+        // let ep2cos2 = ep2 * cos2_phi;
+        // let ep4cos4 = ep2cos2 * ep2cos2;
+        // let ep6cos6 = ep4cos4 * ep2cos2;
+        // let ep8cos8 = ep6cos6 * ep2cos2;
+        //
+        // let t1 = Simd::splat(self.scale_factor)
+        //     * DeakinHunterKarneyMeridianCalculator::new(&self.shape)
+        //     .meridional_arc_distance_meters_batch(delta_lat);
+        //
+        // let k = v * Simd::splat(self.scale_factor);
+        // let k_sin = k * sin_phi;
+        // let k_cos = k * cos_phi;
+        //
+        // let t2 = k_sin * cos_phi * Simd::splat(0.5);
+        //
+        // let t3 = (k_sin * cos3_phi) * Simd::splat(1.0 / 24.0)
+        //     * (Simd::splat(5.0) - tan2_phi + Simd::splat(9.0) * ep2cos2 + Simd::splat(4.0) * ep4cos4);
+        //
+        // let t4 = (k_sin * cos5_phi) * Simd::splat(1.0 / 720.0)
+        //     * (
+        //     Simd::splat(61.0)
+        //         - Simd::splat(58.0) * tan2_phi
+        //         + tan4_phi
+        //         + Simd::splat(270.0) * ep2cos2
+        //         - Simd::splat(330.0) * tan2_phi * ep2cos2
+        //         + Simd::splat(445.0) * ep4cos4
+        //         + Simd::splat(324.0) * ep6cos6
+        //         - Simd::splat(680.0) * tan2_phi * ep4cos4
+        //         + Simd::splat(88.0) * ep8cos8
+        //         - Simd::splat(600.0) * tan2_phi * ep6cos6
+        //         - Simd::splat(192.0) * tan2_phi * ep8cos8
+        // );
+        //
+        // let t5 = (k_sin * cos7_phi) * Simd::splat(1.0 / 40320.0)
+        //     * (Simd::splat(1385.0)
+        //     - Simd::splat(3111.0) * tan2_phi
+        //     + Simd::splat(543.0) * tan4_phi
+        //     - tan6_phi);
+        //
+        // let northing = Simd::splat(self.false_northing.as_meters().value())
+        //     + t1
+        //     + w2 * t2
+        //     + w4 * t3
+        //     + w6 * t4
+        //     + w8 * t5;
+        //
+        // // --- easting ---
+        // let t6 = k_cos;
+        //
+        // let t7 = (k * cos3_phi) * Simd::splat(1.0 / 6.0)
+        //     * (Simd::splat(1.0) - tan2_phi + ep2cos2);
+        //
+        // let t8 = (k * cos5_phi) * Simd::splat(1.0 / 120.0)
+        //     * (
+        //     Simd::splat(5.0)
+        //         - Simd::splat(18.0) * tan2_phi
+        //         + tan4_phi
+        //         + Simd::splat(14.0) * ep2cos2
+        //         - Simd::splat(58.0) * tan2_phi * ep2cos2
+        //         + Simd::splat(13.0) * ep4cos4
+        //         + Simd::splat(4.0) * ep6cos6
+        //         - Simd::splat(64.0) * tan2_phi * ep4cos4
+        //         - Simd::splat(24.0) * tan2_phi * ep6cos6
+        // );
+        //
+        // let t9 = (k * cos7_phi) * Simd::splat(1.0 / 5040.0)
+        //     * (Simd::splat(61.0)
+        //     - Simd::splat(479.0) * tan2_phi
+        //     + Simd::splat(179.0) * tan4_phi
+        //     - tan6_phi);
+        //
+        // let easting = Simd::splat(self.false_easting.as_meters().value())
+        //     + w * t6
+        //     + w3 * t7
+        //     + w5 * t8
+        //     + w7 * t9;
+        //
+        // (easting, northing)
     }
 }
 
@@ -239,7 +355,9 @@ impl Default for TransverseMercator {
         TransverseMercator {
             scale_factor: 0.9996,
             shape: StandardShapes::WGS84.as_ellipsoid(),
-
+            meridian_calc: DeakinHunterKarneyMeridianCalculator::new(
+                &StandardShapes::WGS84.as_ellipsoid()
+            ),
             false_easting: Length::default(),
             false_northing: Length::default(),
             center: EllipticalCoordinate::new_degrees_wgs84(0.0, 0.0),

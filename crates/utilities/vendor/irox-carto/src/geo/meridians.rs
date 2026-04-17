@@ -2,8 +2,7 @@
 // Copyright 2025 IROX Contributors
 //
 
-use std::ops::Mul;
-use std::simd::{Simd, StdFloat};
+use std::simd::Simd;
 use crate::geo::ellipsoid::Ellipsoid;
 use irox_units::units::angle::Angle;
 use irox_units::units::length::Length;
@@ -46,6 +45,7 @@ pub trait MeridianCalculator {
 /// 'A FRESH LOOK AT THE UTM PROJECTION: Karney-Krueger equations V2', Presented at the Surveying and
 /// Spatial Sciences Institute (SSSI) Land Surveying Commission National Conference,
 /// Melbourne, 18-21 April, 2012
+#[derive(Debug, Clone)]
 pub struct DeakinHunterKarneyMeridianCalculator {
     third_flattening_n: f64,
     coefficients: [f64; 9],
@@ -87,15 +87,47 @@ impl DeakinHunterKarneyMeridianCalculator {
     }
 
     pub fn meridional_arc_distance_meters_batch<const LANES: usize>(&self, delta_lat_rads: Simd<f64, LANES>) -> Simd<f64, LANES> {
-        let lat = delta_lat_rads;
-        let mut val = lat * Simd::splat(self.coefficients[0]);
-        let lat_2 = lat * Simd::splat(2.0);
+        // let lat = delta_lat_rads;
+        // let mut val = lat * Simd::splat(self.coefficients[0]);
+        // let lat_2 = lat * Simd::splat(2.0);
+        //
+        // for idx in 0..9 {
+        //     let base = sleef::f64x::sin_u35(lat_2 * Simd::splat(idx as f64));
+        //     let adj = Simd::splat(self.coefficients[idx]) * base;
+        //     val += adj;
+        // }
+        //
+        // val * Simd::splat(self.semi_major_axis_a.as_meters().value() / (1. + self.third_flattening_n))
 
-        for (idx, &coeff) in self.coefficients.iter().enumerate() {
-            let base = (lat_2 * Simd::splat(idx as f64)).sin();
-            let adj = Simd::splat(coeff) * base;
-            val += adj;
+        let lat = delta_lat_rads;
+
+        let c0 = Simd::splat(self.coefficients[0]);
+
+        let mut val = lat * c0;
+
+        let x = lat + lat;
+
+        let (sin_x, cos_x) = sleef::f64x::sincos_u35(x);
+
+        let mut sin_i = sin_x;
+        let mut cos_i = cos_x;
+
+        let mut i = 1;
+
+        while i < 9 {
+            let coeff = Simd::splat(self.coefficients[i]);
+
+            val += coeff * sin_i;
+
+            let new_sin = sin_i * cos_x + cos_i * sin_x;
+            let new_cos = cos_i * cos_x - sin_i * sin_x;
+
+            sin_i = new_sin;
+            cos_i = new_cos;
+
+            i += 1;
         }
+
         val * Simd::splat(self.semi_major_axis_a.as_meters().value() / (1. + self.third_flattening_n))
     }
 }

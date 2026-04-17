@@ -1,13 +1,15 @@
 use backend_model::earth_tiling_service_model::{GibsLayer, LocalLayer};
-use glam::{DVec2, USizeVec2, dvec2, ivec2, uvec2};
-use image::{GenericImage, RgbImage};
+use glam::{DVec2, USizeVec2, UVec2, dvec2, ivec2, usizevec2, uvec2};
+use image::{GenericImage, RgbImage, RgbaImage};
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::{error, info};
+use utilities::distributed_mapped_image::DistributedMappedImage;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use utilities::glam_ext::sub_division::{SubDivision2d, tile_key_str};
+use utilities::tiled_imaging::LinearTiledImage;
 
 pub fn gibs_layer_name(layer: GibsLayer) -> &'static str {
     match layer {
@@ -188,11 +190,33 @@ pub async fn fetch_epsg4326_sen_hub_image(
     }
 }
 
+pub struct LayeredDistributedMappedImage {
+    layers: Vec<DistributedMappedImage>,
+}
+
+impl LayeredDistributedMappedImage {
+    pub fn from_directory(dir_path: PathBuf) -> anyhow::Result<Self> {
+        let mut layers = Vec::new();
+
+        for idx in 0.. {
+            let layer_dir = dir_path.join(format!("{}", idx));
+
+            if std::fs::exists(&layer_dir)? {
+                layers.push(DistributedMappedImage::from_directory(&layer_dir)?);
+            } else {
+                break;
+            }
+        }
+
+        Ok(Self { layers })
+    }
+}
+
 pub async fn fetch_epsg4326_local_image(
-    layer: LocalLayer,
+    image_layers: &LayeredDistributedMappedImage,
+    _layer: LocalLayer,
     params: Epsg4326TileParams,
-) -> Result<RgbImage, image::ImageError> {
-    const TILE_DIR: &str = "assets/epsg4326_tiles/";
+) -> anyhow::Result<Option<RgbaImage>> {
     const TILE_RES: (usize, usize) = (1024, 1024);
 
     let sub_div = SubDivision2d {
@@ -206,73 +230,14 @@ pub async fn fetch_epsg4326_local_image(
                 / dvec2(TILE_RES.0 as f64, TILE_RES.1 as f64),
             USizeVec2::ONE,
         )
-        .min(7);
+        .min(image_layers.layers.len().saturating_sub(1));
 
-    let tile_counts = sub_div.tile_covering_count(params.gcs_bounds, target_depth);
-    let tile_bounds = sub_div.tile_covering_bounds(params.gcs_bounds, target_depth);
-    let tile_size = tile_bounds.size() / tile_counts.as_dvec2();
-
-    let layer_dir = match layer {
-        LocalLayer::GlobalMosaicSen2 => "global_mosaic_sen_2",
-    };
-
-    let tile_tasks: Vec<_> = sub_div
-        .tile_covering(params.gcs_bounds, target_depth)
-        .map(|tile| {
-            let index = ((tile.area.min() - tile_bounds.min()) / tile_size).as_ivec2();
-            let pos = ((ivec2(0, tile_counts.y as i32 - 1) + ivec2(1, -1) * index)
-                * ivec2(TILE_RES.0 as i32, TILE_RES.1 as i32))
-            .as_uvec2();
-            let path = PathBuf::from(TILE_DIR).join(layer_dir).join(format!(
-                "{}_{}.jpg",
-                tile.key.len(),
-                tile_key_str(&tile.key)
-            ));
-            tokio::task::spawn_blocking(move || {
-                let result = image::open(&path).map(|i| i.to_rgb8());
-                (path, pos, result)
-            })
-        })
-        .collect();
-
-    let mut merged = RgbImage::new(
-        (tile_counts.x * TILE_RES.0) as u32,
-        (tile_counts.y * TILE_RES.1) as u32,
-    );
-
-    for task in tile_tasks {
-        let (path, pos, result) = task.await.map_err(|e| {
-            image::ImageError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e))
-        })?;
-        match result {
-            Ok(tile_img) => merged.copy_from(&tile_img, pos.x, pos.y)?,
-            Err(image::ImageError::IoError(e)) if e.kind() == std::io::ErrorKind::NotFound => {
-                tracing::warn!("Missing local tile: {}", path.display());
-            }
-            Err(e) => return Err(e),
-        }
-    }
-
-    let crop_bounds = DAabb2::new(
-        (params.gcs_bounds.min() - tile_bounds.min()) * dvec2(TILE_RES.0 as f64, TILE_RES.1 as f64)
-            / tile_size,
-        (params.gcs_bounds.max() - tile_bounds.min()) * dvec2(TILE_RES.0 as f64, TILE_RES.1 as f64)
-            / tile_size,
-    );
-
-    let cropped = image::imageops::crop_imm(
-        &merged,
-        crop_bounds.min().x as u32,
-        merged.height() - crop_bounds.max().y as u32,
-        crop_bounds.size().x as u32,
-        crop_bounds.size().y as u32,
-    )
-    .to_image();
-
-    Ok(image::imageops::resize(
-        &cropped,
-        params.resolution.0 as u32,
-        params.resolution.1 as u32,
-        image::imageops::FilterType::Lanczos3,
-    ))
+    image_layers
+        .layers
+        .get(target_depth)
+        .ok_or(anyhow::anyhow!("Missing layer at {target_depth}"))?
+        .load_sub_image(
+            params.gcs_bounds,
+            uvec2(params.resolution.0 as u32, params.resolution.1 as u32),
+        )
 }

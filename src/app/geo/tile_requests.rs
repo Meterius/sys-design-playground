@@ -7,6 +7,7 @@ use backend_model::earth_tiling_service_model::{
 };
 use bevy::app::{App, Startup};
 use bevy::prelude::{Entity, Plugin, Resource, World};
+use itertools::Itertools;
 use ratelimit::Ratelimiter;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -90,7 +91,19 @@ impl TileImageRequestClient {
 
     fn get_tile_path(tile_key: &TileKey) -> bevy::prelude::Result<PathBuf, TileImageRequestError> {
         let tile_dir = Self::get_tile_dir();
-        let key_hex = hex::encode(serde_json::to_string(&tile_key)?);
+        let key_hex = format!(
+            "tile_{}",
+            tile_key
+                .iter()
+                .map(|sub_key| match sub_key {
+                    SubDivisionKey::TopLeft => "TL",
+                    SubDivisionKey::TopRight => "TR",
+                    SubDivisionKey::BottomLeft => "BL",
+                    SubDivisionKey::BottomRight => "BR",
+                })
+                .join("_")
+        );
+
         Ok(tile_dir.join(key_hex).with_added_extension("jpg"))
     }
 
@@ -98,7 +111,19 @@ impl TileImageRequestClient {
         tile_key: &TileKey,
     ) -> bevy::prelude::Result<PathBuf, TileImageRequestError> {
         let tile_dir = Self::get_asset_tile_dir();
-        let key_hex = hex::encode(serde_json::to_string(&tile_key)?);
+        let key_hex = format!(
+            "tile_{}",
+            tile_key
+                .iter()
+                .map(|sub_key| match sub_key {
+                    SubDivisionKey::TopLeft => "TL",
+                    SubDivisionKey::TopRight => "TR",
+                    SubDivisionKey::BottomLeft => "BL",
+                    SubDivisionKey::BottomRight => "BR",
+                })
+                .join("_")
+        );
+
         Ok(tile_dir.join(key_hex).with_added_extension("jpg"))
     }
 }
@@ -145,8 +170,12 @@ impl RequestClient<TileImageRequestKind> for TileImageRequestClient {
 
         let tile_path = Self::get_tile_path(&key.1)?;
 
-        tokio::fs::create_dir_all(&tile_path.parent().unwrap()).await?;
-        tokio::fs::write(&tile_path, res.bytes().await?).await?;
+        tokio::fs::create_dir_all(&tile_path.parent().unwrap())
+            .await
+            .inspect_err(|_err| println!("a {tile_path:?}"))?;
+        tokio::fs::write(&tile_path, res.bytes().await?)
+            .await
+            .inspect_err(|_err| println!("b {tile_path:?}"))?;
 
         info!("Fetched tile: {:?}", &tile_path);
         info!("Asset path: {:?}", Self::get_asset_tile_path(&key.1));
@@ -163,5 +192,3 @@ impl RequestKind for TileImageRequestKind {
 }
 
 pub type TileImageRequest = Request<TileImageRequestKind>;
-
-pub type TileImageRequestManager = RequestManager<TileImageRequestKind, TileImageRequestClient>;

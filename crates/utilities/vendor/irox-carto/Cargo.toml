@@ -58,6 +58,9 @@ windows = ["dep:windows"]
 name = "irox_carto"
 path = "src/lib.rs"
 
+[dependencies]
+sleef = "0.3.3"
+
 [dependencies.irox-enums]
 version = "^0"
 

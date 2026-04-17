@@ -192,7 +192,7 @@ fn handle_requests<
 
             runtime.spawn_background_task(async move |mut task| {
                 let res = client.fetch(&req_key).await;
-                res.as_ref()
+                let _ = res.as_ref()
                     .inspect_err(|err| error!("Failed to fetch request: {}", err));
 
                 task.run_on_main_thread(move |ctx| {

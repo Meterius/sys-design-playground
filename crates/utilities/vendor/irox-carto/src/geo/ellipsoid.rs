@@ -5,8 +5,8 @@
 //!
 //! Ellipsoids, and calculators therefor
 
-use std::simd::{Simd, StdFloat};
 use irox_units::units::length::Length;
+use std::simd::Simd;
 
 use crate::geo::ellipse::Ellipse;
 use crate::geo::standards::wgs84::WGS84_ELLIPSOID;
@@ -175,11 +175,11 @@ impl Ellipsoid {
             let lower = (1. - self.first_eccentricity_squared * sin2).sqrt();
             self.semi_major_axis / lower
         }
-        
+
         pub fn radius_curvature_prime_vertical_meters_batched<const N: usize>(&self, lat_rads: Simd<f64, N>) -> Simd<f64, N> {
-            let sin1 = lat_rads.sin();
+            let sin1 = sleef::f64x::sin_u35(lat_rads);
             let sin2 = sin1 * sin1;
-            let lower = (Simd::splat(1.) - Simd::splat(self.first_eccentricity_squared) * sin2).sqrt();
+            let lower = sleef::f64x::sqrt_u35(Simd::splat(1.) - Simd::splat(self.first_eccentricity_squared) * sin2);
             Simd::splat(self.semi_major_axis.as_meters().value()) / lower
         }
 

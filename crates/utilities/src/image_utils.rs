@@ -1,5 +1,4 @@
 use glam::UVec2;
-use image::GenericImageView;
 
 pub fn copy_from_sub_image(
     img: &image::RgbImage,

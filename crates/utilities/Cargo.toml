@@ -3,6 +3,14 @@ name = "utilities"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "sen2_conv_test"
+path = "src/bin/run_sen2_conv_test.rs"
+
+[[bin]]
+name = "sen2_conv_stitching_test"
+path = "src/bin/run_sen2_conv_stitching_test.rs"
+
 [features]
 bevy-reflect = ["bevy_reflect"]
 
@@ -22,3 +30,5 @@ geoconvert = "1.0.2"
 utm = "0.1.6"
 # irox-carto = { version = "0.6.5", features = ["std"] }
 irox-carto = { path = "./vendor/irox-carto", features = ["std"] }
+sleef = "0.3.3"
+tiff = "0.11.3"

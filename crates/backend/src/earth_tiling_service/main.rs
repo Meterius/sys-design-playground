@@ -4,7 +4,7 @@ use actix_web::{App, HttpServer, get, web};
 use backend_model::earth_tiling_service_model::{GetTileRequest, Layer, Projection, TileSubKey};
 use cached::proc_macro::once;
 use glam::{DVec2, dvec2};
-use image::RgbImage;
+use image::{RgbImage, RgbaImage};
 use itertools::Itertools;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,8 +14,9 @@ use utilities::glam_ext::geo::{BoundedMercatorProjection, Projection2D};
 use utilities::glam_ext::sub_division::{SubDivision2d, SubDivisionKey};
 
 use super::image_sources::{
-    Epsg4326TileParams, GibsEpsg4326Params, fetch_epsg4326_gibs_image, fetch_epsg4326_local_image,
-    fetch_epsg4326_sen_hub_image, fetch_sen_hub_bearer_token,
+    Epsg4326TileParams, GibsEpsg4326Params, LayeredDistributedMappedImage,
+    fetch_epsg4326_gibs_image, fetch_epsg4326_local_image, fetch_epsg4326_sen_hub_image,
+    fetch_sen_hub_bearer_token,
 };
 
 const TILE_DIR: &str = "cache/tiles/";
@@ -32,10 +33,13 @@ enum TileGenError {
     Reprojection,
     #[error("Retry failure")]
     RetryFailure,
+    #[error("Error: {0}")]
+    Other(#[from] anyhow::Error),
 }
 
 struct AppState {
     client: reqwest::Client,
+    local_layer: LayeredDistributedMappedImage,
 }
 
 #[once(time = 300, sync_writes = true)]
@@ -164,7 +168,8 @@ async fn produce_tile(
             .await?
         }
         Layer::Local(local_layer) => {
-            fetch_epsg4326_local_image(
+            let rgba = fetch_epsg4326_local_image(
+                &state.local_layer,
                 local_layer,
                 Epsg4326TileParams {
                     resolution: (256, 256),
@@ -172,6 +177,17 @@ async fn produce_tile(
                 },
             )
             .await?
+            .unwrap_or(RgbaImage::new(256, 256));
+
+            let (width, height) = rgba.dimensions();
+            let mut rgb = RgbImage::new(width, height);
+
+            for (x, y, pixel) in rgba.enumerate_pixels() {
+                let [r, g, b, _a] = pixel.0;
+                rgb.put_pixel(x, y, image::Rgb([r, g, b]));
+            }
+
+            rgb
         }
     };
 
@@ -195,6 +211,7 @@ async fn get_tile_request(
     if !file_key.exists() {
         produce_tile(&state, &params.0, &file_key)
             .await
+            .inspect_err(|err| panic!("Error producing tile: {}", err))
             .map_err(ErrorInternalServerError)?;
     }
 
@@ -203,6 +220,10 @@ async fn get_tile_request(
 
 pub async fn main() -> std::io::Result<()> {
     let state = web::Data::new(AppState {
+        local_layer: LayeredDistributedMappedImage::from_directory(PathBuf::from(
+            "assets/epsg4326_tiles/global_mosaic_sen_2",
+        ))
+        .unwrap(),
         client: reqwest::Client::new(),
     });
 

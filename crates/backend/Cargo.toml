@@ -31,3 +31,4 @@ strum = { version = "0.28.0", features = ["derive"] }
 tracing = "0.1"
 cached = { version = "0.59.0", features = ["async", "proc_macro"] }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+anyhow = "1.0.102"

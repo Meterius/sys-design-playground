@@ -1,12 +1,13 @@
 use anyhow::{Context, anyhow, bail};
 use clap::{Parser, Subcommand};
-use glam::{dvec2, uvec2};
-use image::codecs::jpeg::JpegEncoder;
+use glam::{DVec2, USizeVec2, dvec2, uvec2};
+use image::codecs::png::{CompressionType, FilterType, PngEncoder};
 use image::{EncodableLayout, ImageEncoder};
 use itertools::Itertools;
 use rayon::prelude::*;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::BufWriter;
+use std::io::{BufWriter, Cursor};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -14,7 +15,7 @@ use std::time::Instant;
 use utilities::distributed_mapped_image::{DistributedMappedImage, TileMeta};
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use utilities::glam_ext::sub_division::{SubDivision2d, tile_key_str};
-use utilities::sen2::{convert_sen2_img_to_epsg4326, extract_bounds_offset, UserData};
+use utilities::sen2::{UserData, convert_sen2_img_to_epsg4326};
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
 #[derive(Parser)]
@@ -69,6 +70,23 @@ enum Mode {
     Offset,
 }
 
+impl Mode {
+    fn dir_files(&self) -> HashSet<String> {
+        match self {
+            Mode::Mgrs => HashSet::from_iter(
+                ["B02.tif", "B03.tif", "B04.tif", "userdata.json"]
+                    .into_iter()
+                    .map(|s| s.to_owned()),
+            ),
+            Mode::Offset => HashSet::from_iter(
+                ["B02.tif", "B03.tif", "B04.tif"]
+                    .into_iter()
+                    .map(|s| s.to_owned()),
+            ),
+        }
+    }
+}
+
 fn detect_mode(first_tile_dir: &Path) -> anyhow::Result<Mode> {
     if first_tile_dir.join("userdata.json").exists() {
         return Ok(Mode::Mgrs);
@@ -94,11 +112,9 @@ struct TiffBand {
     data: Vec<i16>,
 }
 
-fn read_tiff_band(path: impl AsRef<Path>) -> anyhow::Result<TiffBand> {
-    let path = path.as_ref();
-    let mut decoder =
-        tiff::decoder::Decoder::new(File::open(path).with_context(|| format!("opening {path:?}"))?)
-            .with_context(|| format!("creating TIFF decoder for {path:?}"))?;
+fn read_tiff_band(path: PathBuf, data: Vec<u8>) -> anyhow::Result<TiffBand> {
+    let mut decoder = tiff::decoder::Decoder::new(Cursor::new(data))
+        .with_context(|| format!("creating TIFF decoder for {path:?}"))?;
     let (width, height) = decoder
         .dimensions()
         .with_context(|| format!("reading dimensions of {path:?}"))?;
@@ -119,15 +135,20 @@ fn read_tiff_band(path: impl AsRef<Path>) -> anyhow::Result<TiffBand> {
 
 /// Read B04 (R), B03 (G), B02 (B) from `tile_dir` and merge into a single
 /// RGB8 image. Applies the standard Sentinel-2 normalization: `2.5 * dn / 10000`.
-fn merge_bands(tile_dir: &Path) -> anyhow::Result<image::RgbImage> {
+fn merge_bands(
+    r: Vec<u8>,
+    g: Vec<u8>,
+    b: Vec<u8>,
+    tile_dir: &Path,
+) -> anyhow::Result<image::RgbaImage> {
     let ((r, g), b) = rayon::join(
         || {
             rayon::join(
-                || read_tiff_band(tile_dir.join("B04.tif")),
-                || read_tiff_band(tile_dir.join("B03.tif")),
+                || read_tiff_band(tile_dir.join("B04.tif"), r),
+                || read_tiff_band(tile_dir.join("B03.tif"), g),
             )
         },
-        || read_tiff_band(tile_dir.join("B02.tif")),
+        || read_tiff_band(tile_dir.join("B02.tif"), b),
     );
     let (r, g, b) = (r?, g?, b?);
 
@@ -143,14 +164,19 @@ fn merge_bands(tile_dir: &Path) -> anyhow::Result<image::RgbImage> {
         b.height,
     );
 
-    let mut raw = vec![0u8; (r.width * r.height) as usize * 3];
-    raw.par_chunks_mut(3).enumerate().for_each(|(idx, pixel)| {
-        pixel[0] = (255.0 * 2.5 * r.data[idx] as f32 / 10000.0).clamp(0.0, 255.0) as u8;
-        pixel[1] = (255.0 * 2.5 * g.data[idx] as f32 / 10000.0).clamp(0.0, 255.0) as u8;
-        pixel[2] = (255.0 * 2.5 * b.data[idx] as f32 / 10000.0).clamp(0.0, 255.0) as u8;
+    let mut raw = vec![0u8; (r.width * r.height) as usize * 4];
+    raw.par_chunks_mut(4).enumerate().for_each(|(idx, pixel)| {
+        let invalid = r.data[idx] == -32768 || g.data[idx] == -32768 || b.data[idx] == -32768;
+
+        if !invalid {
+            pixel[0] = (255.0 * 2.5 * r.data[idx] as f32 / 10000.0).clamp(0.0, 255.0) as u8;
+            pixel[1] = (255.0 * 2.5 * g.data[idx] as f32 / 10000.0).clamp(0.0, 255.0) as u8;
+            pixel[2] = (255.0 * 2.5 * b.data[idx] as f32 / 10000.0).clamp(0.0, 255.0) as u8;
+            pixel[3] = 255;
+        }
     });
 
-    image::RgbImage::from_raw(r.width, r.height, raw)
+    image::RgbaImage::from_raw(r.width, r.height, raw)
         .ok_or_else(|| anyhow!("Failed to construct RgbImage from raw buffer"))
 }
 
@@ -166,34 +192,39 @@ fn smallest_sufficient_divisor(n: u32, max: u32) -> u32 {
 
 // ── Output ────────────────────────────────────────────────────────────────────
 
-fn save_jpeg(path: &Path, img: &image::RgbImage) -> anyhow::Result<()> {
+fn save_png(path: &Path, img: &image::RgbaImage) -> anyhow::Result<()> {
     let file = File::create(path).with_context(|| format!("creating {path:?}"))?;
-    JpegEncoder::new_with_quality(BufWriter::new(file), 99)
-        .write_image(
-            img.as_bytes(),
-            img.width(),
-            img.height(),
-            image::ExtendedColorType::Rgb8,
-        )
-        .with_context(|| format!("encoding JPEG to {path:?}"))
+    PngEncoder::new_with_quality(
+        BufWriter::new(file),
+        CompressionType::Fast,
+        FilterType::Adaptive,
+    )
+    .write_image(
+        img.as_bytes(),
+        img.width(),
+        img.height(),
+        image::ExtendedColorType::Rgba8,
+    )
+    .with_context(|| format!("encoding PNG to {path:?}"))
 }
 
-fn save_dist_tile_jpeg(
+fn save_dist_tile_png(
     img_path: &Path,
-    img: &image::RgbImage,
+    img: &image::RgbaImage,
     bounds: DAabb2,
 ) -> anyhow::Result<()> {
-    let meta_path = img_path.with_extension("jpg.meta.json");
-    save_jpeg(&img_path, &img)?;
+    let meta_path = img_path.with_extension("png.meta.json");
+    save_png(img_path, img)?;
     serde_json::to_writer_pretty(
         File::create(&meta_path).with_context(|| format!("creating {meta_path:?}"))?,
         &TileMeta { bounds },
     )
-        .with_context(|| format!("writing {meta_path:?}"))
+    .with_context(|| format!("writing {meta_path:?}"))
 }
 
 fn ingest_tile(
     tile_dir: &Path,
+    mut tile_dir_files: HashMap<String, Vec<u8>>,
     mode: Mode,
     out_dir: &Path,
     max_res: Option<u32>,
@@ -203,28 +234,64 @@ fn ingest_tile(
         .and_then(|n| n.to_str())
         .ok_or_else(|| anyhow!("Cannot derive stem from {tile_dir:?}"))?;
 
-    let start = Instant::now();
-    let merged = merge_bands(tile_dir)?;
-    println!("{:.2}", Instant::now().duration_since(start).as_secs_f32());
-    let start = Instant::now();
+    let interest_bounds = DAabb2::new(
+        dvec2(-180., -90.),
+        dvec2(180., 90.),
+        // dvec2(5.3236, 49.5195),
+        // dvec2(15.686, 55.148)
+    );
+
     let (merged, bounds) = match mode {
         Mode::Mgrs => {
-            let path = tile_dir.join("userdata.json");
-            let ud: UserData =
-                serde_json::from_reader(File::open(&path).with_context(|| format!("opening {path:?}"))?)
-                    .with_context(|| format!("parsing {path:?}"))?;
+            let ud: UserData = serde_json::from_reader(
+                tile_dir_files
+                    .remove("userdata.json")
+                    .ok_or(anyhow!("Missing userdata.json"))?
+                    .as_slice(),
+            )
+            .with_context(|| "parsing userdata.json".to_string())?;
+
+            let bounds = DAabb2::new(
+                ud.geo_footprint.coordinates[0]
+                    .iter()
+                    .map(|v| DVec2::from_array(*v))
+                    .reduce(DVec2::min)
+                    .unwrap(),
+                ud.geo_footprint.coordinates[0]
+                    .iter()
+                    .map(|v| DVec2::from_array(*v))
+                    .reduce(DVec2::max)
+                    .unwrap(),
+            );
+
+            if bounds.intersection(interest_bounds).is_none() {
+                return Ok(());
+            }
+
+            let r = tile_dir_files
+                .remove("B04.tif")
+                .ok_or(anyhow!("Missing B04.tif"))?;
+            let g = tile_dir_files
+                .remove("B03.tif")
+                .ok_or(anyhow!("Missing B03.tif"))?;
+            let b = tile_dir_files
+                .remove("B02.tif")
+                .ok_or(anyhow!("Missing B02.tif"))?;
+
+            let merged = merge_bands(r, g, b, tile_dir)?;
             convert_sen2_img_to_epsg4326(&merged, &ud)?
         }
         Mode::Offset => {
-            let name = tile_dir
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("")
-                .to_owned();
-            (merged, extract_bounds_offset(&name)?)
+            bail!("fck this")
+            // let name = tile_dir
+            //     .file_name()
+            //     .and_then(|n| n.to_str())
+            //     .unwrap_or("")
+            //     .to_owned();
+            // let merged = merge_bands(tile_dir)?;
+            // (merged, extract_bounds_offset(&name)?)
         }
     };
-    println!("{:.2}", Instant::now().duration_since(start).as_secs_f32());
 
     let (w, h) = (merged.width(), merged.height());
 
@@ -260,8 +327,8 @@ fn ingest_tile(
             let sub_img =
                 image::imageops::crop_imm(&merged, crop_x, crop_y, tile_w, tile_h).to_image();
 
-            let img_path = out_dir.join(format!("{img_stem}.jpg"));
-            save_dist_tile_jpeg(&img_path, &sub_img, sub_bounds)?;
+            let img_path = out_dir.join(format!("{img_stem}.png"));
+            save_dist_tile_png(&img_path, &sub_img, sub_bounds)?;
         }
     }
 
@@ -270,14 +337,13 @@ fn ingest_tile(
 
 // ── Progress helper ───────────────────────────────────────────────────────────
 
-fn with_progress<T, F>(label: &str, items: Vec<T>, f: F)
+fn with_progress<T, F>(label: &str, total: usize, items: impl ParallelIterator<Item = T>, f: F)
 where
     T: Send,
     F: Fn(T) + Send + Sync,
 {
     use std::io::Write;
 
-    let total = items.len();
     let done = Arc::new(AtomicUsize::new(0));
     let done2 = Arc::clone(&done);
     let label = label.to_owned();
@@ -302,14 +368,16 @@ where
                 let _ = writeln!(err);
                 break;
             }
-            std::thread::sleep(std::time::Duration::from_millis(1000));
+            std::thread::sleep(std::time::Duration::from_millis(10000));
         }
     });
 
-    items.into_par_iter().for_each(|item| {
+    items.for_each(|item| {
         f(item);
         done.fetch_add(1, Ordering::Relaxed);
     });
+
+    done.store(total, Ordering::Relaxed);
 
     thread.join().unwrap();
 }
@@ -321,23 +389,31 @@ fn ingest_source_as_dist_img(
     output: &Path,
     max_res: Option<u32>,
 ) -> anyhow::Result<()> {
-    let mut tile_dirs: Vec<PathBuf> = std::fs::read_dir(input)
+    fn tile_dir_completed_path(output: &Path, tile_dir: &Path) -> PathBuf {
+        output.join(format!(
+            "{}_completed",
+            tile_dir.file_name().unwrap().to_str().unwrap()
+        ))
+    }
+
+    let tile_dirs: Vec<PathBuf> = std::fs::read_dir(input)
         .with_context(|| format!("reading {input:?}"))?
         .map(|e| e.with_context(|| format!("reading entry in {input:?}")))
         .collect::<anyhow::Result<Vec<_>>>()?
-        .into_par_iter()
+        .into_iter()
         .filter(|e| e.file_type().map(|ft| ft.is_dir()).unwrap_or(false))
-        .filter(|e| e.path().to_str().unwrap().ends_with("Sentinel-2_mosaic_2025_Q3_43TDF_0_0"))
         .map(|e| e.path())
         .collect();
+
+    let total = tile_dirs.len();
 
     if tile_dirs.is_empty() {
         bail!("No subdirectories found in {input:?}");
     }
 
-    tile_dirs.sort(); // deterministic order
-
     let mode = detect_mode(&tile_dirs[0])?;
+    let tile_dir_files = mode.dir_files();
+
     eprintln!(
         "Detected mode: {}  ({} tiles)",
         match mode {
@@ -350,8 +426,54 @@ fn ingest_source_as_dist_img(
     std::fs::create_dir_all(output)
         .with_context(|| format!("creating output directory {output:?}"))?;
 
-    with_progress("ingest", tile_dirs, |tile_dir| {
-        if let Err(e) = ingest_tile(&tile_dir, mode, output, max_res) {
+    let (tx, rx) = crossbeam::channel::bounded(8);
+
+    {
+        let output = output.to_owned();
+        rayon::spawn(move || {
+            let read_dir = |dir: &PathBuf| -> anyhow::Result<HashMap<String, Vec<u8>>> {
+                let mut files = HashMap::new();
+
+                for entry in std::fs::read_dir(dir).context("reading directory")? {
+                    let entry = entry.context("reading directory entry")?;
+                    if entry.file_type().context("getting file type")?.is_file()
+                        && tile_dir_files.contains(entry.file_name().to_str().unwrap())
+                    {
+                        let path = entry.path();
+                        let file_bytes = std::fs::read(&path).context("reading file")?;
+                        files.insert(
+                            path.file_name().unwrap().to_str().unwrap().to_owned(),
+                            file_bytes,
+                        );
+                    }
+                }
+
+                Ok(files)
+            };
+
+            for dir in tile_dirs {
+                if !std::fs::exists(tile_dir_completed_path(&output, &dir)).unwrap() {
+                    match read_dir(&dir) {
+                        Ok(files) => {
+                            tx.send(Some((dir.clone(), files))).unwrap();
+                        }
+                        Err(err) => {
+                            tx.send(None).unwrap();
+                            eprintln!("Error reading directory {dir:?}: {err:#}");
+                        }
+                    }
+                } else {
+                    tx.send(None).unwrap();
+                }
+            }
+        });
+    }
+
+    with_progress("ingest", total, rx.into_iter().par_bridge(), |item| {
+        if let Some((tile_dir, files)) = item
+            && let Err(e) = ingest_tile(&tile_dir, files, mode, output, max_res)
+                .map(|_| std::fs::write(tile_dir_completed_path(output, &tile_dir), b""))
+        {
             eprintln!("\nError ingesting {tile_dir:?}: {e:#}");
         }
     });
@@ -365,6 +487,9 @@ fn process_dist_img_into_hierarchical_tiles(
     resolution: u32,
     depth: u32,
 ) -> anyhow::Result<()> {
+    let source_resolution = uvec2(1668, 1668);
+    let resolution = uvec2(resolution, resolution);
+
     let bounds = DAabb2::new(dvec2(-180.0, -90.0), dvec2(180.0, 90.0));
 
     let tile_output = |idx: u32| output.join(format!("{idx}"));
@@ -372,6 +497,15 @@ fn process_dist_img_into_hierarchical_tiles(
     eprintln!("Using bounds: {:?}", bounds);
 
     let sub_div = SubDivision2d { area: bounds };
+
+    let target_depth = sub_div.min_depth_for_tile_count(
+        resolution.as_dvec2() / source_resolution.as_dvec2(),
+        USizeVec2::ONE,
+    );
+
+    eprintln!(
+        "Assuming source resolution {source_resolution:?} target depth for {resolution:?} is {target_depth}"
+    );
 
     for idx in (0..=depth).rev() {
         let dist_tile_img = if idx == depth {
@@ -392,20 +526,21 @@ fn process_dist_img_into_hierarchical_tiles(
 
         with_progress(
             &format!("make tiles at depth {}", idx),
-            tiles,
+            tiles.len(),
+            tiles.into_par_iter(),
             move |(key, bounds)| {
                 if let Ok(Some(out)) = dist_tile_img
-                    .load_sub_image(bounds, uvec2(resolution, resolution))
+                    .load_sub_image(bounds, resolution)
                     .with_context(|| format!("making tile for key {key:?} with bounds {bounds:?}"))
                     .inspect_err(|e| eprintln!("Error loading base tile for key {key:?}: {e:#}"))
                 {
-                    let _ = save_dist_tile_jpeg(
-                        &tile_output.join(format!("{}.jpg", tile_key_str(&key))),
+                    let _ = save_dist_tile_png(
+                        &tile_output.join(format!("{}.png", tile_key_str(&key))),
                         &out,
                         bounds,
                     )
-                        .with_context(|| format!("saving tile for key {key:?}"))
-                        .inspect_err(|e| eprintln!("Error saving tile for key {key:?}: {e:#}"));
+                    .with_context(|| format!("saving tile for key {key:?}"))
+                    .inspect_err(|e| eprintln!("Error saving tile for key {key:?}: {e:#}"));
                 }
             },
         );

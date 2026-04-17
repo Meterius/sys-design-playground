@@ -1,6 +1,7 @@
 use crate::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use anyhow::Context;
 use glam::{DVec2, IVec2, UVec2, dvec2};
+use image::Pixel;
 use rayon::iter::IntoParallelIterator;
 use rayon::iter::ParallelIterator;
 use rstar::{AABB, RTree, RTreeObject};
@@ -101,11 +102,11 @@ impl DistributedMappedImage {
         &self,
         area: DAabb2,
         resolution: UVec2,
-    ) -> anyhow::Result<Option<image::RgbImage>> {
+    ) -> anyhow::Result<Option<image::RgbaImage>> {
         let query = AABB::from_corners([area.min().x, area.min().y], [area.max().x, area.max().y]);
 
         // Load only the sources that intersect the requested area.
-        let loaded: Vec<(DAabb2, image::RgbImage)> = self
+        let loaded: Vec<(DAabb2, image::RgbaImage)> = self
             .tree
             .locate_in_envelope_intersecting(&query)
             .filter(|entry| {
@@ -121,7 +122,7 @@ impl DistributedMappedImage {
                     .with_context(|| format!("opening {:?}", entry.path))?
                     .decode()
                     .with_context(|| format!("decoding {:?}", entry.path))?
-                    .to_rgb8();
+                    .to_rgba8();
                 Ok((entry.bounds, img))
             })
             .collect::<anyhow::Result<_>>()?;
@@ -130,7 +131,7 @@ impl DistributedMappedImage {
             return Ok(None);
         }
 
-        let mut out = image::RgbImage::new(resolution.x, resolution.y);
+        let mut out = image::RgbaImage::new(resolution.x, resolution.y);
 
         for (bounds, img) in &loaded {
             if let Some(overlap) = bounds.intersection(area) {
@@ -192,7 +193,7 @@ impl DistributedMappedImage {
                             let v = (px.y / img_res.y).clamp(0.0, 1.0) as f32;
 
                             if let Some(pixel) = image::imageops::sample_bilinear(img, u, v) {
-                                out.put_pixel(ox, oy, pixel);
+                                out.get_pixel_mut(ox, oy).blend(&pixel);
                             }
                         }
                     }

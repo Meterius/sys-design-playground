@@ -4,7 +4,7 @@ use crate::app::geo::geometry::{MapLine, MapRegion};
 use crate::app::geo::map::{
     Map, MapView, MapViewCamera, MapViewCameraWithView, MapViewContextQuery, MapViewWithMap,
 };
-use crate::app::geo::tiling::{MapViewTiling, MapViewTilingWithView};
+use crate::app::geo::tiling::manager::{MapViewTiling, MapViewTilingWithView};
 use crate::app::utils::big_space_ext::CommandsWithSpatial;
 use crate::geo::coords::{BoundedMercatorProjection, Projection2D};
 use crate::geo::osm::client::OsmClient;

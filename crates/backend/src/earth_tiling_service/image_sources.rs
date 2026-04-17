@@ -232,12 +232,12 @@ pub async fn fetch_epsg4326_local_image(
         )
         .min(image_layers.layers.len().saturating_sub(1));
 
-    image_layers
-        .layers
-        .get(target_depth)
-        .ok_or(anyhow::anyhow!("Missing layer at {target_depth}"))?
-        .load_sub_image(
+    if let Some(dist_img) = image_layers.layers.get(target_depth) {
+        dist_img.load_sub_image(
             params.gcs_bounds,
             uvec2(params.resolution.0 as u32, params.resolution.1 as u32),
         )
+    } else {
+        Ok(None)
+    }
 }

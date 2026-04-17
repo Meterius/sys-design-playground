@@ -15,9 +15,9 @@ use thiserror::Error;
 use tracing::info;
 use utilities::glam_ext::sub_division::{SubDivisionKey, TileKey};
 
-pub struct TileRequestsPlugin {}
+pub struct TilingRequestPlugin {}
 
-impl Plugin for TileRequestsPlugin {
+impl Plugin for TilingRequestPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(AsyncRequestsPlugin::<
             TileImageRequestKind,

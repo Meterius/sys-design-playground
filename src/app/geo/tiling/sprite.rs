@@ -1,12 +1,12 @@
-use crate::app::geo::tile_requests::TileImageRequestKind;
-use crate::app::geo::tiling::setup_tiles;
+use crate::app::geo::tiling::requests::TileImageRequestKind;
+use crate::app::geo::tiling::manager::setup_tiles;
 use crate::app::utils::async_requests::{Request, RequestState};
 use bevy::prelude::*;
 
 #[derive(Default)]
-pub struct TileFetcherPlugin {}
+pub struct TilingSpritePlugin {}
 
-impl Plugin for TileFetcherPlugin {
+impl Plugin for TilingSpritePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, handle_tile_image_sprite_loaded.after(setup_tiles));
     }

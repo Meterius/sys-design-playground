@@ -1,6 +1,6 @@
 use crate::app::geo::map::{Map, MapView, MapViewContextQuery, MapViewWithMap};
-use crate::app::geo::tile_fetcher::{TileImageSprite, handle_tile_image_sprite_loaded};
-use crate::app::geo::tile_requests::{TileImageRequest, TileRequestManagersByDataset};
+use crate::app::geo::tiling::sprite::{TileImageSprite, handle_tile_image_sprite_loaded};
+use crate::app::geo::tiling::requests::{TileImageRequest, TileRequestManagersByDataset};
 use crate::app::utils::async_requests::RequestWithManager;
 use crate::app::utils::big_space_ext::CommandsWithSpatial;
 use crate::app::utils::debug::SoftExpect;
@@ -23,9 +23,9 @@ use std::collections::{HashMap, HashSet};
 use utilities::glam_ext::bounding::{Aabb2, AxisAlignedBoundingBox2D, DAabb2};
 use utilities::glam_ext::sub_division::{SubDivision2d, TileKey, tile_key_str};
 
-pub struct MapViewTilingPlugin {}
+pub struct TilingMangerPlugin {}
 
-impl Plugin for MapViewTilingPlugin {
+impl Plugin for TilingMangerPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,

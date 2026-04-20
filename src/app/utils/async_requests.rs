@@ -52,7 +52,7 @@ where
 }
 
 pub trait RequestKind {
-    type Key: Debug + Eq + Hash + Clone + Send + Sync + 'static;
+    type Key: Default + Debug + Eq + Hash + Clone + Send + Sync + 'static;
     type Value: Send + Sync + 'static;
     type Error: Display + Send + Sync + 'static;
 }
@@ -74,16 +74,24 @@ pub enum RequestState<K: RequestKind> {
     Completed(Result<K::Value, K::Error>),
 }
 
+impl<K: RequestKind> Default for RequestState<K> {
+    fn default() -> Self {
+        Self::PendingPreflight
+    }
+}
+
 impl<K: RequestKind> RequestState<K> {
     pub fn is_completed(&self) -> bool {
         matches!(self, RequestState::Completed(_))
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
 pub struct Request<K: RequestKind> {
     pub priority: isize,
+    #[reflect(ignore)]
     key: K::Key,
+    #[reflect(ignore)]
     state: RequestState<K>,
 }
 

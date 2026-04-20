@@ -7,7 +7,6 @@ use crate::app::geo::zoom_visibility::MapZoomVisibilityPlugin;
 use bevy::app::App;
 use bevy::prelude::Plugin;
 
-mod elements;
 pub mod geometry;
 pub mod grid;
 pub mod map;

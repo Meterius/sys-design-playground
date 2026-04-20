@@ -1,7 +1,7 @@
-use crate::app::common::settings::{Settings, SettingsPlugin};
+use crate::app::common::settings::SettingsPlugin;
+use crate::app::editor::{EditorPlugin, UiState};
 use crate::app::geo::GeoPlugin;
 use crate::app::geo::geometry::{MapLine, MapRegion};
-use crate::app::geo::grid::manager::{LinearGrid, MapViewGrid};
 use crate::app::geo::map::{
     Map, MapView, MapViewCamera, MapViewCameraWithView, MapViewContextQuery, MapViewWithMap,
 };
@@ -20,11 +20,9 @@ use bevy::render::RenderPlugin;
 use bevy::render::settings::{WgpuFeatures, WgpuSettings};
 use bevy::sprite_render::Wireframe2dConfig;
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use bevy_pancam::{PanCam, PanCamPlugin};
+use bevy_pancam::{PanCam, PanCamPlugin, PanCamSystems};
 use bevy_prototype_lyon::plugin::ShapePlugin;
 use bevy_tokio_tasks::TokioTasksRuntime;
-use bevy_vector_shapes::Shape2dPlugin;
 use big_space::plugin::BigSpaceDefaultPlugins;
 use big_space::prelude::{BigSpaceCommands, FloatingOrigin, Grid};
 use glam::dvec2;
@@ -32,7 +30,6 @@ use itertools::Itertools;
 use shapefile::dbase::FieldValue;
 use std::f64::consts::PI;
 use std::sync::Arc;
-use jackdaw::EditorPlugin;
 use utilities::glam_ext::bounding::AxisAlignedBoundingBox2D;
 
 pub fn initialize(_width: usize, _height: usize) {
@@ -68,13 +65,11 @@ pub fn initialize(_width: usize, _height: usize) {
                 .disable::<TransformPlugin>(),
         )
         .add_plugins((
+            EguiPlugin::default(),
             PanCamPlugin,
             GeoPlugin {},
             MeshPickingPlugin,
-            EguiPlugin::default(),
-            // WorldInspectorPlugin::new().run_if(|settings: Option<Res<Settings>>| settings.is_some_and(|settings| settings.debug_mode)),
             ShapePlugin,
-            Shape2dPlugin::default(),
             bevy_tokio_tasks::TokioTasksPlugin::default(),
             SettingsPlugin::default(),
             BigSpaceDefaultPlugins,
@@ -82,6 +77,7 @@ pub fn initialize(_width: usize, _height: usize) {
         ))
         .add_systems(Startup, setup)
         .add_systems(Update, setup_cam)
+        .configure_sets(Update, PanCamSystems.run_if(UiState::allow_game_interaction))
         .run();
 }
 
@@ -126,12 +122,7 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
             ))
             .id();
 
-        // root_grid.spawn_spatial((Name::new("Tiling"), MapViewTiling::new(6), MapViewTilingWithView(map_view_id)));
-
-        root_grid.spawn_spatial((Grid::default(), Name::new("Grid"), MapViewGrid::new(LinearGrid {
-            count: uvec2(100, 100),
-            min_tile_viewport_percentage: vec2(0.05, 0.05),
-        })));
+        root_grid.spawn_spatial((Grid::default(), Name::new("Tiling"), MapViewTiling::new(6), MapViewTilingWithView(map_view_id)));
 
         root_grid.spawn_spatial((
             Camera2d,
@@ -146,7 +137,7 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
         runtime.spawn_background_task(async move |mut task| {
             if let Ok(client) = OsmClient::connect().await.inspect_err(|err| error!("{:?}", err)) {
             task.run_on_main_thread(move |ctx| {
-                       // spawn_roads_element_manager(&mut ctx.world.commands(), map_view_id, Arc::new(client));
+                       spawn_roads_element_manager(&mut ctx.world.commands(), map_view_id, Arc::new(client));
                 }).await;
             }
         });

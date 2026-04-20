@@ -3,11 +3,8 @@ use crate::app::utils::debug::SoftExpect;
 use crate::geo::coords::{BoundedMercatorProjection, Projection2D, approx_lat_delta_from_len};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use bevy_vector_shapes::painter::ShapePainter;
-use bevy_vector_shapes::prelude::{LinePainter, RectPainter};
-use bevy_vector_shapes::shapes::ThicknessType;
 use big_space::grid::Grid;
-use glam::{DVec2, dvec2};
+use glam::DVec2;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 
 pub struct MapPlugin {}
@@ -86,66 +83,46 @@ impl MapView {
 fn draw_debug_map_view(
     views: Query<(&GlobalTransform, &MapView, &MapViewWithMap)>,
     maps: Query<&Map>,
-    mut painter: ShapePainter,
+    mut gizmos: Gizmos,
 ) {
     for (view_transform, view, &MapViewWithMap(map_id)) in views {
         if let Some(map) = maps.get(map_id).ok().soft_expect("") {
-            painter.thickness_type = ThicknessType::Pixels;
-            painter.thickness = 2.0;
-
-            let gcs_to_world = |pos: DVec2| {
-                view_transform.transform_point(
-                    view.abs_to_local(
-                        map.projection.gcs_to_abs(
-                            map.projection
-                                .gcs_bounds()
-                                .closest_point(pos.map(f64::to_degrees)),
-                        ),
-                    )
+            let start = view_transform.transform_point(
+                view.abs_to_local(map.projection.abs_bounds().min())
                     .as_vec2()
-                    .extend(0.0),
-                )
-            };
+                    .extend(0.),
+            );
+            let end = view_transform.transform_point(
+                view.abs_to_local(map.projection.abs_bounds().max())
+                    .as_vec2()
+                    .extend(0.),
+            );
 
-            painter.color = Color::srgb(1.0, 0.0, 0.0);
-            for lat in -9..=9 {
-                let lat = lat as f64 * 10.0;
-                painter.line(
-                    gcs_to_world(dvec2(-180.0, lat)),
-                    gcs_to_world(dvec2(180.0, lat)),
-                );
-            }
-
-            for lon in -18..=18 {
-                let lon = lon as f64 * 10.0;
-                painter.line(
-                    gcs_to_world(dvec2(lon, -90.0)),
-                    gcs_to_world(dvec2(lon, 90.0)),
-                );
-            }
+            gizmos.rect(
+                Isometry3d::from_translation((start + end) / 2.),
+                (end - start).xy(),
+                Color::srgba(0.0, 1.0, 0.0, 0.5),
+            );
         }
     }
 }
 
 fn draw_debug_map_view_viewport(
     views: Query<(&GlobalTransform, &MapView, &MapViewWithMap)>,
-    maps: Query<&Map>,
-    mut painter: ShapePainter,
+    mut gizmos: Gizmos,
 ) {
-    for (view_transform, view, &MapViewWithMap(map_id)) in views {
-        if let Some(map) = maps.get(map_id).ok().soft_expect("") {
-            painter.thickness_type = ThicknessType::Pixels;
-            painter.thickness = 2.0;
-            painter.hollow = true;
-            painter.color = Color::srgba(0.0, 1.0, 0.0, 0.5);
+    for (view_transform, view, &MapViewWithMap(_map_id)) in views {
+        if let Some(viewport_abs) = view.viewport_abs {
+            let start = view_transform
+                .transform_point(view.abs_to_local(viewport_abs.min()).as_vec2().extend(0.));
+            let end = view_transform
+                .transform_point(view.abs_to_local(viewport_abs.max()).as_vec2().extend(0.));
 
-            if let Some(viewport_abs) = view.viewport_abs {
-                let start = view_transform.transform_point(view.abs_to_local(viewport_abs.min()).as_vec2().extend(0.));
-                let end = view_transform.transform_point(view.abs_to_local(viewport_abs.max()).as_vec2().extend(0.));
-
-                painter.set_translation((start + end) / 2.);
-                painter.rect((end - start).xy());
-            }
+            gizmos.rect(
+                Isometry3d::from_translation((start + end) / 2.),
+                (end - start).xy(),
+                Color::srgba(0.0, 1.0, 0.0, 0.5),
+            );
         }
     }
 }

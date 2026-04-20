@@ -62,6 +62,15 @@ pub struct BoundedMercatorProjection {
     pub lat_min: f64,
 }
 
+impl Default for BoundedMercatorProjection {
+    fn default() -> Self {
+        Self {
+            lat_max: PI * 0.45,
+            lat_min: -PI * 0.45,
+        }
+    }
+}
+
 impl Eq for BoundedMercatorProjection {
     fn assert_receiver_is_total_eq(&self) {}
 }

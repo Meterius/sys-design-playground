@@ -1,19 +1,17 @@
-use crate::app::geo::map::MapViewContextRef;
+use crate::app::common::settings::Settings;
 use crate::app::geo::map::MapViewContextQuery;
+use crate::app::geo::map::MapViewContextRef;
 use crate::app::utils::big_space_ext::CommandsWithSpatial;
 use crate::app::utils::debug::SoftExpect;
 use crate::geo::coords::Projection2D;
+use bevy::prelude::TransformSystems::Propagate;
 use bevy::prelude::*;
-use bevy_vector_shapes::prelude::{RectPainter, ShapePainter};
-use bevy_vector_shapes::shapes::ThicknessType;
 use big_space::grid::Grid;
 use glam::UVec2;
 use itertools::Itertools;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use bevy::prelude::TransformSystems::Propagate;
+use std::collections::hash_map::Entry;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
-use crate::app::common::settings::Settings;
 
 pub trait ElementId {
     fn id(&self) -> u64;
@@ -25,14 +23,19 @@ impl Plugin for ManagerPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (
-                (sync_grid_active_tiles, sync_grid_spawned_tiles).chain(),
-            ),
+            ((
+                sync_grid_active_tiles,
+                sync_grid_spawned_tiles,
+                handle_spawned_tiles,
+            )
+                .chain(),),
         );
 
         app.add_systems(
             PostUpdate,
-            debug_tile_draw.after(Propagate).run_if(Settings::in_debug_mode),
+            draw_debug_tile
+                .after(Propagate)
+                .run_if(Settings::in_debug_mode),
         );
     }
 }
@@ -42,68 +45,107 @@ pub type LinearGridKey = UVec2;
 #[derive(Clone, Reflect)]
 pub struct LinearGrid {
     pub count: UVec2,
+    // additional rows / columns of tiles to determine active beyond those in viewport
+    pub active_tile_buffer_using_expansion: UVec2,
+    // additional tiles to determine active using scaled viewport
+    pub active_tile_buffer_using_viewport_extension: Vec2,
     // percentage tile must take up of viewport to become active
     pub min_tile_viewport_percentage: Vec2,
 }
 
 impl LinearGrid {
-    fn tiles(
+    fn unclamped_tile_bounds_covering_region(
         &self,
         world: DAabb2,
-        viewport: DAabb2,
-    ) -> impl Iterator<Item = (LinearGridKey, TileInfo)> {
+        region: DAabb2,
+    ) -> (IVec2, IVec2) {
         let tile_size = world.size() / self.count.as_dvec2();
+
+        let start_index = ((region.min() - world.min()) / tile_size)
+            .floor()
+            .as_ivec2();
+
+        let end_index = ((region.max() - world.min()) / tile_size)
+            .floor()
+            .as_ivec2();
+
+        (start_index, end_index)
+    }
+
+    fn tiles(&self, world: DAabb2, viewport: DAabb2) -> impl Iterator<Item = (UVec2, DAabb2)> {
+        let tile_size = world.size() / self.count.as_dvec2();
+
         let tile_viewport_percentage = tile_size / viewport.size();
 
-        let active = tile_viewport_percentage.as_vec2().cmpge(self.min_tile_viewport_percentage).all();
+        let active = tile_viewport_percentage
+            .as_vec2()
+            .cmpge(self.min_tile_viewport_percentage)
+            .all();
 
-        let start_index = ((viewport.min() - world.min()) / tile_size)
-            .floor()
-            .as_uvec2()
-            .clamp(UVec2::ZERO, self.count - UVec2::ONE);
+        let (unbuffered_start_index, unbuffered_end_index) =
+            self.unclamped_tile_bounds_covering_region(world, viewport);
 
-        let end_index = ((viewport.max() - world.min()) / tile_size)
-            .ceil()
-            .as_uvec2()
-            .clamp(UVec2::ZERO, self.count - UVec2::ONE);
+        let expanded_viewport = viewport
+            .expand(viewport.size() * self.active_tile_buffer_using_viewport_extension.as_dvec2());
 
-        active.then_some(start_index.x..=end_index.x)
+        let (start_index, end_index) =
+            self.unclamped_tile_bounds_covering_region(world, expanded_viewport);
+        let (start_index, end_index) = (
+            start_index
+                .min(unbuffered_start_index - self.active_tile_buffer_using_expansion.as_ivec2()),
+            end_index
+                .max(unbuffered_end_index + self.active_tile_buffer_using_expansion.as_ivec2()),
+        );
+
+        let active = active && !end_index.cmplt(start_index).any();
+
+        let start_index = start_index
+            .clamp(IVec2::ZERO, self.count.as_ivec2() - IVec2::ONE)
+            .as_uvec2();
+        let end_index = end_index
+            .clamp(IVec2::ZERO, self.count.as_ivec2() - IVec2::ONE)
+            .as_uvec2();
+
+        active
+            .then_some(start_index.x..=end_index.x)
             .into_iter()
             .flatten()
             .flat_map(move |x| {
-            (start_index.y..=end_index.y).map(move |y| {
-                let info = TileInfo {
-                    key: UVec2::new(x, y),
-                    bounds: DAabb2::new(
-                        world.min() + tile_size * UVec2::new(x, y).as_dvec2(),
-                        world.min() + tile_size * UVec2::new(x + 1, y + 1).as_dvec2(),
-                    ),
-                };
-                (info.key, info)
+                (start_index.y..=end_index.y).map(move |y| {
+                    (
+                        uvec2(x, y),
+                        DAabb2::new(
+                            world.min() + tile_size * UVec2::new(x, y).as_dvec2(),
+                            world.min() + tile_size * UVec2::new(x + 1, y + 1).as_dvec2(),
+                        ),
+                    )
+                })
             })
-        })
     }
-}
-
-#[derive(Clone, Reflect)]
-pub struct TileInfo {
-    key: LinearGridKey,
-    bounds: DAabb2,
 }
 
 #[derive(Component, Reflect)]
 #[require(MapViewContextRef)]
 pub struct MapViewGrid {
     pub grid: LinearGrid,
+    pub bounds_abs: Option<DAabb2>,
+    #[reflect(ignore)]
+    pub on_spawn: Option<Box<dyn Fn(&mut Commands, Entity, &MapViewTile) + Send + Sync>>,
 
-    active_tiles: HashMap<LinearGridKey, TileInfo>,
+    active_tiles: HashMap<LinearGridKey, DAabb2>,
     spawned_tiles: HashMap<LinearGridKey, Entity>,
 }
 
 impl MapViewGrid {
-    pub fn new(grid: LinearGrid) -> Self {
+    pub fn new(
+        bounds_abs: Option<DAabb2>,
+        grid: LinearGrid,
+        on_spawn: Option<Box<dyn Fn(&mut Commands, Entity, &MapViewTile) + Send + Sync>>,
+    ) -> Self {
         Self {
+            bounds_abs,
             grid,
+            on_spawn,
             active_tiles: HashMap::new(),
             spawned_tiles: HashMap::new(),
         }
@@ -116,7 +158,11 @@ fn sync_grid_active_tiles(grids: Query<(Entity, &mut MapViewGrid)>, view_ctx: Ma
             if let Some(viewport_abs) = ctx.view.viewport_abs {
                 grid.active_tiles = grid
                     .grid
-                    .tiles(ctx.map.projection.abs_bounds(), viewport_abs)
+                    .tiles(
+                        grid.bounds_abs
+                            .unwrap_or_else(|| ctx.map.projection.abs_bounds()),
+                        viewport_abs,
+                    )
                     .collect();
             } else {
                 grid.active_tiles.clear();
@@ -143,25 +189,25 @@ fn sync_grid_spawned_tiles(
         }
 
         if let Some(ctx) = view_ctx.get(grid_id).soft_expect("") {
-            for tile_info in active_tiles.values() {
-                if let Entry::Vacant(entry) = grid.spawned_tiles.entry(tile_info.key) {
-                    let gcs_bounds = DAabb2::new(
-                        ctx.map.projection.abs_to_gcs(tile_info.bounds.min()),
-                        ctx.map.projection.abs_to_gcs(tile_info.bounds.max()),
+            for (key, bounds_abs) in active_tiles {
+                if let Entry::Vacant(entry) = grid.spawned_tiles.entry(key) {
+                    let bounds_gcs = DAabb2::new(
+                        ctx.map.projection.abs_to_gcs(bounds_abs.min()),
+                        ctx.map.projection.abs_to_gcs(bounds_abs.max()),
                     );
 
                     let tile_id = commands
                         .spawn_spatial((
                             MapViewTile {
                                 manager_id: grid_id,
-                                info: tile_info.clone(),
-                                gcs_bounds,
+                                bounds_abs,
+                                bounds_gcs,
                             },
                             Grid::default(),
                         ))
                         .id();
 
-                    commands.entity(ctx.view_id).add_child(tile_id);
+                    commands.entity(grid_id).add_child(tile_id);
 
                     entry.insert(tile_id);
                 }
@@ -170,32 +216,58 @@ fn sync_grid_spawned_tiles(
     }
 }
 
+fn handle_spawned_tiles(
+    mut commands: Commands,
+    grids: Query<&MapViewGrid>,
+    added_tiles: Query<(Entity, &MapViewTile), Added<MapViewTile>>,
+) {
+    for (tile_id, tile) in added_tiles {
+        if let Some(grid) = grids.get(tile.manager_id).ok().soft_expect("")
+            && let Some(on_spawn) = grid.on_spawn.as_ref()
+        {
+            on_spawn(&mut commands, tile_id, tile);
+        }
+    }
+}
+
 #[derive(Component, Reflect)]
 pub struct MapViewTile {
     pub manager_id: Entity,
-    pub gcs_bounds: DAabb2,
-    pub info: TileInfo,
+    pub bounds_abs: DAabb2,
+    pub bounds_gcs: DAabb2,
 }
 
-fn debug_tile_draw(
+fn draw_debug_tile(
     grids: Query<(Entity, &MapViewGrid)>,
     view_ctx: MapViewContextQuery,
     transforms: Query<&GlobalTransform>,
-    mut painter: ShapePainter,
+    mut gizmos: Gizmos,
 ) {
     for (grid_id, grid) in grids {
-        if let Some(ctx) = view_ctx.get(grid_id).soft_expect("") && let Some(view_tr) = transforms.get(ctx.view_id).ok().soft_expect("") {
-            painter.thickness = 2.0;
-            painter.thickness_type = ThicknessType::Pixels;
-            painter.hollow = true;
-            painter.color = Color::srgba(0.1, 0.1, 1.0, 0.6);
+        if let Some(ctx) = view_ctx.get(grid_id).soft_expect("")
+            && let Some(view_tr) = transforms.get(ctx.view_id).ok().soft_expect("")
+        {
+            for (_, bounds_abs) in grid.active_tiles.iter() {
+                let start = view_tr.transform_point(
+                    ctx.view
+                        .abs_to_local(bounds_abs.min())
+                        .as_vec2()
+                        .extend(0.0),
+                );
+                let end = view_tr.transform_point(
+                    ctx.view
+                        .abs_to_local(bounds_abs.max())
+                        .as_vec2()
+                        .extend(0.0),
+                );
 
-            for tile in grid.active_tiles.values() {
-                let start = view_tr.transform_point(ctx.view.abs_to_local(tile.bounds.min()).as_vec2().extend(0.0));
-                let end = view_tr.transform_point(ctx.view.abs_to_local(tile.bounds.max()).as_vec2().extend(0.0));
-
-                painter.set_translation((start + end) / 2.);
-                painter.rect((end - start).xy());
+                gizmos
+                    .rounded_rect(
+                        Isometry3d::from_translation((start + end) / 2.),
+                        (end - start).xy(),
+                        Color::srgba(0.1, 0.1, 1.0, 0.6),
+                    )
+                    .corner_radius((end - start).xy().min_element() / 20.);
             }
         }
     }

@@ -3,13 +3,11 @@ use crate::queued_reading::QueuedReader;
 use anyhow::Context;
 use glam::{DVec2, IVec2, UVec2, dvec2};
 use image::Pixel;
-use itertools::Itertools;
 use rayon::iter::IntoParallelIterator;
 use rayon::iter::ParallelIterator;
 use rstar::{AABB, RTree, RTreeObject};
 use std::fs;
 use std::path::{Path, PathBuf};
-use tracing::info;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct TileMeta {

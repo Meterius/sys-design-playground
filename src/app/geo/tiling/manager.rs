@@ -103,7 +103,7 @@ fn sync_tiles_for_view(
                                     MapViewTileWithTiling(tiling_id),
                                 ))
                                 .id();
-                            commands.entity(view_id).add_child(tile_id);
+                            commands.entity(tiling_id).add_child(tile_id);
                             entry.insert(tile_id);
                         }
                     }

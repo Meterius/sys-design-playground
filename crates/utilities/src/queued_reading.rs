@@ -51,13 +51,16 @@ impl QueuedReader {
     }
 }
 
-fn worker(mut rx: mpsc::Receiver<Request>) {
+fn worker(rx: mpsc::Receiver<Request>) {
     let mut heap = BinaryHeap::with_capacity(BATCH_SIZE);
     let mut buffer = Vec::with_capacity(BATCH_SIZE);
     let mut cache = lru::LruCache::<PathBuf, Vec<u8>>::new(NonZeroUsize::new(64).unwrap());
 
     loop {
-        heap.push(rx.recv().unwrap());
+        heap.push(match rx.recv() {
+            Ok(req) => req,
+            Err(mpsc::RecvError) => break,
+        });
 
         while heap.len() < BATCH_SIZE
             && let Some(req) = rx

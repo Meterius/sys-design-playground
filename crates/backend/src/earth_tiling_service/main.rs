@@ -9,6 +9,7 @@ use itertools::Itertools;
 use std::path::PathBuf;
 use std::sync::Arc;
 use thiserror::Error;
+use tracing::info;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use utilities::glam_ext::geo::{BoundedMercatorProjection, Projection2D};
 use utilities::glam_ext::sub_division::{SubDivision2d, SubDivisionKey};
@@ -219,16 +220,24 @@ async fn get_tile_request(
 }
 
 pub async fn main() -> std::io::Result<()> {
+    let host = std::env::var("HOST").unwrap();
+    let port = std::env::var("PORT").unwrap().parse::<u16>().unwrap();
+    let asset_root = PathBuf::from(std::env::var("ASSET_ROOT").unwrap());
+
+    info!("Setting up state...");
+
     let state = web::Data::new(AppState {
-        local_layer: LayeredDistributedMappedImage::from_directory(PathBuf::from(
-            "assets/epsg4326_tiles/global_mosaic_sen_2",
-        ))
+        local_layer: LayeredDistributedMappedImage::from_directory(
+            asset_root.join("local-layer/S2-MSI-L3-MCQ-2025-Q3"),
+        )
         .unwrap(),
         client: reqwest::Client::new(),
     });
 
+    info!("Starting server...");
+
     HttpServer::new(move || App::new().app_data(state.clone()).service(get_tile_request))
-        .bind(("127.0.0.1", 80))?
+        .bind((host, port))?
         .run()
         .await
 }

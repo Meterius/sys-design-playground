@@ -1,7 +1,7 @@
 use crate::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use anyhow::{anyhow, bail};
 use geoconvert::Mgrs;
-use glam::{dvec2, DVec2};
+use glam::{DVec2, dvec2};
 use image::{Rgba, RgbaImage};
 use irox_carto::coordinate::EllipticalCoordinate;
 use irox_carto::irox_units::units::length::Length;
@@ -100,7 +100,7 @@ fn utm_wgs84_utm_to_transverse_mercator_params(mgrs: Mgrs) -> anyhow::Result<(DV
 }
 
 fn extract_bounds_utm(data: &UserData) -> anyhow::Result<String> {
-    let r = Regex::new(r"Sentinel-2_mosaic_2025_Q3_([0-9]{2}[A-Z]{3})").unwrap();
+    let r = Regex::new(r"Sentinel-2_mosaic_2025_Q3_([0-9]{2}[A-Z]{3})")?;
     if let Some(cap) = r.captures(data.name.as_str()) {
         Ok(cap[1].to_string())
     } else {

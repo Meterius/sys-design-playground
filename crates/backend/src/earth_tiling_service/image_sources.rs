@@ -1,15 +1,14 @@
 use backend_model::earth_tiling_service_model::{GibsLayer, LocalLayer};
-use glam::{DVec2, USizeVec2, UVec2, dvec2, ivec2, usizevec2, uvec2};
-use image::{GenericImage, RgbImage, RgbaImage};
+use glam::{DVec2, USizeVec2, dvec2, uvec2};
+use image::{RgbImage, RgbaImage};
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use tracing::{error, info};
+use tracing::error;
 use utilities::distributed_mapped_image::DistributedMappedImage;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
-use utilities::glam_ext::sub_division::{SubDivision2d, tile_key_str};
-use utilities::tiled_imaging::LinearTiledImage;
+use utilities::glam_ext::sub_division::SubDivision2d;
 
 pub fn gibs_layer_name(layer: GibsLayer) -> &'static str {
     match layer {
@@ -202,7 +201,7 @@ impl LayeredDistributedMappedImage {
             let layer_dir = dir_path.join(format!("{}", idx));
 
             if std::fs::exists(&layer_dir)? {
-                layers.push(DistributedMappedImage::from_directory(&layer_dir)?);
+                layers.push(DistributedMappedImage::from_directory(&layer_dir, true)?);
             } else {
                 break;
             }
@@ -217,7 +216,7 @@ pub async fn fetch_epsg4326_local_image(
     _layer: LocalLayer,
     params: Epsg4326TileParams,
 ) -> anyhow::Result<Option<RgbaImage>> {
-    const TILE_RES: (usize, usize) = (1024, 1024);
+    const TILE_RES: (usize, usize) = (2048, 2048);
 
     let sub_div = SubDivision2d {
         area: DAabb2::new(dvec2(-180.0, -90.0), dvec2(180.0, 90.0)),
@@ -225,9 +224,8 @@ pub async fn fetch_epsg4326_local_image(
 
     let target_depth = sub_div
         .min_depth_for_tile_count(
-            params.gcs_bounds.size()
-                * dvec2(params.resolution.0 as f64, params.resolution.1 as f64)
-                / dvec2(TILE_RES.0 as f64, TILE_RES.1 as f64),
+            dvec2(TILE_RES.0 as f64, TILE_RES.1 as f64) * params.gcs_bounds.size()
+                / dvec2(params.resolution.0 as f64, params.resolution.1 as f64),
             USizeVec2::ONE,
         )
         .min(image_layers.layers.len().saturating_sub(1));

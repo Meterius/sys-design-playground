@@ -32,3 +32,8 @@ utm = "0.1.6"
 irox-carto = { path = "./vendor/irox-carto", features = ["std"] }
 sleef = "0.3.3"
 tiff = "0.11.3"
+crossbeam = "0.8.4"
+tracing = "0.1"
+csv = "1.4.0"
+tokio = { version = "1.52.1", features = ["sync"] }
+lru = "0.17.0"

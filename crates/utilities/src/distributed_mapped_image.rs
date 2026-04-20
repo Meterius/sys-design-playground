@@ -1,11 +1,15 @@
 use crate::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
+use crate::queued_reading::QueuedReader;
 use anyhow::Context;
 use glam::{DVec2, IVec2, UVec2, dvec2};
 use image::Pixel;
+use itertools::Itertools;
 use rayon::iter::IntoParallelIterator;
 use rayon::iter::ParallelIterator;
 use rstar::{AABB, RTree, RTreeObject};
+use std::fs;
 use std::path::{Path, PathBuf};
+use tracing::info;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct TileMeta {
@@ -40,6 +44,7 @@ impl RTreeObject for SourceEntry {
 /// regular grid.
 pub struct DistributedMappedImage {
     tree: RTree<SourceEntry>,
+    queued_reader: QueuedReader,
 }
 
 impl DistributedMappedImage {
@@ -51,6 +56,7 @@ impl DistributedMappedImage {
             .collect();
         Self {
             tree: RTree::bulk_load(entries),
+            queued_reader: QueuedReader::new(),
         }
     }
 
@@ -66,28 +72,115 @@ impl DistributedMappedImage {
     /// Every `.meta.json` file found in `dir` (non-recursively) is treated as
     /// one tile; the corresponding image path is the name with `.meta.json`
     /// stripped.
-    pub fn from_directory(dir: impl AsRef<Path>) -> anyhow::Result<Self> {
+    pub fn from_directory(dir: impl AsRef<Path>, with_cache: bool) -> anyhow::Result<Self> {
         let dir = dir.as_ref();
 
-        let sources = std::fs::read_dir(dir)
+        const CACHE_FILE_NAME: &str = "dist-mapped-image-cache.meta.csv";
+
+        let layer_dir = fs::read_dir(dir)
             .with_context(|| format!("reading directory {dir:?}"))?
             .map(|entry| entry.with_context(|| format!("reading entry in {dir:?}")))
-            .collect::<anyhow::Result<Vec<_>>>()?
+            .map(|e| e.map(|e| e.path()))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        if with_cache {
+            let cache_file = dir.join(CACHE_FILE_NAME);
+
+            if fs::exists(&cache_file)? {
+                let cache_lines = csv::ReaderBuilder::new()
+                    .has_headers(false)
+                    .from_path(&cache_file)
+                    .with_context(|| format!("opening cache file {cache_file:?}"))?;
+
+                let cache = cache_lines
+                    .into_records()
+                    .map(|rec| {
+                        rec.map_err(anyhow::Error::new).and_then(|rec| {
+                            Ok((
+                                rec.get(0).ok_or(anyhow::anyhow!("no path"))?.to_owned(),
+                                serde_json::from_str(
+                                    rec.get(1).ok_or(anyhow::anyhow!("no meta"))?,
+                                )?,
+                            ))
+                        })
+                    })
+                    .collect::<anyhow::Result<Vec<(String, TileMeta)>>>()?;
+
+                return Ok(Self::new(
+                    cache
+                        .into_iter()
+                        .map(|(img_path, meta)| (meta.bounds, dir.join(img_path))),
+                ));
+            }
+        }
+
+        fn ingest_file(
+            file: &PathBuf,
+        ) -> Result<Option<(Vec<u8>, PathBuf, PathBuf)>, anyhow::Error> {
+            if file
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().ends_with(".meta.json"))
+            {
+                let meta_path = file.clone();
+                let file_path = file.with_extension("").with_extension("");
+
+                Ok(Some((
+                    {
+                        let meta_path = meta_path.clone();
+                        fs::read(meta_path.clone())
+                            .with_context(move || format!("reading {meta_path:?}"))?
+                    },
+                    meta_path,
+                    file_path,
+                )))
+            } else {
+                Ok(None)
+            }
+        }
+
+        let sources = layer_dir
             .into_par_iter()
-            .filter(|e| e.file_name().to_string_lossy().ends_with(".meta.json"))
+            .flat_map(|file| match ingest_file(&file) {
+                Ok(Some(data)) => Some(Ok(data)),
+                Ok(None) => None,
+                Err(e) => Some(Err(e)),
+            })
             .map(|e| {
-                let meta_path = e.path();
-                let image_path = meta_path.with_extension("").with_extension(""); // strip .meta.json
-
-                let meta: TileMeta = serde_json::from_reader(
-                    std::fs::File::open(&meta_path)
-                        .with_context(|| format!("opening {meta_path:?}"))?,
-                )
-                .with_context(|| format!("parsing {meta_path:?}"))?;
-
-                Ok((meta.bounds, image_path))
+                e.and_then(|(meta_data, meta_path, image_path)| {
+                    let meta: TileMeta = serde_json::from_slice(&meta_data)
+                        .with_context(|| format!("deserialising {meta_path:?}"))?;
+                    Ok((meta.bounds, image_path))
+                })
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
+
+        if with_cache {
+            let cache = sources
+                .iter()
+                .map(|(bounds, img_path)| {
+                    let img_path = img_path
+                        .file_name()
+                        .ok_or(anyhow::anyhow!("no file name"))?
+                        .to_string_lossy()
+                        .to_string();
+                    Ok([
+                        img_path,
+                        serde_json::to_string(&TileMeta { bounds: *bounds })?,
+                    ])
+                })
+                .collect::<anyhow::Result<Vec<_>>>()
+                .with_context(|| "building cache file".to_string())?;
+
+            let cache_file = dir.join(CACHE_FILE_NAME);
+
+            let mut writer = csv::Writer::from_path(&cache_file)?;
+            for line in cache.into_iter() {
+                writer.write_record(line)?;
+            }
+            writer.flush()?;
+
+            return Ok(Self::new(sources));
+        }
 
         Ok(Self::new(sources))
     }
@@ -118,11 +211,14 @@ impl DistributedMappedImage {
             .collect::<Vec<_>>()
             .into_par_iter()
             .map(|entry| {
-                let img = image::ImageReader::open(&entry.path)
-                    .with_context(|| format!("opening {:?}", entry.path))?
-                    .decode()
-                    .with_context(|| format!("decoding {:?}", entry.path))?
-                    .to_rgba8();
+                let img = image::load_from_memory(
+                    &self
+                        .queued_reader
+                        .blocking_read(&entry.path)
+                        .with_context(|| format!("reading {:?}", entry.path))?,
+                )
+                .with_context(|| format!("decoding {:?}", entry.path))?
+                .to_rgba8();
                 Ok((entry.bounds, img))
             })
             .collect::<anyhow::Result<_>>()?;
@@ -212,8 +308,8 @@ mod tests {
 
     #[test]
     fn test_load_sub_image() {
-        let im =
-            DistributedMappedImage::from_directory("test-data/distributed_image/dir-a").unwrap();
+        let im = DistributedMappedImage::from_directory("test-data/distributed_image/dir-a", false)
+            .unwrap();
 
         for (bounds, name) in [
             (
@@ -232,8 +328,8 @@ mod tests {
                 .unwrap();
         }
 
-        let im =
-            DistributedMappedImage::from_directory("test-data/distributed_image/dir-b").unwrap();
+        let im = DistributedMappedImage::from_directory("test-data/distributed_image/dir-b", false)
+            .unwrap();
 
         for (bounds, name) in [
             (

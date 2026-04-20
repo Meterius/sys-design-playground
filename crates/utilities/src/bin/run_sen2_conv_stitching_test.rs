@@ -124,7 +124,7 @@ fn main() {
 
     let gcs_bounds = gcs_bounds.unwrap();
 
-    let dist_image = DistributedMappedImage::from_directory(out_base_dir).unwrap();
+    let dist_image = DistributedMappedImage::from_directory(out_base_dir, false).unwrap();
     let combined_width = 8192;
     let combined = dist_image
         .load_sub_image(

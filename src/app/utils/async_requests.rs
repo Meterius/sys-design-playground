@@ -5,7 +5,7 @@ use priority_queue::PriorityQueue;
 use ratelimit::Ratelimiter;
 use smallvec::SmallVec;
 use std::collections::HashSet;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
 
@@ -52,7 +52,7 @@ where
 }
 
 pub trait RequestKind {
-    type Key: Eq + Hash + Clone + Send + Sync + 'static;
+    type Key: Debug + Eq + Hash + Clone + Send + Sync + 'static;
     type Value: Send + Sync + 'static;
     type Error: Display + Send + Sync + 'static;
 }
@@ -61,9 +61,9 @@ pub trait RequestClient<K: RequestKind> {
     fn fetch_preflight(
         &self,
         key: &K::Key,
-    ) -> impl Future<Output = Result<Option<K::Value>, K::Error>> + Send + Sync;
-    fn fetch(&self, key: &K::Key)
-    -> impl Future<Output = Result<K::Value, K::Error>> + Send + Sync;
+    ) -> impl Future<Output = Result<Option<K::Value>, K::Error>> + Send;
+
+    fn fetch(&self, key: &K::Key) -> impl Future<Output = Result<K::Value, K::Error>> + Send;
 }
 
 pub enum RequestState<K: RequestKind> {
@@ -72,6 +72,12 @@ pub enum RequestState<K: RequestKind> {
     Pending,
     Loading,
     Completed(Result<K::Value, K::Error>),
+}
+
+impl<K: RequestKind> RequestState<K> {
+    pub fn is_completed(&self) -> bool {
+        matches!(self, RequestState::Completed(_))
+    }
 }
 
 #[derive(Component)]
@@ -132,11 +138,11 @@ fn handle_requests<
 >(
     runtime: Res<TokioTasksRuntime>,
     managers: Query<(Entity, &mut RequestManager<K, C>, &ManagerWithRequests)>,
-    requests: Query<(Entity, &Request<K>)>,
+    mut requests: Query<(Entity, &mut Request<K>)>,
 ) {
     for (manager_id, mut manager, ManagerWithRequests(request_ids)) in managers {
-        let mut pending_requests = PriorityQueue::<(Entity, &K::Key), isize>::new();
-        let mut pending_preflight_requests = SmallVec::<[(Entity, &K::Key); 10]>::new();
+        let mut pending_requests = PriorityQueue::<(Entity, K::Key), isize>::new();
+        let mut pending_preflight_requests = SmallVec::<[(Entity, K::Key); 10]>::new();
 
         for (request_id, request) in request_ids
             .iter()
@@ -144,10 +150,10 @@ fn handle_requests<
         {
             match request.state() {
                 RequestState::PendingPreflight => {
-                    pending_preflight_requests.push((request_id, request.key()));
+                    pending_preflight_requests.push((request_id, request.key().clone()));
                 }
                 RequestState::Pending => {
-                    pending_requests.push((request_id, request.key()), request.priority);
+                    pending_requests.push((request_id, request.key().clone()), request.priority);
                 }
                 _ => {}
             }
@@ -156,6 +162,10 @@ fn handle_requests<
         for (req_id, req_key) in pending_preflight_requests.into_iter() {
             let client = manager.client.clone();
             let req_key = req_key.clone();
+
+            if let Some((_, mut request)) = requests.get_mut(req_id).ok().soft_expect("") {
+                request.state = RequestState::LoadingPreflight;
+            }
 
             runtime.spawn_background_task(async move |mut task| {
                 let res = client.fetch_preflight(&req_key).await;
@@ -187,34 +197,49 @@ fn handle_requests<
         {
             manager.fetching.insert((req_id, req_key.clone()));
 
+            if let Some((_, mut request)) = requests.get_mut(req_id).ok().soft_expect("") {
+                request.state = RequestState::Loading;
+            }
+
             let client = manager.client.clone();
             let req_key = req_key.clone();
 
             runtime.spawn_background_task(async move |mut task| {
+                debug!("Fetching request: {:?}", req_key);
+
                 let res = client.fetch(&req_key).await;
-                let _ = res.as_ref()
+                let _ = res
+                    .as_ref()
                     .inspect_err(|err| error!("Failed to fetch request: {}", err));
+                {
+                    let req_key = req_key.clone();
+                    task.run_on_main_thread(move |ctx| {
+                        if let Ok(mut entity) = ctx.world.get_entity_mut(req_id)
+                            && let Ok(mut req) = entity
+                                .get_mut::<Request<K>>()
+                                .ok_or("Could not find component")
+                                .inspect_err(|err| {
+                                    error!("Failed to get request components: {}", err)
+                                })
+                        {
+                            req.state = RequestState::Completed(res);
+                        }
 
-                task.run_on_main_thread(move |ctx| {
-                    if let Ok(mut entity) = ctx.world.get_entity_mut(req_id)
-                        && let Ok(mut req) = entity
-                            .get_mut::<Request<K>>()
-                            .ok_or("Could not find component")
-                            .inspect_err(|err| error!("Failed to get request components: {}", err))
-                    {
-                        req.state = RequestState::Completed(res);
-                    }
+                        if let Ok(mut entity) = ctx.world.get_entity_mut(manager_id)
+                            && let Ok(mut manager) = entity
+                                .get_mut::<RequestManager<K, C>>()
+                                .ok_or("Could not find component")
+                                .inspect_err(|err| {
+                                    error!("Failed to get request components: {}", err)
+                                })
+                        {
+                            manager.fetching.remove(&(req_id, req_key));
+                        }
+                    })
+                    .await;
+                }
 
-                    if let Ok(mut entity) = ctx.world.get_entity_mut(manager_id)
-                        && let Ok(mut manager) = entity
-                            .get_mut::<RequestManager<K, C>>()
-                            .ok_or("Could not find component")
-                            .inspect_err(|err| error!("Failed to get request components: {}", err))
-                    {
-                        manager.fetching.remove(&(req_id, req_key));
-                    }
-                })
-                .await;
+                debug!("Finished request: {:?}", req_key);
             });
         }
     }

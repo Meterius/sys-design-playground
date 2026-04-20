@@ -30,6 +30,7 @@ path = "src/bin/sat_ingest.rs"
 [features]
 default = []
 debug = ["bevy/debug", "bevy/bevy_debug_stepping"]
+tracy = ["bevy/trace_tracy"]
 
 [dependencies]
 backend_model = { path = "./crates/backend_model" }
@@ -71,18 +72,19 @@ regex = "1.12.3"
 zip = "8.5.1"
 geoconvert = "1.0.2"
 crossbeam = "0.8.4"
+lru-cache = "0.1.2"
+ordered-float = "5.3.0"
+csv = "1.4.0"
+jackdaw = "0.3.1"
 
 [profile.release]
-opt-level = 3
-lto = "fat"
-#debug = 2
-#split-debuginfo = "packed"
-
 #opt-level = 3
-#debug = 2
-#split-debuginfo = "packed"
-#lto = "thin"   # NOT fat
-#codegen-units = 1
+#lto = "fat"
+
+opt-level = 3
+debug = 2
+split-debuginfo = "packed"
+lto = "thin"
 
 [profile.dev]
 opt-level = 0

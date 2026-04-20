@@ -1,6 +1,8 @@
-use crate::geo::osm::layered::model::road::Road;
+use crate::geo::osm::layered::model::road::{Road, RoadClassCategory};
 use bevy::tasks::futures_lite::StreamExt;
-use generated_queries::queries::osm_roads_queries::fetch_roads_by_area;
+use generated_queries::queries::osm_roads_queries::{
+    fetch_roads_by_area, fetch_roads_by_area_and_category,
+};
 use geojson::FeatureCollection;
 use glam::{DVec2, dvec2};
 use postgis::ewkb::{AsEwkbPolygon, EwkbRead, EwkbWrite, LineString, Point, Polygon};
@@ -91,6 +93,54 @@ impl OsmClient {
         let iter = fetch_roads_by_area()
             .bind(
                 &self.client,
+                &ewkb_to_vec(
+                    Polygon {
+                        rings: vec![LineString {
+                            points: std::iter::once(corners[corners.len() - 1])
+                                .chain(corners.into_iter())
+                                .collect(),
+                            srid: None,
+                        }],
+                        srid: None,
+                    }
+                    .as_ewkb(),
+                )?,
+            )
+            .iter()
+            .await?;
+
+        Ok(iter.map(|r| {
+            r.map_err(OsmError::from).and_then(|data| {
+                Ok(Road {
+                    oneway: data.oneway.into(),
+                    osm_id: data.osm_id,
+                    is_bridge: data.is_bridge,
+                    is_tunnel: data.is_tunnel,
+                    max_speed: data.max_speed.map(|v| v as u32),
+                    class: data.class.into(),
+                    reference: data.reference,
+                    layer: data.layer,
+                    geometry: LineString::read_ewkb(&mut std::io::Cursor::new(data.geom))?
+                        .points
+                        .into_iter()
+                        .map(point_to_dvec2)
+                        .collect(),
+                })
+            })
+        }))
+    }
+
+    pub async fn fetch_roads_by_category(
+        &self,
+        bounds: DAabb2,
+        category: RoadClassCategory,
+    ) -> Result<impl futures::Stream<Item = Result<Road, OsmError>>, OsmError> {
+        let corners = bounds.corners().map(dvec2_to_point).collect::<Vec<_>>();
+
+        let iter = fetch_roads_by_area_and_category()
+            .bind(
+                &self.client,
+                &category.into(),
                 &ewkb_to_vec(
                     Polygon {
                         rings: vec![LineString {

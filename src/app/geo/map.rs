@@ -4,7 +4,7 @@ use crate::geo::coords::{BoundedMercatorProjection, Projection2D, approx_lat_del
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_vector_shapes::painter::ShapePainter;
-use bevy_vector_shapes::prelude::LinePainter;
+use bevy_vector_shapes::prelude::{LinePainter, RectPainter};
 use bevy_vector_shapes::shapes::ThicknessType;
 use big_space::grid::Grid;
 use glam::{DVec2, dvec2};
@@ -17,11 +17,21 @@ impl Plugin for MapPlugin {
         app.add_systems(
             PostUpdate,
             (
-                sync_map_view_transform.before(TransformSystems::Propagate),
-                sync_view_from_camera.after(TransformSystems::Propagate),
-                draw_map_view_debug,
-            )
-                .chain(),
+                (
+                    sync_map_view_transform.before(TransformSystems::Propagate),
+                    sync_view_from_camera.after(TransformSystems::Propagate),
+                )
+                    .chain(),
+                setup_map_view_refs,
+            ),
+        );
+
+        app.add_systems(
+            PostUpdate,
+            (draw_debug_map_view, draw_debug_map_view_viewport)
+                .after(TransformSystems::Propagate)
+                .after(sync_view_from_camera)
+                .run_if(Settings::in_debug_mode),
         );
     }
 }
@@ -73,48 +83,68 @@ impl MapView {
     }
 }
 
-fn draw_map_view_debug(
+fn draw_debug_map_view(
     views: Query<(&GlobalTransform, &MapView, &MapViewWithMap)>,
     maps: Query<&Map>,
     mut painter: ShapePainter,
-    settings: Res<Settings>,
 ) {
-    if settings.debug_mode {
-        for (view_transform, view, &MapViewWithMap(map_id)) in views {
-            if let Some(map) = maps.get(map_id).ok().soft_expect("") {
-                painter.thickness_type = ThicknessType::Pixels;
-                painter.thickness = 2.0;
+    for (view_transform, view, &MapViewWithMap(map_id)) in views {
+        if let Some(map) = maps.get(map_id).ok().soft_expect("") {
+            painter.thickness_type = ThicknessType::Pixels;
+            painter.thickness = 2.0;
 
-                let gcs_to_world = |pos: DVec2| {
-                    view_transform.transform_point(
-                        view.abs_to_local(
-                            map.projection.gcs_to_abs(
-                                map.projection
-                                    .gcs_bounds()
-                                    .closest_point(pos.map(f64::to_degrees)),
-                            ),
-                        )
-                        .as_vec2()
-                        .extend(0.0),
+            let gcs_to_world = |pos: DVec2| {
+                view_transform.transform_point(
+                    view.abs_to_local(
+                        map.projection.gcs_to_abs(
+                            map.projection
+                                .gcs_bounds()
+                                .closest_point(pos.map(f64::to_degrees)),
+                        ),
                     )
-                };
+                    .as_vec2()
+                    .extend(0.0),
+                )
+            };
 
-                painter.color = Color::srgb(1.0, 0.0, 0.0);
-                for lat in -9..=9 {
-                    let lat = lat as f64 * 10.0;
-                    painter.line(
-                        gcs_to_world(dvec2(-180.0, lat)),
-                        gcs_to_world(dvec2(180.0, lat)),
-                    );
-                }
+            painter.color = Color::srgb(1.0, 0.0, 0.0);
+            for lat in -9..=9 {
+                let lat = lat as f64 * 10.0;
+                painter.line(
+                    gcs_to_world(dvec2(-180.0, lat)),
+                    gcs_to_world(dvec2(180.0, lat)),
+                );
+            }
 
-                for lon in -18..=18 {
-                    let lon = lon as f64 * 10.0;
-                    painter.line(
-                        gcs_to_world(dvec2(lon, -90.0)),
-                        gcs_to_world(dvec2(lon, 90.0)),
-                    );
-                }
+            for lon in -18..=18 {
+                let lon = lon as f64 * 10.0;
+                painter.line(
+                    gcs_to_world(dvec2(lon, -90.0)),
+                    gcs_to_world(dvec2(lon, 90.0)),
+                );
+            }
+        }
+    }
+}
+
+fn draw_debug_map_view_viewport(
+    views: Query<(&GlobalTransform, &MapView, &MapViewWithMap)>,
+    maps: Query<&Map>,
+    mut painter: ShapePainter,
+) {
+    for (view_transform, view, &MapViewWithMap(map_id)) in views {
+        if let Some(map) = maps.get(map_id).ok().soft_expect("") {
+            painter.thickness_type = ThicknessType::Pixels;
+            painter.thickness = 2.0;
+            painter.hollow = true;
+            painter.color = Color::srgba(0.0, 1.0, 0.0, 0.5);
+
+            if let Some(viewport_abs) = view.viewport_abs {
+                let start = view_transform.transform_point(view.abs_to_local(viewport_abs.min()).as_vec2().extend(0.));
+                let end = view_transform.transform_point(view.abs_to_local(viewport_abs.max()).as_vec2().extend(0.));
+
+                painter.set_translation((start + end) / 2.);
+                painter.rect((end - start).xy());
             }
         }
     }
@@ -148,7 +178,27 @@ pub struct MapViewContextQuery<'w, 's> {
             &'static MapViewWithMap,
         ),
     >,
+    refs: Query<'w, 's, &'static MapViewContextRef>,
     children: Query<'w, 's, &'static ChildOf>,
+}
+
+#[derive(Default, Component)]
+pub struct MapViewContextRef {
+    pub view_id: Option<Entity>,
+}
+
+fn setup_map_view_refs(
+    refs: Query<(Entity, &mut MapViewContextRef), Added<MapViewContextRef>>,
+    views: Query<Entity, With<MapView>>,
+    children: Query<&ChildOf>,
+) {
+    for (ref_id, mut reference) in refs {
+        reference.view_id = [ref_id]
+            .into_iter()
+            .chain(children.iter_ancestors::<ChildOf>(ref_id))
+            .filter_map(|p_id| views.get(p_id).ok())
+            .next();
+    }
 }
 
 pub struct MapViewContext<'a> {
@@ -163,10 +213,18 @@ pub struct MapViewContext<'a> {
 impl<'w, 's> MapViewContextQuery<'w, 's> {
     pub fn get(&self, id: Entity) -> Option<MapViewContext<'_>> {
         let view = self
-            .children
-            .iter_ancestors::<ChildOf>(id)
-            .filter_map(|p_id| self.views.get(p_id).ok())
-            .next();
+            .refs
+            .get(id)
+            .ok()
+            .and_then(|&MapViewContextRef { view_id }| {
+                view_id.and_then(|view_id| self.views.get(view_id).ok())
+            })
+            .or_else(|| {
+                [id].into_iter()
+                    .chain(self.children.iter_ancestors::<ChildOf>(id))
+                    .filter_map(|p_id| self.views.get(p_id).ok())
+                    .next()
+            });
 
         view.and_then(move |(view_id, view_grid, view, &MapViewWithMap(map_id))| {
             self.maps.get(map_id).ok().map(move |map| MapViewContext {
@@ -185,6 +243,7 @@ fn sync_view_from_camera(
     view_cameras: Query<(&GlobalTransform, &Camera, &MapViewCameraWithView), With<MapViewCamera>>,
     mut views: Query<(&GlobalTransform, &mut MapView, &MapViewWithMap)>,
     maps: Query<&Map>,
+    settings: Res<Settings>,
 ) {
     for (cam_transform, cam, &MapViewCameraWithView(view_id)) in view_cameras {
         if let Some((view_transform, mut view, &MapViewWithMap(map_id))) =
@@ -214,6 +273,16 @@ fn sync_view_from_camera(
                 ),
             )
             .intersection(map.projection.abs_bounds());
+
+            // reduce viewport to debug viewport-related systems while having visibility on
+            // screen outside viewport
+            let cam_view_abs = cam_view_abs.map(|cam_view_abs| {
+                if settings.debug_mode {
+                    DAabb2::from_center(cam_view_abs.center(), cam_view_abs.size() * 0.6)
+                } else {
+                    cam_view_abs
+                }
+            });
 
             view.viewport_gcs = cam_view_abs.as_ref().map(|cam_view_abs| {
                 DAabb2::new(

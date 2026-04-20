@@ -11,8 +11,10 @@ use itertools::Itertools;
 use ratelimit::Ratelimiter;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use thiserror::Error;
-use tracing::info;
+use tracing::debug;
 use utilities::glam_ext::sub_division::{SubDivisionKey, TileKey};
 
 pub struct TilingRequestPlugin {}
@@ -45,6 +47,7 @@ fn startup(world: &mut World) {
                     max_concurrent,
                     Some(Ratelimiter::new(rate)),
                     TileImageRequestClient {
+                        connection_refused: Arc::new(AtomicBool::new(false)),
                         layer,
                         client: client.clone(),
                     },
@@ -53,8 +56,8 @@ fn startup(world: &mut World) {
         )
     };
 
-    add_layer(Layer::SenHub, 40, 4);
-    add_layer(Layer::Local(LocalLayer::GlobalMosaicSen2), 40, 40);
+    add_layer(Layer::SenHub, 10, 4);
+    add_layer(Layer::Local(LocalLayer::GlobalMosaicSen2), 20, 40);
     add_layer(
         Layer::Gibs(GibsLayer::LayerModisTerraCorrectedReflectanceTrueColor),
         40,
@@ -78,6 +81,7 @@ pub enum TileImageRequestError {
 pub struct TileImageRequestClient {
     pub client: reqwest::Client,
     pub layer: Layer,
+    pub connection_refused: Arc<AtomicBool>,
 }
 
 impl TileImageRequestClient {
@@ -132,10 +136,10 @@ impl RequestClient<TileImageRequestKind> for TileImageRequestClient {
     async fn fetch_preflight(
         &self,
         key: &<TileImageRequestKind as RequestKind>::Key,
-    ) -> bevy::prelude::Result<Option<PathBuf>, TileImageRequestError> {
+    ) -> bevy::prelude::Result<Option<Option<PathBuf>>, TileImageRequestError> {
         let tile_path = Self::get_tile_path(&key.1)?;
         if tokio::fs::try_exists(&tile_path).await? {
-            Ok(Some(Self::get_asset_tile_path(&key.1)?))
+            Ok(Some(Some(Self::get_asset_tile_path(&key.1)?)))
         } else {
             Ok(None)
         }
@@ -144,10 +148,17 @@ impl RequestClient<TileImageRequestKind> for TileImageRequestClient {
     async fn fetch(
         &self,
         key: &<TileImageRequestKind as RequestKind>::Key,
-    ) -> bevy::prelude::Result<PathBuf, TileImageRequestError> {
+    ) -> bevy::prelude::Result<Option<PathBuf>, TileImageRequestError> {
+        if self
+            .connection_refused
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            return Ok(None);
+        }
+
         let res = self
             .client
-            .get("http://localhost:80/tile")
+            .get("http://localhost:8080/tile")
             .json(&GetTileRequest {
                 tile_key: backend_model::earth_tiling_service_model::TileKey::from_iter(
                     key.1.iter().map(|x| match x {
@@ -165,21 +176,23 @@ impl RequestClient<TileImageRequestKind> for TileImageRequestClient {
                 layer: self.layer,
             })
             .send()
-            .await?
+            .await
+            .inspect_err(|err| {
+                if err.is_connect() {
+                    self.connection_refused
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+            })?
             .error_for_status()?;
 
         let tile_path = Self::get_tile_path(&key.1)?;
 
-        tokio::fs::create_dir_all(&tile_path.parent().unwrap())
-            .await
-            .inspect_err(|_err| println!("a {tile_path:?}"))?;
-        tokio::fs::write(&tile_path, res.bytes().await?)
-            .await
-            .inspect_err(|_err| println!("b {tile_path:?}"))?;
+        tokio::fs::create_dir_all(&tile_path.parent().unwrap()).await?;
+        tokio::fs::write(&tile_path, res.bytes().await?).await?;
 
-        info!("Fetched tile: {:?}", &tile_path);
-        info!("Asset path: {:?}", Self::get_asset_tile_path(&key.1));
-        Self::get_asset_tile_path(&key.1)
+        debug!("Fetched tile: {:?}", &tile_path);
+        debug!("Asset path: {:?}", Self::get_asset_tile_path(&key.1));
+        Ok(Some(Self::get_asset_tile_path(&key.1)?))
     }
 }
 
@@ -187,7 +200,7 @@ pub struct TileImageRequestKind {}
 
 impl RequestKind for TileImageRequestKind {
     type Key = (BoundedMercatorProjection, TileKey);
-    type Value = PathBuf;
+    type Value = Option<PathBuf>;
     type Error = TileImageRequestError;
 }
 

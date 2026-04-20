@@ -1,6 +1,11 @@
 // This file was generated with `clorinde`. Do not modify.
 
 #[derive(Debug)]
+pub struct FetchRoadsByAreaAndCategoryParams<T1: crate::BytesSql> {
+    pub category: crate::types::RoadClassCategory,
+    pub bounds: T1,
+}
+#[derive(Debug)]
 pub struct UpsertRoadParams<T1: crate::BytesSql> {
     pub osm_id: i64,
     pub class: crate::types::RoadClass,
@@ -105,6 +110,60 @@ impl<'a> From<FetchRoadsByAreaBorrowed<'a>> for FetchRoadsByArea {
             is_tunnel,
             geom,
         }: FetchRoadsByAreaBorrowed<'a>,
+    ) -> Self {
+        Self {
+            osm_id,
+            class,
+            category,
+            oneway,
+            max_speed,
+            layer,
+            reference: reference.into(),
+            is_bridge,
+            is_tunnel,
+            geom: geom.into(),
+        }
+    }
+}
+#[derive(Debug, Clone, PartialEq)]
+pub struct FetchRoadsByAreaAndCategory {
+    pub osm_id: i64,
+    pub class: crate::types::RoadClass,
+    pub category: crate::types::RoadClassCategory,
+    pub oneway: crate::types::RoadOneway,
+    pub max_speed: Option<i32>,
+    pub layer: i32,
+    pub reference: String,
+    pub is_bridge: bool,
+    pub is_tunnel: bool,
+    pub geom: Vec<u8>,
+}
+pub struct FetchRoadsByAreaAndCategoryBorrowed<'a> {
+    pub osm_id: i64,
+    pub class: crate::types::RoadClass,
+    pub category: crate::types::RoadClassCategory,
+    pub oneway: crate::types::RoadOneway,
+    pub max_speed: Option<i32>,
+    pub layer: i32,
+    pub reference: &'a str,
+    pub is_bridge: bool,
+    pub is_tunnel: bool,
+    pub geom: &'a [u8],
+}
+impl<'a> From<FetchRoadsByAreaAndCategoryBorrowed<'a>> for FetchRoadsByAreaAndCategory {
+    fn from(
+        FetchRoadsByAreaAndCategoryBorrowed {
+            osm_id,
+            class,
+            category,
+            oneway,
+            max_speed,
+            layer,
+            reference,
+            is_bridge,
+            is_tunnel,
+            geom,
+        }: FetchRoadsByAreaAndCategoryBorrowed<'a>,
     ) -> Self {
         Self {
             osm_id,
@@ -256,6 +315,75 @@ where
         Ok(mapped)
     }
 }
+pub struct FetchRoadsByAreaAndCategoryQuery<'c, 'a, 's, C: GenericClient, T, const N: usize> {
+    client: &'c C,
+    params: [&'a (dyn postgres_types::ToSql + Sync); N],
+    query: &'static str,
+    cached: Option<&'s tokio_postgres::Statement>,
+    extractor: fn(
+        &tokio_postgres::Row,
+    ) -> Result<FetchRoadsByAreaAndCategoryBorrowed, tokio_postgres::Error>,
+    mapper: fn(FetchRoadsByAreaAndCategoryBorrowed) -> T,
+}
+impl<'c, 'a, 's, C, T: 'c, const N: usize> FetchRoadsByAreaAndCategoryQuery<'c, 'a, 's, C, T, N>
+where
+    C: GenericClient,
+{
+    pub fn map<R>(
+        self,
+        mapper: fn(FetchRoadsByAreaAndCategoryBorrowed) -> R,
+    ) -> FetchRoadsByAreaAndCategoryQuery<'c, 'a, 's, C, R, N> {
+        FetchRoadsByAreaAndCategoryQuery {
+            client: self.client,
+            params: self.params,
+            query: self.query,
+            cached: self.cached,
+            extractor: self.extractor,
+            mapper,
+        }
+    }
+    pub async fn one(self) -> Result<T, tokio_postgres::Error> {
+        let row =
+            crate::client::async_::one(self.client, self.query, &self.params, self.cached).await?;
+        Ok((self.mapper)((self.extractor)(&row)?))
+    }
+    pub async fn all(self) -> Result<Vec<T>, tokio_postgres::Error> {
+        self.iter().await?.try_collect().await
+    }
+    pub async fn opt(self) -> Result<Option<T>, tokio_postgres::Error> {
+        let opt_row =
+            crate::client::async_::opt(self.client, self.query, &self.params, self.cached).await?;
+        Ok(opt_row
+            .map(|row| {
+                let extracted = (self.extractor)(&row)?;
+                Ok((self.mapper)(extracted))
+            })
+            .transpose()?)
+    }
+    pub async fn iter(
+        self,
+    ) -> Result<
+        impl futures::Stream<Item = Result<T, tokio_postgres::Error>> + 'c,
+        tokio_postgres::Error,
+    > {
+        let stream = crate::client::async_::raw(
+            self.client,
+            self.query,
+            crate::slice_iter(&self.params),
+            self.cached,
+        )
+        .await?;
+        let mapped = stream
+            .map(move |res| {
+                res.and_then(|row| {
+                    let extracted = (self.extractor)(&row)?;
+                    Ok((self.mapper)(extracted))
+                })
+            })
+            .into_stream();
+        Ok(mapped)
+    }
+}
 pub struct ListAllRoadsStmt(&'static str, Option<tokio_postgres::Statement>);
 pub fn list_all_roads() -> ListAllRoadsStmt {
     ListAllRoadsStmt(
@@ -342,6 +470,70 @@ impl FetchRoadsByAreaStmt {
             },
             mapper: |it| FetchRoadsByArea::from(it),
         }
+    }
+}
+pub struct FetchRoadsByAreaAndCategoryStmt(&'static str, Option<tokio_postgres::Statement>);
+pub fn fetch_roads_by_area_and_category() -> FetchRoadsByAreaAndCategoryStmt {
+    FetchRoadsByAreaAndCategoryStmt(
+        "SELECT osm_id, class, category, oneway, max_speed, layer, reference, is_bridge, is_tunnel, ST_asewkb(geom::geometry) as geom FROM osm_roads WHERE category = $1 AND st_intersects(geom, st_setsrid(st_geomfromewkb($2), 4326)::geography)",
+        None,
+    )
+}
+impl FetchRoadsByAreaAndCategoryStmt {
+    pub async fn prepare<'a, C: GenericClient>(
+        mut self,
+        client: &'a C,
+    ) -> Result<Self, tokio_postgres::Error> {
+        self.1 = Some(client.prepare(self.0).await?);
+        Ok(self)
+    }
+    pub fn bind<'c, 'a, 's, C: GenericClient, T1: crate::BytesSql>(
+        &'s self,
+        client: &'c C,
+        category: &'a crate::types::RoadClassCategory,
+        bounds: &'a T1,
+    ) -> FetchRoadsByAreaAndCategoryQuery<'c, 'a, 's, C, FetchRoadsByAreaAndCategory, 2> {
+        FetchRoadsByAreaAndCategoryQuery {
+            client,
+            params: [category, bounds],
+            query: self.0,
+            cached: self.1.as_ref(),
+            extractor: |
+                row: &tokio_postgres::Row,
+            | -> Result<FetchRoadsByAreaAndCategoryBorrowed, tokio_postgres::Error> {
+                Ok(FetchRoadsByAreaAndCategoryBorrowed {
+                    osm_id: row.try_get(0)?,
+                    class: row.try_get(1)?,
+                    category: row.try_get(2)?,
+                    oneway: row.try_get(3)?,
+                    max_speed: row.try_get(4)?,
+                    layer: row.try_get(5)?,
+                    reference: row.try_get(6)?,
+                    is_bridge: row.try_get(7)?,
+                    is_tunnel: row.try_get(8)?,
+                    geom: row.try_get(9)?,
+                })
+            },
+            mapper: |it| FetchRoadsByAreaAndCategory::from(it),
+        }
+    }
+}
+impl<'c, 'a, 's, C: GenericClient, T1: crate::BytesSql>
+    crate::client::async_::Params<
+        'c,
+        'a,
+        's,
+        FetchRoadsByAreaAndCategoryParams<T1>,
+        FetchRoadsByAreaAndCategoryQuery<'c, 'a, 's, C, FetchRoadsByAreaAndCategory, 2>,
+        C,
+    > for FetchRoadsByAreaAndCategoryStmt
+{
+    fn params(
+        &'s self,
+        client: &'c C,
+        params: &'a FetchRoadsByAreaAndCategoryParams<T1>,
+    ) -> FetchRoadsByAreaAndCategoryQuery<'c, 'a, 's, C, FetchRoadsByAreaAndCategory, 2> {
+        self.bind(client, &params.category, &params.bounds)
     }
 }
 pub struct UpsertRoadStmt(&'static str, Option<tokio_postgres::Statement>);

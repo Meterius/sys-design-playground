@@ -1,5 +1,5 @@
-use crate::app::geo::tiling::requests::TileImageRequestKind;
 use crate::app::geo::tiling::manager::setup_tiles;
+use crate::app::geo::tiling::requests::TileImageRequestKind;
 use crate::app::utils::async_requests::{Request, RequestState};
 use bevy::prelude::*;
 
@@ -26,7 +26,7 @@ pub fn handle_tile_image_sprite_loaded(
     asset_server: Res<AssetServer>,
 ) {
     for (tile_id, tile_sprite, tile_res) in tiles {
-        if let RequestState::Completed(Ok(path)) = tile_res.state() {
+        if let RequestState::Completed(Ok(Some(path))) = tile_res.state() {
             commands.entity(tile_id).insert(Sprite {
                 image: asset_server.load(path.as_os_str().to_str().unwrap().to_owned()),
                 custom_size: tile_sprite.size,

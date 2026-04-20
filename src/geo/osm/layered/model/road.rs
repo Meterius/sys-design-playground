@@ -1,9 +1,10 @@
+use bevy::prelude::Reflect;
 use generated_queries::types as sql_types;
 use glam::DVec2;
 use std::str::FromStr;
 use strum::{AsRefStr, Display, EnumString};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Reflect, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OneWay {
     ForwardsOnly,
     BackwardsOnly,
@@ -78,7 +79,7 @@ impl From<sql_types::RoadClassCategory> for RoadClassCategory {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, EnumString, AsRefStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Display, EnumString, AsRefStr)]
 pub enum RoadClass {
     // 511x Major roads
     #[strum(serialize = "motorway")]
@@ -255,6 +256,7 @@ impl RoadClass {
     }
 }
 
+#[derive(Reflect)]
 pub struct Road {
     pub osm_id: i64,
     pub class: RoadClass,

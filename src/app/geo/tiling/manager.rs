@@ -1,6 +1,7 @@
+use crate::app::geo::map::MapViewContextRef;
 use crate::app::geo::map::{Map, MapView, MapViewContextQuery, MapViewWithMap};
-use crate::app::geo::tiling::sprite::{TileImageSprite, handle_tile_image_sprite_loaded};
 use crate::app::geo::tiling::requests::{TileImageRequest, TileRequestManagersByDataset};
+use crate::app::geo::tiling::sprite::{TileImageSprite, handle_tile_image_sprite_loaded};
 use crate::app::utils::async_requests::RequestWithManager;
 use crate::app::utils::big_space_ext::CommandsWithSpatial;
 use crate::app::utils::debug::SoftExpect;
@@ -87,7 +88,7 @@ fn sync_tiles_for_view(
 
                 let viewport_abs_expanded =
                     viewport_abs.expand(dvec2(0.1, 0.1) * viewport_abs.size());
-                for depth in baseline_depth..=(target_depth + 1) {
+                for depth in baseline_depth..=(target_depth) {
                     for tile in sub_div.tile_covering(viewport_abs_expanded, depth) {
                         required_tile_keys.insert(tile.key.clone());
 
@@ -151,6 +152,7 @@ pub struct MapViewTilingWithView(pub Entity);
 
 #[derive(Component, Debug, Reflect)]
 #[reflect(Component)]
+#[require(MapViewContextRef)]
 pub struct MapViewTile {
     pub key: TileKey,
     pub area_abs: DAabb2,

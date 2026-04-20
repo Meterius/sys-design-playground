@@ -1,4 +1,5 @@
 use crate::app::geo::map::MapViewContextQuery;
+use crate::app::geo::map::MapViewContextRef;
 use crate::geo::coords::Projection2D;
 use bevy::prelude::*;
 use bevy_prototype_lyon::path::ShapePath;
@@ -17,6 +18,7 @@ impl Plugin for GeometryPlugin {
 }
 
 #[derive(Component)]
+#[require(MapViewContextRef)]
 pub struct MapRegion {
     pub color: Color,
     pub perimeter: Vec<DVec2>,
@@ -86,6 +88,7 @@ pub fn update_region(
 }
 
 #[derive(Component)]
+#[require(MapViewContextRef)]
 pub struct MapLine {
     pub width: f32,
     pub color: Color,

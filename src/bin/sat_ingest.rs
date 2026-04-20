@@ -509,10 +509,10 @@ fn process_dist_img_into_hierarchical_tiles(
 
     for idx in (0..=depth).rev() {
         let dist_tile_img = if idx == depth {
-            DistributedMappedImage::from_directory(input)
+            DistributedMappedImage::from_directory(input, false)
                 .with_context(|| format!("opening distributed image at {input:?}"))?
         } else {
-            DistributedMappedImage::from_directory(tile_output(idx + 1))
+            DistributedMappedImage::from_directory(tile_output(idx + 1), false)
                 .with_context(|| format!("opening distributed image at {input:?}"))?
         };
 
@@ -529,18 +529,24 @@ fn process_dist_img_into_hierarchical_tiles(
             tiles.len(),
             tiles.into_par_iter(),
             move |(key, bounds)| {
-                if let Ok(Some(out)) = dist_tile_img
-                    .load_sub_image(bounds, resolution)
-                    .with_context(|| format!("making tile for key {key:?} with bounds {bounds:?}"))
-                    .inspect_err(|e| eprintln!("Error loading base tile for key {key:?}: {e:#}"))
+                let key = tile_key_str(&key);
+                let key = if key.is_empty() { "R".into() } else { key };
+
+                let tile_output_tile_path = tile_output.join(format!("{}.png", key));
+
+                if !std::fs::exists(&tile_output_tile_path).unwrap()
+                    && let Ok(Some(out)) = dist_tile_img
+                        .load_sub_image(bounds, resolution)
+                        .with_context(|| {
+                            format!("making tile for key {key:?} with bounds {bounds:?}")
+                        })
+                        .inspect_err(|e| {
+                            eprintln!("Error loading base tile for key {key:?}: {e:#}")
+                        })
                 {
-                    let _ = save_dist_tile_png(
-                        &tile_output.join(format!("{}.png", tile_key_str(&key))),
-                        &out,
-                        bounds,
-                    )
-                    .with_context(|| format!("saving tile for key {key:?}"))
-                    .inspect_err(|e| eprintln!("Error saving tile for key {key:?}: {e:#}"));
+                    let _ = save_dist_tile_png(&tile_output_tile_path, &out, bounds)
+                        .with_context(|| format!("saving tile for key {key:?}"))
+                        .inspect_err(|e| eprintln!("Error saving tile for key {key:?}: {e:#}"));
                 }
             },
         );

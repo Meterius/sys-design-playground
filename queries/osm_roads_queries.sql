@@ -11,6 +11,13 @@ SELECT
 FROM osm_roads
 WHERE st_intersects(geom, st_setsrid(st_geomfromewkb(:bounds), 4326)::geography);
 
+--! fetch_roads_by_area_and_category : (max_speed?)
+SELECT
+    osm_id, class, category, oneway, max_speed, layer, reference,
+    is_bridge, is_tunnel, ST_asewkb(geom::geometry) as geom
+FROM osm_roads
+WHERE category = :category AND st_intersects(geom, st_setsrid(st_geomfromewkb(:bounds), 4326)::geography);
+
 --! upsert_road (max_speed?)
 INSERT INTO osm_roads (
     osm_id, class, category, oneway, max_speed, layer,

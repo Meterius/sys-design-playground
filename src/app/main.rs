@@ -1,14 +1,15 @@
-use crate::app::common::settings::SettingsPlugin;
+use crate::app::common::settings::{Settings, SettingsPlugin};
 use crate::app::geo::GeoPlugin;
 use crate::app::geo::geometry::{MapLine, MapRegion};
+use crate::app::geo::grid::manager::{LinearGrid, MapViewGrid};
 use crate::app::geo::map::{
     Map, MapView, MapViewCamera, MapViewCameraWithView, MapViewContextQuery, MapViewWithMap,
 };
+use crate::app::geo::road_elements::spawn_roads_element_manager;
 use crate::app::geo::tiling::manager::{MapViewTiling, MapViewTilingWithView};
 use crate::app::utils::big_space_ext::CommandsWithSpatial;
 use crate::geo::coords::{BoundedMercatorProjection, Projection2D};
 use crate::geo::osm::client::OsmClient;
-use crate::geo::osm::layered::model::road::{Road, RoadClassCategory};
 use bevy::DefaultPlugins;
 use bevy::app::{App, PluginGroup, Startup};
 use bevy::camera::visibility::RenderLayers;
@@ -26,12 +27,13 @@ use bevy_tokio_tasks::TokioTasksRuntime;
 use bevy_vector_shapes::Shape2dPlugin;
 use big_space::plugin::BigSpaceDefaultPlugins;
 use big_space::prelude::{BigSpaceCommands, FloatingOrigin, Grid};
-use futures::TryStreamExt;
 use glam::dvec2;
 use itertools::Itertools;
 use shapefile::dbase::FieldValue;
 use std::f64::consts::PI;
-use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
+use std::sync::Arc;
+use jackdaw::EditorPlugin;
+use utilities::glam_ext::bounding::AxisAlignedBoundingBox2D;
 
 pub fn initialize(_width: usize, _height: usize) {
     App::new()
@@ -47,7 +49,7 @@ pub fn initialize(_width: usize, _height: usize) {
         .add_plugins(
             DefaultPlugins
                 .set(LogPlugin {
-                    filter: "info,bevy_mod_picking=info,wgpu_core=error,wgpu_hal=error".into(),
+                    filter: "info,jlh_sys_design_playground=info,bevy_mod_picking=info,wgpu_core=error,wgpu_hal=error".into(),
                     level: if cfg!(feature = "debug") {
                         Level::INFO
                     } else {
@@ -70,12 +72,13 @@ pub fn initialize(_width: usize, _height: usize) {
             GeoPlugin {},
             MeshPickingPlugin,
             EguiPlugin::default(),
-            WorldInspectorPlugin::new(),
+            // WorldInspectorPlugin::new().run_if(|settings: Option<Res<Settings>>| settings.is_some_and(|settings| settings.debug_mode)),
             ShapePlugin,
             Shape2dPlugin::default(),
             bevy_tokio_tasks::TokioTasksPlugin::default(),
             SettingsPlugin::default(),
             BigSpaceDefaultPlugins,
+            EditorPlugin {},
         ))
         .add_systems(Startup, setup)
         .add_systems(Update, setup_cam)
@@ -88,14 +91,6 @@ fn setup_cam(
 ) {
     for (cam_id, mut cam_tr) in cams {
         if let Some(ctx) = view_ctx.get(cam_id) {
-            info!(
-                "{:?}",
-                ctx.view.abs_to_local(
-                    ctx.map
-                        .projection
-                        .gcs_to_abs(dvec2(9.9872f64.to_radians(), 53.5488f64.to_radians(),))
-                )
-            );
             cam_tr.translation = ctx
                 .view
                 .abs_to_local(
@@ -131,7 +126,12 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
             ))
             .id();
 
-        root_grid.spawn_spatial((Name::new("Tiling"), MapViewTiling::new(6), MapViewTilingWithView(map_view_id)));
+        // root_grid.spawn_spatial((Name::new("Tiling"), MapViewTiling::new(6), MapViewTilingWithView(map_view_id)));
+
+        root_grid.spawn_spatial((Grid::default(), Name::new("Grid"), MapViewGrid::new(LinearGrid {
+            count: uvec2(100, 100),
+            min_tile_viewport_percentage: vec2(0.05, 0.05),
+        })));
 
         root_grid.spawn_spatial((
             Camera2d,
@@ -145,44 +145,13 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
 
         runtime.spawn_background_task(async move |mut task| {
             if let Ok(client) = OsmClient::connect().await.inspect_err(|err| error!("{:?}", err)) {
-                let bounds = DAabb2::from_corners(dvec2(9.728113, 53.682394), dvec2(10.312654, 53.341041));
-
-                if let Ok(roads_iter) = client.fetch_roads(bounds).await.inspect_err(|err| error!("Query {:?}", err))
-                    && let Ok(roads) = roads_iter.try_collect::<Vec<Road>>().await.inspect_err(|err| error!("{:?}", err)) {
-                    info!("Found {} roads", roads.len());
-
-                    task.run_on_main_thread(move |world| {
-                        for road in roads.iter() {
-                            let per_id = world
-                                .world
-                                .commands()
-                                .spawn_spatial((
-                                    Transform::from_translation(vec3(0.0, 0.0, 1000.0)),
-                                    Name::new("Road"),
-                                    MapLine::new(
-                                        road.geometry
-                                            .iter()
-                                            .map(|pos| dvec2(pos.x.to_radians(), pos.y.to_radians()))
-                                            .collect_vec(),
-                                        match road.class.category() {
-                                            RoadClassCategory::HighwayLinks => 6.0,
-                                            RoadClassCategory::MajorRoads => 3.0,
-                                            RoadClassCategory::MinorRoads => 1.0,
-                                            RoadClassCategory::Unknown => 0.1,
-                                            RoadClassCategory::VerySmallRoads => 0.2,
-                                            RoadClassCategory::PathsUnsuitableForCars => 0.25,
-                                        },
-                                        Color::hsva(38.0, 0.0, 0.7, 0.5),
-                                    ),
-                                    RenderLayers::layer(2),
-                                ))
-                                .id();
-                            world.world.commands().entity(map_view_id).add_child(per_id);
-                        }
-                    }).await;
-                }
+            task.run_on_main_thread(move |ctx| {
+                       // spawn_roads_element_manager(&mut ctx.world.commands(), map_view_id, Arc::new(client));
+                }).await;
             }
         });
+
+        let background_id = root_grid.spawn_spatial((Name::new("Background"), Grid::default())).id();
 
         runtime.spawn_background_task(async move |mut task| {
             let layers = [
@@ -210,7 +179,7 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
                     ))
                     .id();
 
-                world.world.commands().entity(map_view_id).add_child(ocean);
+                world.world.commands().entity(background_id).add_child(ocean);
 
                 for (label, depth, width, mut shapes, color) in layers.into_iter() {
                     for (shape, rec) in shapes.read().unwrap() {
@@ -235,7 +204,7 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
                                         ))
                                         .id();
 
-                                    world.world.commands().entity(map_view_id).add_child(per_id);
+                                    world.world.commands().entity(background_id).add_child(per_id);
                                 }
                             }
                             shapefile::Shape::Polyline(poly) => {
@@ -260,7 +229,7 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
                                         ))
                                         .id();
 
-                                    world.world.commands().entity(map_view_id).add_child(per_id);
+                                    world.world.commands().entity(background_id).add_child(per_id);
                                 }
                             }
                             _ => { error!("Unexpected shape") }

@@ -5,7 +5,7 @@ use crate::app::geo::geometry::{MapLine, MapRegion};
 use crate::app::geo::map::{
     Map, MapView, MapViewCamera, MapViewCameraWithView, MapViewContextQuery, MapViewWithMap,
 };
-use crate::app::geo::road_elements::spawn_roads_element_manager;
+use crate::app::geo::elements::spawn_roads_element_manager;
 use crate::app::geo::tiling::manager::{MapViewTiling, MapViewTilingWithView};
 use crate::app::utils::big_space_ext::CommandsWithSpatial;
 use crate::geo::coords::{BoundedMercatorProjection, Projection2D};

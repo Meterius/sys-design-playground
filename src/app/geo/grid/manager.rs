@@ -7,7 +7,7 @@ use crate::geo::coords::Projection2D;
 use bevy::prelude::TransformSystems::Propagate;
 use bevy::prelude::*;
 use big_space::grid::Grid;
-use glam::UVec2;
+use glam::{DVec2, UVec2};
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -59,19 +59,27 @@ impl LinearGrid {
         world: DAabb2,
         region: DAabb2,
     ) -> (IVec2, IVec2) {
-        let tile_size = world.size() / self.count.as_dvec2();
-
-        let start_index = ((region.min() - world.min()) / tile_size)
-            .floor()
-            .as_ivec2();
-
-        let end_index = ((region.max() - world.min()) / tile_size)
-            .floor()
-            .as_ivec2();
-
-        (start_index, end_index)
+        (self.unclamped_pos_to_tile(world, region.min()), self.unclamped_pos_to_tile(world, region.max()))
     }
 
+    fn unclamped_pos_to_tile(&self, world: DAabb2, pos: DVec2) -> IVec2 {
+        let tile_size = world.size() / self.count.as_dvec2();
+
+        ((pos - world.min()) / tile_size)
+            .floor()
+            .as_ivec2()
+    }
+    
+    pub fn pos_to_tile(&self, world: DAabb2, pos: DVec2) -> Option<UVec2> {
+        let tile_idx = self.unclamped_pos_to_tile(world, pos);
+        
+        if IVec2::ZERO.cmple(tile_idx).all() && tile_idx.cmplt(self.count.as_ivec2()).all() {
+            Some(tile_idx.as_uvec2())
+        } else {
+            None
+        }
+    }
+    
     fn tiles(&self, world: DAabb2, viewport: DAabb2) -> impl Iterator<Item = (UVec2, DAabb2)> {
         let tile_size = world.size() / self.count.as_dvec2();
 
@@ -200,6 +208,7 @@ fn sync_grid_spawned_tiles(
                         .spawn_spatial((
                             MapViewTile {
                                 manager_id: grid_id,
+                                tile_idx: key,
                                 bounds_abs,
                                 bounds_gcs,
                             },
@@ -233,6 +242,7 @@ fn handle_spawned_tiles(
 #[derive(Component, Reflect)]
 pub struct MapViewTile {
     pub manager_id: Entity,
+    pub tile_idx: LinearGridKey,
     pub bounds_abs: DAabb2,
     pub bounds_gcs: DAabb2,
 }

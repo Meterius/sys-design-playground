@@ -7,3 +7,4 @@
 .env
 .cursor
 /datasets/sat/
+/crates/utilities/test-data/

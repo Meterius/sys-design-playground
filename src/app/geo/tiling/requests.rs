@@ -9,8 +9,11 @@ use bevy::app::{App, Startup};
 use bevy::prelude::{Entity, Plugin, Resource, World};
 use itertools::Itertools;
 use ratelimit::Ratelimiter;
+use reqwest::Url;
 use std::collections::HashMap;
+use std::env;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use thiserror::Error;
@@ -35,6 +38,8 @@ pub struct TileRequestManagersByDataset {
 }
 
 fn startup(world: &mut World) {
+    let api_url = Url::from_str(&env::var("INFRA_GEO_API_URL").unwrap()).unwrap();
+
     let mut managers = HashMap::new();
     let client = reqwest::Client::new();
 
@@ -47,6 +52,7 @@ fn startup(world: &mut World) {
                     max_concurrent,
                     Some(Ratelimiter::new(rate)),
                     TileImageRequestClient {
+                        url: api_url.clone(),
                         connection_refused: Arc::new(AtomicBool::new(false)),
                         layer,
                         client: client.clone(),
@@ -79,6 +85,7 @@ pub enum TileImageRequestError {
 
 #[derive(Clone)]
 pub struct TileImageRequestClient {
+    pub url: Url,
     pub client: reqwest::Client,
     pub layer: Layer,
     pub connection_refused: Arc<AtomicBool>,
@@ -158,7 +165,7 @@ impl RequestClient<TileImageRequestKind> for TileImageRequestClient {
 
         let res = self
             .client
-            .get("http://localhost:8080/tile")
+            .get(self.url.clone())
             .json(&GetTileRequest {
                 tile_key: backend_model::earth_tiling_service_model::TileKey::from_iter(
                     key.1.iter().map(|x| match x {

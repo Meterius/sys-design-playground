@@ -2,7 +2,6 @@ use bevy::prelude::Reflect;
 use generated_queries::types as sql_types;
 use glam::DVec2;
 use std::str::FromStr;
-use geo_types::LineString;
 use strum::{AsRefStr, Display, EnumString};
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 
@@ -443,8 +442,16 @@ impl Road {
 
     pub fn aabb(&self) -> DAabb2 {
         DAabb2::new(
-            self.geometry.iter().cloned().reduce(|a, b| a.min(b)).unwrap(),
-            self.geometry.iter().cloned().reduce(|a, b| a.max(b)).unwrap(),
+            self.geometry
+                .iter()
+                .cloned()
+                .reduce(|a, b| a.min(b))
+                .unwrap(),
+            self.geometry
+                .iter()
+                .cloned()
+                .reduce(|a, b| a.max(b))
+                .unwrap(),
         )
     }
 }

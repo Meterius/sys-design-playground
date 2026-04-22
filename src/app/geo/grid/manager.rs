@@ -13,10 +13,6 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 
-pub trait ElementId {
-    fn id(&self) -> u64;
-}
-
 pub struct ManagerPlugin {}
 
 impl Plugin for ManagerPlugin {
@@ -59,27 +55,28 @@ impl LinearGrid {
         world: DAabb2,
         region: DAabb2,
     ) -> (IVec2, IVec2) {
-        (self.unclamped_pos_to_tile(world, region.min()), self.unclamped_pos_to_tile(world, region.max()))
+        (
+            self.unclamped_pos_to_tile(world, region.min()),
+            self.unclamped_pos_to_tile(world, region.max()),
+        )
     }
 
     fn unclamped_pos_to_tile(&self, world: DAabb2, pos: DVec2) -> IVec2 {
         let tile_size = world.size() / self.count.as_dvec2();
 
-        ((pos - world.min()) / tile_size)
-            .floor()
-            .as_ivec2()
+        ((pos - world.min()) / tile_size).floor().as_ivec2()
     }
-    
+
     pub fn pos_to_tile(&self, world: DAabb2, pos: DVec2) -> Option<UVec2> {
         let tile_idx = self.unclamped_pos_to_tile(world, pos);
-        
+
         if IVec2::ZERO.cmple(tile_idx).all() && tile_idx.cmplt(self.count.as_ivec2()).all() {
             Some(tile_idx.as_uvec2())
         } else {
             None
         }
     }
-    
+
     fn tiles(&self, world: DAabb2, viewport: DAabb2) -> impl Iterator<Item = (UVec2, DAabb2)> {
         let tile_size = world.size() / self.count.as_dvec2();
 

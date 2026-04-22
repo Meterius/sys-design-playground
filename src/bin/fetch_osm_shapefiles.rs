@@ -1,6 +1,5 @@
 use futures::stream::{self, StreamExt};
 use geojson::Feature;
-use itertools::Itertools;
 use jlh_sys_design_playground::geo::osm::client::fetch_fabrik_index;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -9,7 +8,7 @@ use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 use zip::ZipArchive;
 
-const TARGET: &str = "europe";
+const TARGET: &str = "germany";
 const SHAPEFILES_ROOT: &str = "./datasets/osm/shapefiles";
 const MAX_PARALLEL_DOWNLOADS: usize = 8;
 
@@ -151,7 +150,7 @@ async fn main() {
         .await
         .expect("failed to fetch geofabrik index");
     let nodes = build_nodes(&index.features);
-    let targets = nodes.keys().cloned().collect_vec(); // descendants_including_target(&nodes, TARGET);
+    let targets = descendants_including_target(&nodes, TARGET);
 
     if !nodes.contains_key(TARGET) {
         panic!("target `{TARGET}` not found in geofabrik index");

@@ -1,11 +1,11 @@
 use crate::app::common::settings::SettingsPlugin;
 use crate::app::editor::{EditorPlugin, UiState};
 use crate::app::geo::GeoPlugin;
+use crate::app::geo::elements_grid::spawn_road_elements_grid;
 use crate::app::geo::geometry::{MapLine, MapRegion};
 use crate::app::geo::map::{
     Map, MapView, MapViewCamera, MapViewCameraWithView, MapViewContextQuery, MapViewWithMap,
 };
-use crate::app::geo::elements::spawn_roads_element_manager;
 use crate::app::geo::tiling::manager::{MapViewTiling, MapViewTilingWithView};
 use crate::app::utils::big_space_ext::CommandsWithSpatial;
 use crate::geo::coords::{BoundedMercatorProjection, Projection2D};
@@ -122,7 +122,7 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
             ))
             .id();
 
-        root_grid.spawn_spatial((Grid::default(), Name::new("Tiling"), MapViewTiling::new(6), MapViewTilingWithView(map_view_id)));
+        // root_grid.spawn_spatial((Grid::default(), Name::new("Tiling"), MapViewTiling::new(6), MapViewTilingWithView(map_view_id)));
 
         root_grid.spawn_spatial((
             Camera2d,
@@ -137,7 +137,7 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
         runtime.spawn_background_task(async move |mut task| {
             if let Ok(client) = OsmClient::connect().await.inspect_err(|err| error!("{:?}", err)) {
             task.run_on_main_thread(move |ctx| {
-                       spawn_roads_element_manager(&mut ctx.world.commands(), map_view_id, Arc::new(client));
+                       spawn_road_elements_grid(&mut ctx.world.commands(), map_view_id, Arc::new(client));
                 }).await;
             }
         });
@@ -146,7 +146,7 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
 
         runtime.spawn_background_task(async move |mut task| {
             let layers = [
-                ("Land", -5.0, None, shapefile::Reader::from_path("./assets/datasets/natural_earth_vector/10m_physical/ne_10m_land.shp").unwrap(), Color::hsv(38.0, 0.32, 0.75)),
+                ("Land", -5.0, None, shapefile::Reader::from_path("./assets/datasets/natural_earth_vector/10m_physical/ne_10m_land.shp").unwrap(), Color::hsv(38.0, 0.12, 0.45)),
                 ("Lake", -4.0, None, shapefile::Reader::from_path("./assets/datasets/natural_earth_vector/10m_physical/ne_10m_lakes.shp").unwrap(), Color::hsv(206.0, 0.27, 0.87)),
                 ("River", -3.0, None, shapefile::Reader::from_path("./assets/datasets/natural_earth_vector/10m_physical/ne_10m_rivers_lake_centerlines.shp").unwrap(), Color::hsv(206.0, 0.27, 0.87)),
                 ("Boundary", 102.0, Some(100.0), shapefile::Reader::from_path("./assets/datasets/natural_earth_vector/10m_cultural/ne_10m_admin_0_boundary_lines_land.shp").unwrap(), Color::hsv(38.0, 0.22, 0.47)),

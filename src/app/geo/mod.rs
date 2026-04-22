@@ -1,16 +1,18 @@
+use crate::app::geo::element_requests::{ElementRequestsPlugin, RoadRequestKind};
+use crate::app::geo::elements_grid::{ElementsGridPlugin, RoadGridKind};
 use crate::app::geo::geometry::GeometryPlugin;
 use crate::app::geo::grid::GridPlugin;
 use crate::app::geo::map::MapPlugin;
-use crate::app::geo::elements::ElementsPlugin;
 use crate::app::geo::tiling::TilingPlugin;
 use crate::app::geo::zoom_visibility::MapZoomVisibilityPlugin;
 use bevy::app::App;
 use bevy::prelude::Plugin;
 
+pub mod element_requests;
+pub mod elements_grid;
 pub mod geometry;
 pub mod grid;
 pub mod map;
-pub mod elements;
 pub mod tiling;
 pub mod zoom_visibility;
 
@@ -24,7 +26,8 @@ impl Plugin for GeoPlugin {
             TilingPlugin {},
             GridPlugin {},
             MapZoomVisibilityPlugin {},
-            ElementsPlugin {},
+            ElementRequestsPlugin {},
+            ElementsGridPlugin::<RoadRequestKind, RoadGridKind>::default(),
         ));
     }
 }

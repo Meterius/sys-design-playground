@@ -145,7 +145,7 @@ where
         let [other_max_x, other_max_y] = other.max().to_array();
         min_x <= other_max_x && other_min_x <= max_x && min_y <= other_max_y && other_min_y <= max_y
     }
-    
+
     fn expand(&self, border: T) -> Self {
         Self::new(self.min() - border, self.max() + border)
     }

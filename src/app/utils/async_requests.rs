@@ -66,18 +66,14 @@ pub trait RequestClient<K: RequestKind> {
     fn fetch(&self, key: &K::Key) -> impl Future<Output = Result<K::Value, K::Error>> + Send;
 }
 
+#[derive(Default)]
 pub enum RequestState<K: RequestKind> {
+    #[default]
     PendingPreflight,
     LoadingPreflight,
     Pending,
     Loading,
     Completed(Result<K::Value, K::Error>),
-}
-
-impl<K: RequestKind> Default for RequestState<K> {
-    fn default() -> Self {
-        Self::PendingPreflight
-    }
 }
 
 impl<K: RequestKind> RequestState<K> {
@@ -114,7 +110,7 @@ impl<K: RequestKind> Request<K> {
 }
 
 #[derive(Component)]
-pub struct RequestManager<K: RequestKind, C: RequestClient<K> + Clone> {
+pub struct RequestManager<K: RequestKind, C: RequestClient<K>> {
     pub max_concurrent: usize,
     pub rate_limiter: Option<Ratelimiter>,
     fetching: HashSet<(Entity, K::Key)>,

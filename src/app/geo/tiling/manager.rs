@@ -66,7 +66,7 @@ fn sync_tiles_for_view(
     maps: Query<&Map>,
 ) {
     for (tiling_id, mut tiling, &MapViewTilingWithView(view_id)) in tilings {
-        if let Some((view_id, view, &MapViewWithMap(map_id))) =
+        if let Some((_view_id, view, &MapViewWithMap(map_id))) =
             views.get(view_id).ok().soft_expect("")
             && let Some(map) = maps.get(map_id).ok().soft_expect("")
         {

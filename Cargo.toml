@@ -5,7 +5,7 @@ edition = "2024"
 
 [workspace]
 resolver = "3"
-members = ["crates/backend", "crates/backend_model","crates/generated_queries", "crates/utilities"]
+members = ["crates/backend", "crates/backend_model","crates/generated_queries", "crates/osm", "crates/utilities"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -36,6 +36,7 @@ tracy = ["bevy/trace_tracy"]
 backend_model = { path = "./crates/backend_model" }
 generated_queries = { path = "./crates/generated_queries" }
 utilities = { path = "./crates/utilities", features = ["bevy-reflect"] }
+osm = { path = "./crates/osm", features = ["bevy-reflect"] }
 bevy = { version = "0.18.1", features = ["http", "https", "jpeg"] }
 bevy_pancam = { version = "0.20.0" }
 bevy_prototype_lyon = "0.16.0"

@@ -5055,6 +5055,7 @@ dependencies = [
  "itertools 0.14.0",
  "lru-cache",
  "ordered-float",
+ "osm",
  "postgis",
  "priority-queue",
  "ratelimit",
@@ -6318,6 +6319,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b7d950ca161dc355eaf28f82b11345ed76c6e1f6eb1f4f4479e0323b9e2fbd0e"
 dependencies = [
  "num-traits",
+]
+
+[[package]]
+name = "osm"
+version = "0.1.0"
+dependencies = [
+ "bevy_reflect",
+ "futures",
+ "generated_queries",
+ "geojson",
+ "glam",
+ "postgis",
+ "reqwest",
+ "shapefile",
+ "strum",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "utilities",
 ]
 
 [[package]]

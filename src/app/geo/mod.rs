@@ -1,13 +1,13 @@
 use crate::app::geo::element_requests::{ElementRequestsPlugin, RoadRequestKind};
 use crate::app::geo::elements_grid::{ElementsGridPlugin, RoadGridKind};
 use crate::app::geo::geometry::GeometryPlugin;
+use crate::app::geo::geometry_vello::VelloGeometryPlugin;
 use crate::app::geo::grid::GridPlugin;
 use crate::app::geo::map::MapPlugin;
 use crate::app::geo::tiling::TilingPlugin;
 use crate::app::geo::zoom_visibility::MapZoomVisibilityPlugin;
 use bevy::app::App;
 use bevy::prelude::Plugin;
-use crate::app::geo::geometry_vello::VelloGeometryPlugin;
 
 pub mod element_requests;
 pub mod elements_grid;

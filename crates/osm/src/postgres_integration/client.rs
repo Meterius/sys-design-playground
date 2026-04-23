@@ -1,8 +1,9 @@
-use crate::geo::osm::layered::model::road::{Road, RoadClassCategory};
-use bevy::tasks::futures_lite::StreamExt;
+use crate::model::road::{Road, RoadClassCategory};
+use futures::StreamExt;
 use generated_queries::queries::osm_roads_queries::{
     fetch_roads_by_area, fetch_roads_by_area_and_category,
 };
+use generated_queries::tokio_postgres;
 use geojson::FeatureCollection;
 use glam::{DVec2, dvec2};
 use postgis::ewkb::{AsEwkbPolygon, EwkbRead, EwkbWrite, LineString, Point, Polygon};
@@ -54,25 +55,31 @@ pub async fn fetch_fabrik_index(client: &reqwest::Client) -> Result<FeatureColle
         .map_err(OsmError::ReqwestError)
 }
 
+pub struct OsmClientConfig {
+    pub database_config: tokio_postgres::Config,
+}
+
 pub struct OsmClient {
     client: tokio_postgres::Client,
     _connection_handle: tokio::task::JoinHandle<()>,
 }
 
 impl OsmClient {
-    pub async fn connect() -> Result<OsmClient, OsmError> {
-        let (client, connection) = tokio_postgres::connect(
-            format!(
-                "user={} password={} host={} dbname={}",
-                env::var("INFRA_GEO_POSTGRES_USER")?,
-                env::var("INFRA_GEO_POSTGRES_PASSWORD")?,
-                env::var("INFRA_GEO_POSTGRES_HOST")?,
-                env::var("INFRA_GEO_POSTGRES_DB_NAME")?
+    pub async fn connect(config: OsmClientConfig) -> Result<OsmClient, OsmError> {
+        let (client, connection) = config
+            .database_config
+            .connect(
+                // format!(
+                //     "user={} password={} host={} dbname={}",
+                //     env::var("INFRA_GEO_POSTGRES_USER")?,
+                //     env::var("INFRA_GEO_POSTGRES_PASSWORD")?,
+                //     env::var("INFRA_GEO_POSTGRES_HOST")?,
+                //     env::var("INFRA_GEO_POSTGRES_DB_NAME")?
+                // )
+                // .as_str(),
+                NoTls,
             )
-            .as_str(),
-            NoTls,
-        )
-        .await?;
+            .await?;
 
         Ok(Self {
             client,

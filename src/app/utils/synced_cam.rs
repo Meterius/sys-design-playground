@@ -1,8 +1,10 @@
+use crate::app::utils::debug::SoftExpect;
 use bevy::app::{App, Plugin};
 use bevy::camera::Camera;
-use bevy::prelude::{Component, Entity, IntoScheduleConfigs, Projection, Query, Update, With, Without};
+use bevy::prelude::{
+    Component, Entity, IntoScheduleConfigs, Projection, Query, Update, With, Without,
+};
 use bevy_pancam::PanCamSystems;
-use crate::app::utils::debug::SoftExpect;
 
 pub struct SyncedCamPlugin;
 
@@ -22,7 +24,9 @@ fn sync_cam(
     mut sync_cameras: Query<(&mut Projection, &mut Camera, &SyncedCam), With<SyncedCam>>,
 ) {
     for (mut sync_proj, mut sync_cam, sync) in sync_cameras.iter_mut() {
-        if let Some((main_proj, main_cam)) = main_cameras.get(sync.main_camera_id).ok().soft_expect("") {
+        if let Some((main_proj, main_cam)) =
+            main_cameras.get(sync.main_camera_id).ok().soft_expect("")
+        {
             *sync_proj = main_proj.clone();
             let order = sync_cam.order;
             *sync_cam = main_cam.clone();

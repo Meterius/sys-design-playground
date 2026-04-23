@@ -5,7 +5,7 @@ use generated_queries::queries::osm_roads_queries::{
     upsert_roads_streaming_start,
 };
 use glam::DVec2;
-use jlh_sys_design_playground::geo::osm::layered::model::road::Road;
+use osm::model::road::Road;
 use postgis::ewkb::{AsEwkbLineString, EwkbWrite, LineString, Point};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -121,13 +121,13 @@ impl<'a> RoadStreamingWriter<'a> {
         let category_enum = road.class.category();
         let category = category_enum.as_ref();
         let oneway = match road.oneway {
-            jlh_sys_design_playground::geo::osm::layered::model::road::OneWay::ForwardsOnly => {
+            osm::model::road::OneWay::ForwardsOnly => {
                 "forwards_only"
             }
-            jlh_sys_design_playground::geo::osm::layered::model::road::OneWay::BackwardsOnly => {
+            osm::model::road::OneWay::BackwardsOnly => {
                 "backwards_only"
             }
-            jlh_sys_design_playground::geo::osm::layered::model::road::OneWay::Bidirectional => {
+            osm::model::road::OneWay::Bidirectional => {
                 "bidirectional"
             }
         };

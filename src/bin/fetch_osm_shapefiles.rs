@@ -1,6 +1,6 @@
 use futures::stream::{self, StreamExt};
 use geojson::Feature;
-use jlh_sys_design_playground::geo::osm::client::fetch_fabrik_index;
+use osm::postgres_integration::client::fetch_fabrik_index;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Cursor;

@@ -1,6 +1,6 @@
 use crate::app::common::settings::Settings;
-use crate::app::geo::map::{MapViewContext, MapViewContextQuery};
 use crate::app::geo::map::MapViewContextRef;
+use crate::app::geo::map::{MapViewContext, MapViewContextQuery};
 use crate::app::utils::big_space_ext::CommandsWithSpatial;
 use crate::app::utils::debug::SoftExpect;
 use crate::geo::coords::Projection2D;
@@ -135,7 +135,8 @@ pub struct MapViewGrid {
     pub grid: LinearGrid,
     pub bounds_abs: Option<DAabb2>,
     #[reflect(ignore)]
-    pub on_spawn: Option<Box<dyn Fn(&mut Commands, MapViewContext, Entity, &MapViewTile) + Send + Sync>>,
+    pub on_spawn:
+        Option<Box<dyn Fn(&mut Commands, MapViewContext, Entity, &MapViewTile) + Send + Sync>>,
 
     active_tiles: HashMap<LinearGridKey, DAabb2>,
     spawned_tiles: HashMap<LinearGridKey, Entity>,
@@ -145,7 +146,9 @@ impl MapViewGrid {
     pub fn new(
         bounds_abs: Option<DAabb2>,
         grid: LinearGrid,
-        on_spawn: Option<Box<dyn Fn(&mut Commands, MapViewContext, Entity, &MapViewTile) + Send + Sync>>,
+        on_spawn: Option<
+            Box<dyn Fn(&mut Commands, MapViewContext, Entity, &MapViewTile) + Send + Sync>,
+        >,
     ) -> Self {
         Self {
             bounds_abs,
@@ -204,7 +207,7 @@ fn sync_grid_spawned_tiles(
                     let tile_id = commands
                         .spawn_spatial((
                             MapViewTile {
-                                grid_id: grid_id,
+                                grid_id,
                                 tile_idx: key,
                                 bounds_abs,
                                 bounds_gcs,

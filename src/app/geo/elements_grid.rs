@@ -1,26 +1,23 @@
 use crate::app::geo::element_requests::{Bounds, RoadRequestClient};
-use crate::app::geo::geometry::MapLine;
 use crate::app::geo::geometry_vello::VelloMapLine;
 use crate::app::geo::grid::manager::{LinearGrid, LinearGridKey, MapViewGrid};
-use crate::app::geo::map::{MapView, MapViewContextQuery, MapViewContextRef};
+use crate::app::geo::map::{MapViewContextQuery, MapViewContextRef};
 use crate::app::utils::async_requests::{
     Request, RequestClient, RequestKind, RequestManager, RequestState, RequestWithManager,
 };
 use crate::app::utils::big_space_ext::CommandsWithSpatial;
 use crate::app::utils::debug::SoftExpect;
-use crate::app::utils::vello_ext::{VelloElement, VelloElementWithScene};
-use crate::geo::coords::{BoundedMercatorProjection, Projection2D};
-use crate::geo::osm::client::OsmClient;
-use crate::geo::osm::layered::model::road::{Road, RoadClass, RoadClassCategory};
+use crate::geo::coords::Projection2D;
 use bevy::app::{App, Plugin};
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::color::Color;
 use bevy::prelude::*;
-use bevy_vello::prelude::{VelloScene2d, kurbo, peniko};
+use bevy_vello::prelude::VelloScene2d;
 use big_space::grid::Grid;
-use big_space::prelude::CellCoord;
-use glam::{dvec2, uvec2, vec2, vec3};
+use glam::{dvec2, uvec2, vec2, vec3, DVec2};
 use itertools::Itertools;
+use osm::model::road::{Road, RoadClass, RoadClassCategory};
+use osm::postgres_integration::client::OsmClient;
 use ratelimit::Ratelimiter;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
@@ -109,11 +106,17 @@ pub fn spawn_elements_grid<T, RK, GK, GC>(
                 MapViewGrid::new(
                     None,
                     grid_config.grid.clone(),
-                    Some(Box::new(move |commands, _, tile_id, tile| {
+                    Some(Box::new(move |commands, ctx, tile_id, tile| {
+                        let center_local = ctx.view.abs_to_local(tile.bounds_abs.center());
+                        let (cell_idx, cell_pos) = Grid::default().translation_to_grid(center_local.extend(0.));
+
                         commands.entity(tile_id).insert((
+                            cell_idx,
+                            Transform::from_translation(cell_pos),
                             ElementTile {
                                 grid_idx,
                                 bounds_gcs: tile.bounds_gcs,
+                                bounds_abs: tile.bounds_abs,
                                 tile_idx: tile.tile_idx,
                                 spawned_roads: HashSet::new(),
                             },
@@ -167,7 +170,7 @@ pub struct ElementsConfig<T, GK: Reflect> {
     #[reflect(ignore)]
     get_tile_grid_for_element: Option<Box<dyn Fn(&T) -> Option<GK> + Send + Sync>>,
     #[reflect(ignore)]
-    on_spawn_element_instance: Option<Box<dyn Fn(&mut Commands, Entity, Entity, &T) + Send + Sync>>,
+    on_spawn_element_instance: Option<Box<dyn Fn(&mut Commands, DVec2, Entity, Entity, &T) + Send + Sync>>,
 }
 
 #[derive(Component, Reflect)]
@@ -251,6 +254,7 @@ pub struct ElementTileWithProvider(pub Entity);
 #[derive(Component, Reflect)]
 pub struct ElementTile<GK> {
     pub bounds_gcs: DAabb2,
+    pub bounds_abs: DAabb2,
     pub grid_idx: GK,
     pub tile_idx: LinearGridKey,
     pub spawned_roads: HashSet<i64>,
@@ -282,7 +286,7 @@ fn on_dirty_grid_tile_spawns_missing_roads<T, GK>(
                     if let Some(on_spawn_element_instance) =
                         provider.config.on_spawn_element_instance.as_ref()
                     {
-                        on_spawn_element_instance(&mut commands, tile_id, road_inst_id, road);
+                        on_spawn_element_instance(&mut commands, tile.bounds_abs.center(), tile_id, road_inst_id, road);
                     }
 
                     commands.entity(tile_id).add_child(road_inst_id);
@@ -301,7 +305,7 @@ pub enum RoadGridKind {
     Large,
 }
 
-fn make_road_bundle(scene_id: Entity, road: &Road) -> impl Bundle {
+fn make_road_bundle(scene_id: Entity, scene_center_abs: DVec2, road: &Road) -> impl Bundle {
     (
         Transform::from_translation(vec3(0.0, 0.0, 1000.0)),
         Name::new("Road"),
@@ -322,6 +326,7 @@ fn make_road_bundle(scene_id: Entity, road: &Road) -> impl Bundle {
         // },
         VelloMapLine::new(
             scene_id,
+            scene_center_abs,
             road.geometry
                 .iter()
                 .map(|pos| dvec2(pos.x.to_radians(), pos.y.to_radians()))
@@ -376,7 +381,7 @@ pub fn spawn_road_elements_grid(commands: &mut Commands, view_id: Entity, client
             (_, RoadClass::Motorway | RoadClass::MotorwayLink) => Some(RoadGridKind::Large),
             (_, RoadClass::Trunk | RoadClass::TrunkLink) => Some(RoadGridKind::Large),
 
-            (RoadClassCategory::HighwayLinks, _) => { Some(RoadGridKind::Medium) },
+            (RoadClassCategory::HighwayLinks, _) => Some(RoadGridKind::Medium),
             (RoadClassCategory::MajorRoads, _) => Some(RoadGridKind::Medium),
             (RoadClassCategory::MinorRoads, _) => Some(RoadGridKind::Medium),
 
@@ -385,10 +390,10 @@ pub fn spawn_road_elements_grid(commands: &mut Commands, view_id: Entity, client
             (RoadClassCategory::Unknown, _) => Some(RoadGridKind::Small),
             _ => None,
         })),
-        on_spawn_element_instance: Some(Box::new(|commands, tile_id, road_id, road| {
+        on_spawn_element_instance: Some(Box::new(|commands, center_abs, tile_id, road_id, road| {
             commands
                 .entity(road_id)
-                .insert(make_road_bundle(tile_id, road));
+                .insert(make_road_bundle(tile_id, center_abs, road));
         })),
     };
 

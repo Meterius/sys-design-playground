@@ -6,13 +6,14 @@ use crate::app::geo::geometry::{MapLine, MapRegion};
 use crate::app::geo::map::{
     Map, MapView, MapViewCamera, MapViewCameraWithView, MapViewContextQuery, MapViewWithMap,
 };
-use crate::app::geo::tiling::manager::{MapViewTiling, MapViewTilingWithView};
 use crate::app::utils::big_space_ext::CommandsWithSpatial;
+use crate::app::utils::synced_cam::{SyncedCam, SyncedCamPlugin};
+use crate::app::utils::vello_ext::VelloExtPlugin;
 use crate::geo::coords::{BoundedMercatorProjection, Projection2D};
-use crate::geo::osm::client::OsmClient;
 use bevy::DefaultPlugins;
 use bevy::app::{App, PluginGroup, Startup};
-use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
+use bevy::camera::visibility::RenderLayers;
+use bevy::ecs::error::DefaultErrorHandler;
 use bevy::log::{Level, LogPlugin};
 use bevy::pbr::wireframe::WireframeConfig;
 use bevy::prelude::*;
@@ -23,21 +24,18 @@ use bevy_inspector_egui::bevy_egui::EguiPlugin;
 use bevy_pancam::{PanCam, PanCamPlugin, PanCamSystems};
 use bevy_prototype_lyon::plugin::ShapePlugin;
 use bevy_tokio_tasks::TokioTasksRuntime;
+use bevy_vello::VelloPlugin;
+use bevy_vello::prelude::VelloView;
 use big_space::plugin::BigSpaceDefaultPlugins;
 use big_space::prelude::{BigSpaceCommands, FloatingOrigin, Grid};
 use glam::dvec2;
 use itertools::Itertools;
+use osm::postgres_integration::client::{OsmClient, OsmClientConfig};
 use shapefile::dbase::FieldValue;
+use std::env;
 use std::f64::consts::PI;
 use std::sync::Arc;
-use bevy_prototype_lyon::draw::Fill;
-use bevy_vello::prelude::{peniko, VelloScene2d, VelloView};
-use bevy_vello::vello::kurbo;
-use bevy_vello::VelloPlugin;
 use utilities::glam_ext::bounding::AxisAlignedBoundingBox2D;
-use crate::app::geo::geometry_vello::VelloMapLine;
-use crate::app::utils::synced_cam::{SyncedCam, SyncedCamPlugin};
-use crate::app::utils::vello_ext::{VelloElement, VelloElementWithScene, VelloExtPlugin};
 
 pub fn initialize(_width: usize, _height: usize) {
     App::new()
@@ -91,6 +89,7 @@ pub fn initialize(_width: usize, _height: usize) {
         .add_systems(Startup, setup)
         .add_systems(Update, setup_cam)
         .configure_sets(Update, PanCamSystems.run_if(UiState::allow_game_interaction))
+        .insert_resource(DefaultErrorHandler(bevy::ecs::error::error))
         .run();
 }
 
@@ -111,6 +110,16 @@ fn setup_cam(
                 .extend(0.0);
         }
     }
+}
+
+fn make_osm_config_from_env() -> anyhow::Result<tokio_postgres::Config> {
+    let mut config = tokio_postgres::Config::new();
+    config
+        .user(&env::var("INFRA_GEO_POSTGRES_USER")?)
+        .password(&env::var("INFRA_GEO_POSTGRES_PASSWORD")?)
+        .host(&env::var("INFRA_GEO_POSTGRES_HOST")?)
+        .dbname(&env::var("INFRA_GEO_POSTGRES_DB_NAME")?);
+    Ok(config)
 }
 
 fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
@@ -134,9 +143,6 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
                 Visibility::default(),
                 map_view.clone(),
                 MapViewWithMap(map_id),
-                VelloScene2d::default(),
-                RenderLayers::layer(4),
-                NoFrustumCulling,
             ))
             .id();
 
@@ -157,7 +163,12 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
         )).id());
 
         runtime.spawn_background_task(async move |mut task| {
-            if let Ok(client) = OsmClient::connect().await.inspect_err(|err| error!("{:?}", err)) {
+            let get_client = async || -> anyhow::Result<OsmClient> {
+                let config = make_osm_config_from_env()?;
+               Ok(OsmClient::connect(OsmClientConfig { database_config: config }).await?)
+            };
+
+            if let Ok(client) = get_client().await.inspect_err(|err| error!("{:?}", err)) {
             task.run_on_main_thread(move |ctx| {
                        spawn_road_elements_grid(&mut ctx.world.commands(), map_view_id, Arc::new(client));
                 }).await;
@@ -178,37 +189,6 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
 
             // let index = fetch_fabrik_index(&reqwest::Client::new()).await.unwrap();
             task.run_on_main_thread(move |world| {
-                let mut test = VelloScene2d::new();
-                let test_id = world.world.commands().spawn_spatial((
-                    NoFrustumCulling, test, RenderLayers::layer(4),
-                    Transform::from_translation(vec3(10000., 0., 0.))
-                )).id();
-                world.world.commands().entity(map_view_id).add_child(test_id);
-
-                world.world.commands().spawn((
-                    VelloElement {
-                        on_draw: Box::new(|scene| {
-                            scene.fill(
-                                peniko::Fill::default(),
-                                kurbo::Affine::default(),
-                                peniko::Color::new([1., 0., 0., 1.]),
-                                None,
-                                &kurbo::Rect::new(-10000., -10000., 10000., 10000.),
-                            );
-                        })
-                    },
-                    VelloElementWithScene(test_id)
-                ));
-
-                let test_line_id = world.world.commands().spawn((Name::new("test line"), VelloMapLine {
-                    scene_id: test_id,
-                    width: 1000.,
-                    color: Color::srgba(1.0, 0.0, 0., 1.),
-                    line: vec![dvec2(1.0, 0.0), dvec2(2.0, 1.0)],
-                })).id();
-
-                world.world.commands().entity(map_view_id).add_child(test_line_id);
-
                 let ocean = world
                     .world
                     .commands()
@@ -296,7 +276,9 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
             order: 0,
             ..default()
         },
-        SyncedCam { main_camera_id: cam_id },
+        SyncedCam {
+            main_camera_id: cam_id,
+        },
         RenderLayers::layer(4),
     ));
 }

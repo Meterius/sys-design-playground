@@ -35,8 +35,8 @@ services:
       PORT: 8080
       ASSET_ROOT: /app/assets
 
-#    volumes:
-#      - H:/tiling-backend-volume:/app/assets
+    volumes:
+      - H:/tiling-backend-volume:/app/assets
 
     restart: unless-stopped
 

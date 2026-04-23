@@ -1,6 +1,6 @@
+use crate::app::utils::debug::SoftExpect;
 use bevy::prelude::*;
 use bevy_vello::prelude::VelloScene2d;
-use crate::app::utils::debug::SoftExpect;
 
 pub struct VelloExtPlugin;
 
@@ -23,7 +23,7 @@ pub struct VelloElementWithScene(pub Entity);
 
 #[derive(Component)]
 pub struct VelloElement {
-    pub on_draw: Box<dyn Fn(&mut VelloScene2d) + Send + Sync>
+    pub on_draw: Box<dyn Fn(&mut VelloScene2d) + Send + Sync>,
 }
 
 fn on_spawn_draw(

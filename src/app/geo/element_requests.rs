@@ -1,11 +1,11 @@
 use crate::app::utils::async_requests::{AsyncRequestsPlugin, RequestClient, RequestKind};
-use crate::geo::osm::client::{OsmClient, OsmError};
-use crate::geo::osm::layered::model::road::{Road, RoadClassCategory};
 use bevy::app::{App, Plugin};
 use bevy::prelude::Reflect;
 use bevy::tasks::futures_lite::StreamExt;
 use glam::dvec2;
 use ordered_float::OrderedFloat;
+use osm::model::road::Road;
+use osm::postgres_integration::client::{OsmClient, OsmError};
 use std::sync::Arc;
 use tracing::info;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
@@ -45,18 +45,16 @@ impl RequestClient<RoadRequestKind> for RoadRequestClient {
     async fn fetch(&self, bounds: &Bounds) -> bevy::prelude::Result<Vec<Road>, OsmError> {
         let roads: Vec<_> = self
             .client
-            .fetch_roads(
-                DAabb2::new(
-                    dvec2(
-                        bounds[0].into_inner().to_degrees(),
-                        bounds[1].into_inner().to_degrees(),
-                    ),
-                    dvec2(
-                        bounds[2].into_inner().to_degrees(),
-                        bounds[3].into_inner().to_degrees(),
-                    ),
+            .fetch_roads(DAabb2::new(
+                dvec2(
+                    bounds[0].into_inner().to_degrees(),
+                    bounds[1].into_inner().to_degrees(),
                 ),
-            )
+                dvec2(
+                    bounds[2].into_inner().to_degrees(),
+                    bounds[3].into_inner().to_degrees(),
+                ),
+            ))
             .await?
             .try_collect()
             .await?;

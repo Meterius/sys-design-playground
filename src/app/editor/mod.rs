@@ -64,30 +64,32 @@ fn show_ui_system(world: &mut World) {
 fn set_camera_viewport(
     ui_state: Res<UiState>,
     window: Single<&Window, With<PrimaryWindow>>,
-    mut cam: Single<&mut Camera, Without<PrimaryEguiContext>>,
+    mut cams: Query<&mut Camera, Without<PrimaryEguiContext>>,
     egui_settings: Single<&EguiContextSettings>,
 ) {
-    if ui_state.editor_active {
-        let scale_factor = window.scale_factor() * egui_settings.scale_factor;
+    for mut cam in cams.iter_mut() {
+        if ui_state.editor_active {
+            let scale_factor = window.scale_factor() * egui_settings.scale_factor;
 
-        let viewport_pos = ui_state.viewport_rect.left_top().to_vec2() * scale_factor;
-        let viewport_size = ui_state.viewport_rect.size() * scale_factor;
+            let viewport_pos = ui_state.viewport_rect.left_top().to_vec2() * scale_factor;
+            let viewport_size = ui_state.viewport_rect.size() * scale_factor;
 
-        let physical_position = UVec2::new(viewport_pos.x as u32, viewport_pos.y as u32);
-        let physical_size = UVec2::new(viewport_size.x as u32, viewport_size.y as u32);
+            let physical_position = UVec2::new(viewport_pos.x as u32, viewport_pos.y as u32);
+            let physical_size = UVec2::new(viewport_size.x as u32, viewport_size.y as u32);
 
-        let rect = physical_position + physical_size;
+            let rect = physical_position + physical_size;
 
-        let window_size = window.physical_size();
-        if rect.x <= window_size.x && rect.y <= window_size.y {
-            cam.viewport = Some(Viewport {
-                physical_position,
-                physical_size,
-                depth: 0.0..1.0,
-            });
+            let window_size = window.physical_size();
+            if rect.x <= window_size.x && rect.y <= window_size.y {
+                cam.viewport = Some(Viewport {
+                    physical_position,
+                    physical_size,
+                    depth: 0.0..1.0,
+                });
+            }
+        } else {
+            cam.viewport = None;
         }
-    } else {
-        cam.viewport = None;
     }
 }
 

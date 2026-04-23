@@ -7,10 +7,12 @@ use crate::app::geo::tiling::TilingPlugin;
 use crate::app::geo::zoom_visibility::MapZoomVisibilityPlugin;
 use bevy::app::App;
 use bevy::prelude::Plugin;
+use crate::app::geo::geometry_vello::VelloGeometryPlugin;
 
 pub mod element_requests;
 pub mod elements_grid;
 pub mod geometry;
+pub mod geometry_vello;
 pub mod grid;
 pub mod map;
 pub mod tiling;
@@ -23,6 +25,7 @@ impl Plugin for GeoPlugin {
         app.add_plugins((
             MapPlugin {},
             GeometryPlugin {},
+            VelloGeometryPlugin {},
             TilingPlugin {},
             GridPlugin {},
             MapZoomVisibilityPlugin {},

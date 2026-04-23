@@ -12,7 +12,7 @@ use crate::geo::coords::{BoundedMercatorProjection, Projection2D};
 use crate::geo::osm::client::OsmClient;
 use bevy::DefaultPlugins;
 use bevy::app::{App, PluginGroup, Startup};
-use bevy::camera::visibility::RenderLayers;
+use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::log::{Level, LogPlugin};
 use bevy::pbr::wireframe::WireframeConfig;
 use bevy::prelude::*;
@@ -30,7 +30,14 @@ use itertools::Itertools;
 use shapefile::dbase::FieldValue;
 use std::f64::consts::PI;
 use std::sync::Arc;
+use bevy_prototype_lyon::draw::Fill;
+use bevy_vello::prelude::{peniko, VelloScene2d, VelloView};
+use bevy_vello::vello::kurbo;
+use bevy_vello::VelloPlugin;
 use utilities::glam_ext::bounding::AxisAlignedBoundingBox2D;
+use crate::app::geo::geometry_vello::VelloMapLine;
+use crate::app::utils::synced_cam::{SyncedCam, SyncedCamPlugin};
+use crate::app::utils::vello_ext::{VelloElement, VelloElementWithScene, VelloExtPlugin};
 
 pub fn initialize(_width: usize, _height: usize) {
     App::new()
@@ -74,6 +81,12 @@ pub fn initialize(_width: usize, _height: usize) {
             SettingsPlugin::default(),
             BigSpaceDefaultPlugins,
             EditorPlugin {},
+            VelloPlugin {
+                canvas_render_layers: RenderLayers::layer(4),
+                ..default()
+            },
+            VelloExtPlugin,
+            SyncedCamPlugin,
         ))
         .add_systems(Startup, setup)
         .add_systems(Update, setup_cam)
@@ -110,6 +123,8 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
 
     let map_id = commands.spawn((Name::new("Map"), map.clone())).id();
 
+    let mut cam_id = None;
+
     commands.spawn_big_space(Grid::default(), |root_grid| {
         let map_view = MapView::new();
 
@@ -119,20 +134,27 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
                 Visibility::default(),
                 map_view.clone(),
                 MapViewWithMap(map_id),
+                VelloScene2d::default(),
+                RenderLayers::layer(4),
+                NoFrustumCulling,
             ))
             .id();
 
         // root_grid.spawn_spatial((Grid::default(), Name::new("Tiling"), MapViewTiling::new(6), MapViewTilingWithView(map_view_id)));
 
-        root_grid.spawn_spatial((
+        cam_id = Some(root_grid.spawn_spatial((
             Camera2d,
+            Camera {
+                order: -1,
+                ..default()
+            },
             BackgroundColor(Color::WHITE.with_luminance(0.4)),
             PanCam { ..default() },
             MapViewCamera {},
             MapViewCameraWithView(map_view_id),
             FloatingOrigin,
             RenderLayers::from_layers(&[0, 1, 2]),
-        ));
+        )).id());
 
         runtime.spawn_background_task(async move |mut task| {
             if let Ok(client) = OsmClient::connect().await.inspect_err(|err| error!("{:?}", err)) {
@@ -156,6 +178,37 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
 
             // let index = fetch_fabrik_index(&reqwest::Client::new()).await.unwrap();
             task.run_on_main_thread(move |world| {
+                let mut test = VelloScene2d::new();
+                let test_id = world.world.commands().spawn_spatial((
+                    NoFrustumCulling, test, RenderLayers::layer(4),
+                    Transform::from_translation(vec3(10000., 0., 0.))
+                )).id();
+                world.world.commands().entity(map_view_id).add_child(test_id);
+
+                world.world.commands().spawn((
+                    VelloElement {
+                        on_draw: Box::new(|scene| {
+                            scene.fill(
+                                peniko::Fill::default(),
+                                kurbo::Affine::default(),
+                                peniko::Color::new([1., 0., 0., 1.]),
+                                None,
+                                &kurbo::Rect::new(-10000., -10000., 10000., 10000.),
+                            );
+                        })
+                    },
+                    VelloElementWithScene(test_id)
+                ));
+
+                let test_line_id = world.world.commands().spawn((Name::new("test line"), VelloMapLine {
+                    scene_id: test_id,
+                    width: 1000.,
+                    color: Color::srgba(1.0, 0.0, 0., 1.),
+                    line: vec![dvec2(1.0, 0.0), dvec2(2.0, 1.0)],
+                })).id();
+
+                world.world.commands().entity(map_view_id).add_child(test_line_id);
+
                 let ocean = world
                     .world
                     .commands()
@@ -231,4 +284,19 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
                 .await;
         });
     });
+
+    let cam_id = cam_id.unwrap();
+
+    commands.entity(cam_id).with_child((
+        Transform::default(),
+        Camera2d,
+        VelloView,
+        Camera {
+            clear_color: ClearColorConfig::Custom(Color::srgba(0., 0., 0., 0.)),
+            order: 0,
+            ..default()
+        },
+        SyncedCam { main_camera_id: cam_id },
+        RenderLayers::layer(4),
+    ));
 }

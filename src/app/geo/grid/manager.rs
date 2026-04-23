@@ -1,5 +1,5 @@
 use crate::app::common::settings::Settings;
-use crate::app::geo::map::MapViewContextQuery;
+use crate::app::geo::map::{MapViewContext, MapViewContextQuery};
 use crate::app::geo::map::MapViewContextRef;
 use crate::app::utils::big_space_ext::CommandsWithSpatial;
 use crate::app::utils::debug::SoftExpect;
@@ -135,7 +135,7 @@ pub struct MapViewGrid {
     pub grid: LinearGrid,
     pub bounds_abs: Option<DAabb2>,
     #[reflect(ignore)]
-    pub on_spawn: Option<Box<dyn Fn(&mut Commands, Entity, &MapViewTile) + Send + Sync>>,
+    pub on_spawn: Option<Box<dyn Fn(&mut Commands, MapViewContext, Entity, &MapViewTile) + Send + Sync>>,
 
     active_tiles: HashMap<LinearGridKey, DAabb2>,
     spawned_tiles: HashMap<LinearGridKey, Entity>,
@@ -145,7 +145,7 @@ impl MapViewGrid {
     pub fn new(
         bounds_abs: Option<DAabb2>,
         grid: LinearGrid,
-        on_spawn: Option<Box<dyn Fn(&mut Commands, Entity, &MapViewTile) + Send + Sync>>,
+        on_spawn: Option<Box<dyn Fn(&mut Commands, MapViewContext, Entity, &MapViewTile) + Send + Sync>>,
     ) -> Self {
         Self {
             bounds_abs,
@@ -204,7 +204,7 @@ fn sync_grid_spawned_tiles(
                     let tile_id = commands
                         .spawn_spatial((
                             MapViewTile {
-                                manager_id: grid_id,
+                                grid_id: grid_id,
                                 tile_idx: key,
                                 bounds_abs,
                                 bounds_gcs,
@@ -226,19 +226,21 @@ fn handle_spawned_tiles(
     mut commands: Commands,
     grids: Query<&MapViewGrid>,
     added_tiles: Query<(Entity, &MapViewTile), Added<MapViewTile>>,
+    view_ctx: MapViewContextQuery,
 ) {
     for (tile_id, tile) in added_tiles {
-        if let Some(grid) = grids.get(tile.manager_id).ok().soft_expect("")
+        if let Some(grid) = grids.get(tile.grid_id).ok().soft_expect("")
+            && let Some(ctx) = view_ctx.get(tile.grid_id).soft_expect("")
             && let Some(on_spawn) = grid.on_spawn.as_ref()
         {
-            on_spawn(&mut commands, tile_id, tile);
+            on_spawn(&mut commands, ctx, tile_id, tile);
         }
     }
 }
 
 #[derive(Component, Reflect)]
 pub struct MapViewTile {
-    pub manager_id: Entity,
+    pub grid_id: Entity,
     pub tile_idx: LinearGridKey,
     pub bounds_abs: DAabb2,
     pub bounds_gcs: DAabb2,

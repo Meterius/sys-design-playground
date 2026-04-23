@@ -190,16 +190,28 @@ impl RequestClient<TileImageRequestKind> for TileImageRequestClient {
                         .store(true, std::sync::atomic::Ordering::Relaxed);
                 }
             })?
-            .error_for_status()?;
+            .error_for_status()
+            .map(Some)
+            .or_else(|err| {
+                if err.status() == Some(reqwest::StatusCode::NOT_FOUND) {
+                    Ok(None)
+                } else {
+                    Err(err)
+                }
+            })?;
 
-        let tile_path = Self::get_tile_path(&key.1)?;
+        if let Some(res) = res {
+            let tile_path = Self::get_tile_path(&key.1)?;
 
-        tokio::fs::create_dir_all(&tile_path.parent().unwrap()).await?;
-        tokio::fs::write(&tile_path, res.bytes().await?).await?;
+            tokio::fs::create_dir_all(&tile_path.parent().unwrap()).await?;
+            tokio::fs::write(&tile_path, res.bytes().await?).await?;
 
-        debug!("Fetched tile: {:?}", &tile_path);
-        debug!("Asset path: {:?}", Self::get_asset_tile_path(&key.1));
-        Ok(Some(Self::get_asset_tile_path(&key.1)?))
+            debug!("Fetched tile: {:?}", &tile_path);
+            debug!("Asset path: {:?}", Self::get_asset_tile_path(&key.1));
+            Ok(Some(Self::get_asset_tile_path(&key.1)?))
+        } else {
+            Ok(None)
+        }
     }
 }
 

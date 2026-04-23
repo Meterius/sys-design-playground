@@ -124,6 +124,9 @@ fn make_osm_config_from_env() -> anyhow::Result<tokio_postgres::Config> {
 }
 
 fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
+    // TODO: decouple app startup and map view application to allow for independent applications to run without
+    // resource/component conflicts
+    
     let map = Map {
         projection: BoundedMercatorProjection {
             lat_min: -0.45 * PI,
@@ -277,6 +280,7 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
             order: 0,
             ..default()
         },
+        // TODO: refactor as unreliable, requires knowledge on camera positioning and does not scale well with additional layers
         SyncedCam {
             main_camera_id: cam_id,
         },

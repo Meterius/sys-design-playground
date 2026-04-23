@@ -142,6 +142,8 @@ pub struct MapViewCamera {}
 #[relationship(relationship_target = MapViewWithCamera)]
 pub struct MapViewCameraWithView(pub Entity);
 
+// TODO: refactor to avoid unnecessary query dependencies and decouple components from relying on
+// coordinate transformations with explicit reference to view
 #[derive(SystemParam)]
 pub struct MapViewContextQuery<'w, 's> {
     maps: Query<'w, 's, &'static Map>,

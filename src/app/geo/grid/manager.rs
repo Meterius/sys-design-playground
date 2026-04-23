@@ -215,6 +215,7 @@ fn sync_grid_spawned_tiles(
 
                     let tile_id = commands
                         .spawn_spatial((
+                            // TODO: ensure universal usage and add convenience wrappers, or identify better solution for command queue conflicts
                             DespawnIndicator::Active,
                             MapViewTile {
                                 grid_id,

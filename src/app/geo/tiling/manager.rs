@@ -48,6 +48,8 @@ pub struct MapViewTiling {
     tiles: HashMap<TileKey, Entity>,
 }
 
+// TODO: unify linear and sub-division based tiling components
+
 impl MapViewTiling {
     pub fn new(target_tile_count: usize) -> Self {
         Self {

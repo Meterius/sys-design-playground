@@ -57,6 +57,7 @@ where
     }
 }
 
+// TODO: refactor into clean component-based lifecycle management
 pub fn spawn_elements_grid<T, RK, GK, GC>(
     commands: &mut Commands,
     view_id: Entity,
@@ -108,6 +109,7 @@ pub fn spawn_elements_grid<T, RK, GK, GC>(
                     None,
                     grid_config.grid.clone(),
                     Some(Box::new(move |commands, ctx, tile_id, tile| {
+                        // TODO: use proper view grid to determine position, refactor hierarchy coordinate translations to allow for relative positioning
                         let center_local = ctx.view.abs_to_local(tile.bounds_abs.center());
                         let (cell_idx, cell_pos) = Grid::default().translation_to_grid(center_local.extend(0.));
 

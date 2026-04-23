@@ -200,6 +200,8 @@ impl RequestClient<TileImageRequestKind> for TileImageRequestClient {
                 }
             })?;
 
+        // TODO: use asset writer / do not directly invoke filesystem to avoid directory and web context issues
+        // TODO: employ size-aware LRU cache to restrict disk usage and lift solution out of tiling request for re-usability
         if let Some(res) = res {
             let tile_path = Self::get_tile_path(&key.1)?;
 

@@ -1,6 +1,6 @@
 use crate::app::geo::element_requests::{Bounds, RoadRequestClient};
 use crate::app::geo::geometry_vello::VelloMapLine;
-use crate::app::geo::grid::manager::{LinearGrid, LinearGridKey, MapViewGrid};
+use crate::app::geo::grid::manager::{LinearGrid, LinearGridKey, MapViewGrid, TileSpawningSystems};
 use crate::app::geo::map::{MapViewContextQuery, MapViewContextRef};
 use crate::app::utils::async_requests::{
     Request, RequestClient, RequestKind, RequestManager, RequestState, RequestWithManager,
@@ -25,6 +25,7 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
+use crate::app::geo::despawn_indicator::DespawnIndicator;
 
 pub struct ElementsGridPlugin<RK, GK> {
     marker: PhantomData<(RK, GK)>,
@@ -49,7 +50,7 @@ where
             Update,
             (
                 on_request_completed::<T, RK, GK>,
-                on_dirty_grid_tile_spawns_missing_roads::<T, GK>,
+                on_dirty_grid_tile_spawns_missing_roads::<T, GK>.after(TileSpawningSystems),
             )
                 .chain(),
         );
@@ -264,15 +265,16 @@ fn on_dirty_grid_tile_spawns_missing_roads<T, GK>(
     mut commands: Commands,
     mut providers: Query<&mut ElementProvider<Road, GK>, Without<ElementTile<GK>>>,
     mut tiles: Query<
-        (Entity, &mut ElementTile<GK>, &ElementTileWithProvider),
+        (Entity, &mut ElementTile<GK>, &ElementTileWithProvider, &DespawnIndicator),
         Without<ElementProvider<T, GK>>,
     >,
 ) where
     T: Element + Send + Sync + Clone + 'static,
     GK: Copy + Eq + Hash + Reflect,
 {
-    for (tile_id, mut tile, ElementTileWithProvider(provider_id)) in tiles.iter_mut() {
-        if let Some(mut provider) = providers.get_mut(*provider_id).ok().soft_expect("")
+    for (tile_id, mut tile, ElementTileWithProvider(provider_id), &ind) in tiles.iter_mut() {
+        if ind == DespawnIndicator::Active
+            && let Some(mut provider) = providers.get_mut(*provider_id).ok().soft_expect("")
             && (provider
                 .grid_elements_dirty
                 .remove(&(tile.grid_idx, tile.tile_idx))

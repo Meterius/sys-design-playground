@@ -12,6 +12,10 @@ use itertools::Itertools;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
+use crate::app::geo::despawn_indicator::DespawnIndicator;
+
+#[derive(SystemSet, Clone, Debug, Eq, PartialEq, Hash)]
+pub struct TileSpawningSystems;
 
 pub struct ManagerPlugin {}
 
@@ -21,7 +25,7 @@ impl Plugin for ManagerPlugin {
             Update,
             ((
                 sync_grid_active_tiles,
-                sync_grid_spawned_tiles,
+                sync_grid_spawned_tiles.in_set(TileSpawningSystems),
                 handle_spawned_tiles,
             )
                 .chain(),),
@@ -182,6 +186,7 @@ fn sync_grid_active_tiles(grids: Query<(Entity, &mut MapViewGrid)>, view_ctx: Ma
 fn sync_grid_spawned_tiles(
     mut commands: Commands,
     grids: Query<(Entity, &mut MapViewGrid)>,
+    mut tiles: Query<&mut DespawnIndicator, With<MapViewTile>>,
     view_ctx: MapViewContextQuery,
 ) {
     for (grid_id, mut grid) in grids {
@@ -193,6 +198,10 @@ fn sync_grid_spawned_tiles(
             .collect_vec()
             .into_iter()
         {
+            if let Some(mut ind) = tiles.get_mut(tile_id).ok().soft_expect("") {
+                *ind = DespawnIndicator::Despawning;
+            }
+
             commands.entity(tile_id).despawn();
         }
 
@@ -206,6 +215,7 @@ fn sync_grid_spawned_tiles(
 
                     let tile_id = commands
                         .spawn_spatial((
+                            DespawnIndicator::Active,
                             MapViewTile {
                                 grid_id,
                                 tile_idx: key,

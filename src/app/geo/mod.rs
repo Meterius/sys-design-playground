@@ -17,6 +17,7 @@ pub mod grid;
 pub mod map;
 pub mod tiling;
 pub mod zoom_visibility;
+pub mod despawn_indicator;
 
 pub struct GeoPlugin {}
 

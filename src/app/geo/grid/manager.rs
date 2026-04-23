@@ -1,4 +1,5 @@
 use crate::app::common::settings::Settings;
+use crate::app::geo::despawn_indicator::DespawnIndicator;
 use crate::app::geo::map::MapViewContextRef;
 use crate::app::geo::map::{MapViewContext, MapViewContextQuery};
 use crate::app::utils::big_space_ext::CommandsWithSpatial;
@@ -12,7 +13,6 @@ use itertools::Itertools;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
-use crate::app::geo::despawn_indicator::DespawnIndicator;
 
 #[derive(SystemSet, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct TileSpawningSystems;

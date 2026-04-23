@@ -1,5 +1,6 @@
 use crate::app::geo::map::MapViewContextQuery;
 use crate::app::geo::map::MapViewContextRef;
+use crate::app::utils::commands::InsertIfActive;
 use crate::app::utils::debug::SoftExpect;
 use crate::app::utils::vello_ext::{VelloDraw, VelloElement, VelloElementWithScene};
 use crate::geo::coords::Projection2D;
@@ -8,7 +9,6 @@ use bevy_vello::prelude::{VelloScene2d, kurbo, peniko};
 use glam::DVec2;
 use itertools::Itertools;
 use utilities::glam_ext::bounding::AxisAlignedBoundingBox2D;
-use crate::app::utils::commands::InsertIfActive;
 
 pub struct VelloGeometryPlugin {}
 
@@ -29,7 +29,13 @@ pub struct VelloMapLine {
 }
 
 impl VelloMapLine {
-    pub fn new(scene_id: Entity, scene_center_abs: DVec2, line: Vec<DVec2>, width: f32, color: Color) -> Self {
+    pub fn new(
+        scene_id: Entity,
+        scene_center_abs: DVec2,
+        line: Vec<DVec2>,
+        width: f32,
+        color: Color,
+    ) -> Self {
         Self {
             scene_id,
             scene_center_abs,
@@ -87,10 +93,7 @@ pub fn update_line(
 
             commands.queue(InsertIfActive {
                 entity: line_id,
-                bundle: (
-                    VelloElementWithScene(scene_id),
-                    VelloElement { on_draw },
-                ),
+                bundle: (VelloElementWithScene(scene_id), VelloElement { on_draw }),
             });
         }
     }

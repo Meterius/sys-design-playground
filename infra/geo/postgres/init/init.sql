@@ -31,3 +31,13 @@ CREATE TABLE osm_roads (
 CREATE INDEX idx_osm_roads_geom ON osm_roads USING GIST (geom);
 
 CREATE TABLE tmp_upsert_roads_streaming AS SELECT * FROM osm_roads LIMIT 0;
+
+CREATE TABLE osm_buildings (
+    osm_id        bigint primary key,
+    kind          text,
+    geom          geography(MULTIPOLYGON, 4326) not null
+);
+
+CREATE INDEX idx_osm_buildings_geom ON osm_buildings USING GIST (geom);
+
+CREATE TABLE tmp_upsert_buildings_streaming AS SELECT * FROM osm_buildings LIMIT 0;

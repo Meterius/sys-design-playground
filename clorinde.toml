@@ -1,2 +1,4 @@
 [manifest.package]
 name = "generated_queries"
+
+# update command:

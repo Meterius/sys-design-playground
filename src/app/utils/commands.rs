@@ -10,12 +10,17 @@ pub struct InsertIfActive<T: Bundle> {
 
 impl<T: Bundle> Command<Result<(), BevyError>> for InsertIfActive<T> {
     fn apply(self, world: &mut World) -> Result<(), BevyError> {
-        if let Some(mut entity) = world.get_entity_mut(self.entity).map(Some).or_else(
-            |err| match err {
-            EntityMutableFetchError::NotSpawned(EntityNotSpawnedError::Invalid(_)) => Ok(None),
-            _ => Err(err),
-        }
-        )? {
+        if let Some(mut entity) =
+            world
+                .get_entity_mut(self.entity)
+                .map(Some)
+                .or_else(|err| match err {
+                    EntityMutableFetchError::NotSpawned(EntityNotSpawnedError::Invalid(_)) => {
+                        Ok(None)
+                    }
+                    _ => Err(err),
+                })?
+        {
             entity.insert(self.bundle);
         }
 

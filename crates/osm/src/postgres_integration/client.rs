@@ -1,12 +1,14 @@
+use crate::model::building::Building;
 use crate::model::road::{Road, RoadClassCategory};
 use futures::StreamExt;
 use generated_queries::queries::osm_roads_queries::{
-    fetch_roads_by_area, fetch_roads_by_area_and_category,
+    fetch_buildings_by_area, fetch_roads_by_area, fetch_roads_by_area_and_category,
 };
 use generated_queries::tokio_postgres;
 use geojson::FeatureCollection;
 use glam::{DVec2, dvec2};
-use postgis::ewkb::{AsEwkbPolygon, EwkbRead, EwkbWrite, LineString, Point, Polygon};
+use postgis::ewkb::{AsEwkbPolygon, EwkbRead, EwkbWrite, LineString, MultiPolygon, Point, Polygon};
+use postgis::{LineString as LineStringTrait, MultiPolygon as MultiPolygonTrait};
 use std::env;
 use thiserror::Error;
 use tokio_postgres::NoTls;
@@ -31,6 +33,43 @@ fn ewkb_to_vec(source: impl EwkbWrite) -> Result<Vec<u8>, OsmError> {
     let mut data = Vec::new();
     source.write_ewkb(&mut data)?;
     Ok(data)
+}
+
+pub fn postgis_linestring_to_geotype(line: &LineString) -> geo_types::LineString {
+    geo_types::LineString::from_iter(line.points().cloned().map(|p| (p.x, p.y)))
+}
+
+pub fn postgis_polygon_to_geotype(polygon: &Polygon) -> geo_types::Polygon {
+    geo_types::Polygon::new(
+        postgis_linestring_to_geotype(&polygon.rings[0]),
+        polygon.rings[1..]
+            .iter()
+            .map(postgis_linestring_to_geotype)
+            .collect(),
+    )
+}
+
+pub fn postgis_multi_polygon_to_geotype(multi_polygon: &MultiPolygon) -> geo_types::MultiPolygon {
+    geo_types::MultiPolygon::from_iter(multi_polygon.polygons().map(postgis_polygon_to_geotype))
+}
+
+pub fn geotype_linestring_to_postgis(line: &geo_types::LineString) -> LineString {
+    LineString::from_iter(line.points().map(|p| Point::new(p.x(), p.y(), None)))
+}
+
+pub fn geotype_polygon_to_postgis(polygon: &geo_types::Polygon) -> Polygon {
+    Polygon::from_iter(
+        std::iter::once(geotype_linestring_to_postgis(polygon.exterior())).chain(
+            polygon
+                .interiors()
+                .iter()
+                .map(geotype_linestring_to_postgis),
+        ),
+    )
+}
+
+pub fn geotype_multi_polygon_to_postgis(multi_polygon: &geo_types::MultiPolygon) -> MultiPolygon {
+    MultiPolygon::from_iter(multi_polygon.iter().map(geotype_polygon_to_postgis))
 }
 
 #[derive(Debug, Error)]
@@ -89,6 +128,44 @@ impl OsmClient {
                 });
             }),
         })
+    }
+
+    pub async fn fetch_buildings(
+        &self,
+        bounds: DAabb2,
+    ) -> Result<impl futures::Stream<Item = Result<Building, OsmError>>, OsmError> {
+        let corners = bounds.corners().map(dvec2_to_point).collect::<Vec<_>>();
+
+        let iter = fetch_buildings_by_area()
+            .bind(
+                &self.client,
+                &ewkb_to_vec(
+                    Polygon {
+                        rings: vec![LineString {
+                            points: std::iter::once(corners[corners.len() - 1])
+                                .chain(corners.into_iter())
+                                .collect(),
+                            srid: None,
+                        }],
+                        srid: None,
+                    }
+                    .as_ewkb(),
+                )?,
+            )
+            .iter()
+            .await?;
+
+        Ok(iter.map(|r| {
+            r.map_err(OsmError::from).and_then(|data| {
+                Ok(Building {
+                    osm_id: data.osm_id,
+                    kind: data.kind,
+                    geometry: postgis_multi_polygon_to_geotype(&MultiPolygon::read_ewkb(
+                        &mut std::io::Cursor::new(data.geom),
+                    )?),
+                })
+            })
+        }))
     }
 
     pub async fn fetch_roads(

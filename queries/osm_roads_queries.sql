@@ -62,3 +62,33 @@ ON CONFLICT(osm_id)
 
 --! upsert_roads_streaming_end
 DROP TABLE tmp_upsert_roads_streaming;
+
+--! upsert_buildings_streaming_start
+CREATE TEMP TABLE tmp_upsert_buildings_streaming AS SELECT * FROM osm_buildings LIMIT 0;
+
+--! upsert_buildings_streaming_transfer
+COPY tmp_upsert_buildings_streaming (
+    osm_id, kind, geom
+) FROM stdin binary;
+
+--! upsert_buildings_streaming_commit
+INSERT INTO osm_buildings (
+    osm_id, kind, geom
+)
+SELECT
+    s.osm_id,
+    s.kind,
+    st_setsrid(st_geomfromewkb(s.geom), 4326)::geography
+FROM tmp_upsert_buildings_streaming s
+ON CONFLICT(osm_id)
+    DO UPDATE SET
+    (kind, geom) = (excluded.kind, excluded.geom);
+
+--! upsert_buildings_streaming_end
+DROP TABLE tmp_upsert_buildings_streaming;
+
+--! fetch_buildings_by_area : (kind?)
+SELECT
+    osm_id, kind, ST_asewkb(geom::geometry) as geom
+FROM osm_buildings
+WHERE st_intersects(geom, st_setsrid(st_geomfromewkb(:bounds), 4326)::geography);

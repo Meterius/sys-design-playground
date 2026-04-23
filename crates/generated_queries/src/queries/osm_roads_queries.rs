@@ -179,6 +179,28 @@ impl<'a> From<FetchRoadsByAreaAndCategoryBorrowed<'a>> for FetchRoadsByAreaAndCa
         }
     }
 }
+#[derive(Debug, Clone, PartialEq)]
+pub struct FetchBuildingsByArea {
+    pub osm_id: i64,
+    pub kind: Option<String>,
+    pub geom: Vec<u8>,
+}
+pub struct FetchBuildingsByAreaBorrowed<'a> {
+    pub osm_id: i64,
+    pub kind: Option<&'a str>,
+    pub geom: &'a [u8],
+}
+impl<'a> From<FetchBuildingsByAreaBorrowed<'a>> for FetchBuildingsByArea {
+    fn from(
+        FetchBuildingsByAreaBorrowed { osm_id, kind, geom }: FetchBuildingsByAreaBorrowed<'a>,
+    ) -> Self {
+        Self {
+            osm_id,
+            kind: kind.map(|v| v.into()),
+            geom: geom.into(),
+        }
+    }
+}
 use crate::client::async_::GenericClient;
 use futures::{self, StreamExt, TryStreamExt};
 pub struct ListAllRoadsQuery<'c, 'a, 's, C: GenericClient, T, const N: usize> {
@@ -334,6 +356,74 @@ where
         mapper: fn(FetchRoadsByAreaAndCategoryBorrowed) -> R,
     ) -> FetchRoadsByAreaAndCategoryQuery<'c, 'a, 's, C, R, N> {
         FetchRoadsByAreaAndCategoryQuery {
+            client: self.client,
+            params: self.params,
+            query: self.query,
+            cached: self.cached,
+            extractor: self.extractor,
+            mapper,
+        }
+    }
+    pub async fn one(self) -> Result<T, tokio_postgres::Error> {
+        let row =
+            crate::client::async_::one(self.client, self.query, &self.params, self.cached).await?;
+        Ok((self.mapper)((self.extractor)(&row)?))
+    }
+    pub async fn all(self) -> Result<Vec<T>, tokio_postgres::Error> {
+        self.iter().await?.try_collect().await
+    }
+    pub async fn opt(self) -> Result<Option<T>, tokio_postgres::Error> {
+        let opt_row =
+            crate::client::async_::opt(self.client, self.query, &self.params, self.cached).await?;
+        Ok(opt_row
+            .map(|row| {
+                let extracted = (self.extractor)(&row)?;
+                Ok((self.mapper)(extracted))
+            })
+            .transpose()?)
+    }
+    pub async fn iter(
+        self,
+    ) -> Result<
+        impl futures::Stream<Item = Result<T, tokio_postgres::Error>> + 'c,
+        tokio_postgres::Error,
+    > {
+        let stream = crate::client::async_::raw(
+            self.client,
+            self.query,
+            crate::slice_iter(&self.params),
+            self.cached,
+        )
+        .await?;
+        let mapped = stream
+            .map(move |res| {
+                res.and_then(|row| {
+                    let extracted = (self.extractor)(&row)?;
+                    Ok((self.mapper)(extracted))
+                })
+            })
+            .into_stream();
+        Ok(mapped)
+    }
+}
+pub struct FetchBuildingsByAreaQuery<'c, 'a, 's, C: GenericClient, T, const N: usize> {
+    client: &'c C,
+    params: [&'a (dyn postgres_types::ToSql + Sync); N],
+    query: &'static str,
+    cached: Option<&'s tokio_postgres::Statement>,
+    extractor:
+        fn(&tokio_postgres::Row) -> Result<FetchBuildingsByAreaBorrowed, tokio_postgres::Error>,
+    mapper: fn(FetchBuildingsByAreaBorrowed) -> T,
+}
+impl<'c, 'a, 's, C, T: 'c, const N: usize> FetchBuildingsByAreaQuery<'c, 'a, 's, C, T, N>
+where
+    C: GenericClient,
+{
+    pub fn map<R>(
+        self,
+        mapper: fn(FetchBuildingsByAreaBorrowed) -> R,
+    ) -> FetchBuildingsByAreaQuery<'c, 'a, 's, C, R, N> {
+        FetchBuildingsByAreaQuery {
             client: self.client,
             params: self.params,
             query: self.query,
@@ -690,5 +780,128 @@ impl UpsertRoadsStreamingEndStmt {
         client: &'c C,
     ) -> Result<u64, tokio_postgres::Error> {
         client.execute(self.0, &[]).await
+    }
+}
+pub struct UpsertBuildingsStreamingStartStmt(&'static str, Option<tokio_postgres::Statement>);
+pub fn upsert_buildings_streaming_start() -> UpsertBuildingsStreamingStartStmt {
+    UpsertBuildingsStreamingStartStmt(
+        "CREATE TEMP TABLE tmp_upsert_buildings_streaming AS SELECT * FROM osm_buildings LIMIT 0",
+        None,
+    )
+}
+impl UpsertBuildingsStreamingStartStmt {
+    pub async fn prepare<'a, C: GenericClient>(
+        mut self,
+        client: &'a C,
+    ) -> Result<Self, tokio_postgres::Error> {
+        self.1 = Some(client.prepare(self.0).await?);
+        Ok(self)
+    }
+    pub async fn bind<'c, 'a, 's, C: GenericClient>(
+        &'s self,
+        client: &'c C,
+    ) -> Result<u64, tokio_postgres::Error> {
+        client.execute(self.0, &[]).await
+    }
+}
+pub struct UpsertBuildingsStreamingTransferStmt(&'static str, Option<tokio_postgres::Statement>);
+pub fn upsert_buildings_streaming_transfer() -> UpsertBuildingsStreamingTransferStmt {
+    UpsertBuildingsStreamingTransferStmt(
+        "COPY tmp_upsert_buildings_streaming ( osm_id, kind, geom ) FROM stdin binary",
+        None,
+    )
+}
+impl UpsertBuildingsStreamingTransferStmt {
+    pub async fn prepare<'a, C: GenericClient>(
+        mut self,
+        client: &'a C,
+    ) -> Result<Self, tokio_postgres::Error> {
+        self.1 = Some(client.prepare(self.0).await?);
+        Ok(self)
+    }
+    pub async fn bind<'c, 'a, 's, C: GenericClient>(
+        &'s self,
+        client: &'c C,
+    ) -> Result<u64, tokio_postgres::Error> {
+        client.execute(self.0, &[]).await
+    }
+}
+pub struct UpsertBuildingsStreamingCommitStmt(&'static str, Option<tokio_postgres::Statement>);
+pub fn upsert_buildings_streaming_commit() -> UpsertBuildingsStreamingCommitStmt {
+    UpsertBuildingsStreamingCommitStmt(
+        "INSERT INTO osm_buildings ( osm_id, kind, geom ) SELECT s.osm_id, s.kind, st_setsrid(st_geomfromewkb(s.geom), 4326)::geography FROM tmp_upsert_buildings_streaming s ON CONFLICT(osm_id) DO UPDATE SET (kind, geom) = (excluded.kind, excluded.geom)",
+        None,
+    )
+}
+impl UpsertBuildingsStreamingCommitStmt {
+    pub async fn prepare<'a, C: GenericClient>(
+        mut self,
+        client: &'a C,
+    ) -> Result<Self, tokio_postgres::Error> {
+        self.1 = Some(client.prepare(self.0).await?);
+        Ok(self)
+    }
+    pub async fn bind<'c, 'a, 's, C: GenericClient>(
+        &'s self,
+        client: &'c C,
+    ) -> Result<u64, tokio_postgres::Error> {
+        client.execute(self.0, &[]).await
+    }
+}
+pub struct UpsertBuildingsStreamingEndStmt(&'static str, Option<tokio_postgres::Statement>);
+pub fn upsert_buildings_streaming_end() -> UpsertBuildingsStreamingEndStmt {
+    UpsertBuildingsStreamingEndStmt("DROP TABLE tmp_upsert_buildings_streaming", None)
+}
+impl UpsertBuildingsStreamingEndStmt {
+    pub async fn prepare<'a, C: GenericClient>(
+        mut self,
+        client: &'a C,
+    ) -> Result<Self, tokio_postgres::Error> {
+        self.1 = Some(client.prepare(self.0).await?);
+        Ok(self)
+    }
+    pub async fn bind<'c, 'a, 's, C: GenericClient>(
+        &'s self,
+        client: &'c C,
+    ) -> Result<u64, tokio_postgres::Error> {
+        client.execute(self.0, &[]).await
+    }
+}
+pub struct FetchBuildingsByAreaStmt(&'static str, Option<tokio_postgres::Statement>);
+pub fn fetch_buildings_by_area() -> FetchBuildingsByAreaStmt {
+    FetchBuildingsByAreaStmt(
+        "SELECT osm_id, kind, ST_asewkb(geom::geometry) as geom FROM osm_buildings WHERE st_intersects(geom, st_setsrid(st_geomfromewkb($1), 4326)::geography)",
+        None,
+    )
+}
+impl FetchBuildingsByAreaStmt {
+    pub async fn prepare<'a, C: GenericClient>(
+        mut self,
+        client: &'a C,
+    ) -> Result<Self, tokio_postgres::Error> {
+        self.1 = Some(client.prepare(self.0).await?);
+        Ok(self)
+    }
+    pub fn bind<'c, 'a, 's, C: GenericClient, T1: crate::BytesSql>(
+        &'s self,
+        client: &'c C,
+        bounds: &'a T1,
+    ) -> FetchBuildingsByAreaQuery<'c, 'a, 's, C, FetchBuildingsByArea, 1> {
+        FetchBuildingsByAreaQuery {
+            client,
+            params: [bounds],
+            query: self.0,
+            cached: self.1.as_ref(),
+            extractor: |
+                row: &tokio_postgres::Row,
+            | -> Result<FetchBuildingsByAreaBorrowed, tokio_postgres::Error> {
+                Ok(FetchBuildingsByAreaBorrowed {
+                    osm_id: row.try_get(0)?,
+                    kind: row.try_get(1)?,
+                    geom: row.try_get(2)?,
+                })
+            },
+            mapper: |it| FetchBuildingsByArea::from(it),
+        }
     }
 }

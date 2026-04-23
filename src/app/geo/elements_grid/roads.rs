@@ -1,15 +1,17 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use bevy::prelude::*;
-use glam::{dvec2, DVec2};
-use ratelimit::Ratelimiter;
-use osm::model::road::{Road, RoadClass, RoadClassCategory};
-use osm::postgres_integration::client::OsmClient;
 use crate::app::geo::element_requests::{RoadRequestClient, RoadRequestKind};
-use crate::app::geo::elements_grid::manager::{spawn_elements_grid, ElementTileGridConfig, ElementsConfig, ElementsGridPlugin};
+use crate::app::geo::elements_grid::manager::{
+    ElementTileGridConfig, ElementsConfig, ElementsGridPlugin, spawn_elements_grid,
+};
 use crate::app::geo::geometry_vello::VelloMapLine;
 use crate::app::geo::grid::manager::LinearGrid;
 use crate::app::utils::async_requests::RequestManager;
+use bevy::prelude::*;
+use glam::{DVec2, dvec2};
+use osm::model::road::{Road, RoadClass, RoadClassCategory};
+use osm::postgres_integration::client::OsmClient;
+use ratelimit::Ratelimiter;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 pub struct RoadElementsGridPlugin;
 
@@ -55,9 +57,7 @@ fn road_classification(road: &Road) -> Option<RoadClassification> {
         (RoadClassCategory::Unknown, _) => 0.1,
     };
 
-    Some(RoadClassification {
-        width, kind
-    })
+    Some(RoadClassification { width, kind })
 }
 
 #[derive(Reflect, Eq, PartialEq, Hash, Debug, Clone, Copy)]
@@ -131,12 +131,16 @@ pub fn spawn_road_elements_grid(commands: &mut Commands, view_id: Entity, client
                 },
             ),
         ]),
-        get_tile_grid_for_element: Some(Box::new(|r: &Road| road_classification(r).map(|c| c.kind))),
-        on_spawn_element_instance: Some(Box::new(|commands, center_abs, tile_id, road_id, road| {
-            commands
-                .entity(road_id)
-                .insert(make_road_bundle(tile_id, center_abs, road));
+        get_tile_grid_for_element: Some(Box::new(|r: &Road| {
+            road_classification(r).map(|c| c.kind)
         })),
+        on_spawn_element_instance: Some(Box::new(
+            |commands, center_abs, tile_id, road_id, road| {
+                commands
+                    .entity(road_id)
+                    .insert(make_road_bundle(tile_id, center_abs, road));
+            },
+        )),
     };
 
     let request_manager =

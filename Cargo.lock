@@ -4007,6 +4007,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "geo-traits"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e7c353d12a704ccfab1ba8bfb1a7fe6cb18b665bf89d37f4f7890edcd260206"
+dependencies = [
+ "geo-types",
+]
+
+[[package]]
 name = "geo-types"
 version = "0.7.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6328,6 +6337,7 @@ dependencies = [
  "bevy_reflect",
  "futures",
  "generated_queries",
+ "geo-types",
  "geojson",
  "glam",
  "postgis",
@@ -7593,6 +7603,8 @@ checksum = "1843429773d609e4ee4b896899ab15530bc0509e128ed8312652c6b5c19ccd48"
 dependencies = [
  "byteorder",
  "dbase",
+ "geo-traits",
+ "geo-types",
 ]
 
 [[package]]

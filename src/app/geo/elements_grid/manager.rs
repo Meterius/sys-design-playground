@@ -1,5 +1,5 @@
-use crate::app::geo::element_requests::{Bounds, RoadRequestClient};
-use crate::app::geo::geometry_vello::VelloMapLine;
+use crate::app::geo::despawn_indicator::DespawnIndicator;
+use crate::app::geo::element_requests::Bounds;
 use crate::app::geo::grid::manager::{LinearGrid, LinearGridKey, MapViewGrid, TileSpawningSystems};
 use crate::app::geo::map::{MapViewContextQuery, MapViewContextRef};
 use crate::app::utils::async_requests::{
@@ -10,22 +10,16 @@ use crate::app::utils::debug::SoftExpect;
 use crate::geo::coords::Projection2D;
 use bevy::app::{App, Plugin};
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
-use bevy::color::Color;
 use bevy::prelude::*;
 use bevy_vello::prelude::VelloScene2d;
 use big_space::grid::Grid;
-use glam::{dvec2, uvec2, vec2, vec3, DVec2};
-use itertools::Itertools;
-use osm::model::road::{Road, RoadClass, RoadClassCategory};
-use osm::postgres_integration::client::OsmClient;
-use ratelimit::Ratelimiter;
+use glam::DVec2;
+use osm::model::road::Road;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::sync::Arc;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
-use crate::app::geo::despawn_indicator::DespawnIndicator;
 
 pub struct ElementsGridPlugin<RK, GK> {
     marker: PhantomData<(RK, GK)>,
@@ -111,7 +105,8 @@ pub fn spawn_elements_grid<T, RK, GK, GC>(
                     Some(Box::new(move |commands, ctx, tile_id, tile| {
                         // TODO: use proper view grid to determine position, refactor hierarchy coordinate translations to allow for relative positioning
                         let center_local = ctx.view.abs_to_local(tile.bounds_abs.center());
-                        let (cell_idx, cell_pos) = Grid::default().translation_to_grid(center_local.extend(0.));
+                        let (cell_idx, cell_pos) =
+                            Grid::default().translation_to_grid(center_local.extend(0.));
 
                         commands.entity(tile_id).insert((
                             cell_idx,
@@ -173,7 +168,8 @@ pub struct ElementsConfig<T, GK: Reflect> {
     #[reflect(ignore)]
     pub get_tile_grid_for_element: Option<Box<dyn Fn(&T) -> Option<GK> + Send + Sync>>,
     #[reflect(ignore)]
-    pub on_spawn_element_instance: Option<Box<dyn Fn(&mut Commands, DVec2, Entity, Entity, &T) + Send + Sync>>,
+    pub on_spawn_element_instance:
+        Option<Box<dyn Fn(&mut Commands, DVec2, Entity, Entity, &T) + Send + Sync>>,
 }
 
 #[derive(Component, Reflect)]
@@ -209,9 +205,9 @@ fn on_request_completed<T, RK, GK>(
         if let RequestState::Completed(roads) = request.state()
             && let Ok(roads) = roads
             && let Some(mut provider) = providers
-            .get_mut(request_p.provider_id)
-            .ok()
-            .soft_expect("")
+                .get_mut(request_p.provider_id)
+                .ok()
+                .soft_expect("")
             && let Some(ctx) = view_ctx.get(request_p.provider_id).soft_expect("")
         {
             let bounds_abs = ctx.map.projection.abs_bounds();
@@ -226,7 +222,7 @@ fn on_request_completed<T, RK, GK>(
                 for el in roads.iter() {
                     if let Some(grid_idx) = get_tile_grid_for_element(el)
                         && let Some(grid_config) =
-                        provider.config.tile_grids.get(&grid_idx).soft_expect("")
+                            provider.config.tile_grids.get(&grid_idx).soft_expect("")
                     {
                         let center = (ctx.map.projection.gcs_to_abs(el.aabb().min())
                             + ctx.map.projection.gcs_to_abs(el.aabb().max()))
@@ -277,7 +273,12 @@ fn on_dirty_grid_tile_spawns_missing_elements<T, GK>(
     mut commands: Commands,
     mut providers: Query<&mut ElementProvider<Road, GK>, Without<ElementTile<GK>>>,
     mut tiles: Query<
-        (Entity, &mut ElementTile<GK>, &ElementTileWithProvider, &DespawnIndicator),
+        (
+            Entity,
+            &mut ElementTile<GK>,
+            &ElementTileWithProvider,
+            &DespawnIndicator,
+        ),
         Without<ElementProvider<T, GK>>,
     >,
 ) where
@@ -288,9 +289,9 @@ fn on_dirty_grid_tile_spawns_missing_elements<T, GK>(
         if ind == DespawnIndicator::Active
             && let Some(mut provider) = providers.get_mut(*provider_id).ok().soft_expect("")
             && (provider
-            .grid_elements_dirty
-            .remove(&(tile.grid_idx, tile.tile_idx))
-            || tile.is_added())
+                .grid_elements_dirty
+                .remove(&(tile.grid_idx, tile.tile_idx))
+                || tile.is_added())
             && let Some(roads) = provider.grid_elements.get(&(tile.grid_idx, tile.tile_idx))
         {
             for (&road_id, road) in roads {
@@ -300,7 +301,13 @@ fn on_dirty_grid_tile_spawns_missing_elements<T, GK>(
                     if let Some(on_spawn_element_instance) =
                         provider.config.on_spawn_element_instance.as_ref()
                     {
-                        on_spawn_element_instance(&mut commands, tile.bounds_abs.center(), tile_id, road_inst_id, road);
+                        on_spawn_element_instance(
+                            &mut commands,
+                            tile.bounds_abs.center(),
+                            tile_id,
+                            road_inst_id,
+                            road,
+                        );
                     }
 
                     commands.entity(tile_id).add_child(road_inst_id);
@@ -309,4 +316,3 @@ fn on_dirty_grid_tile_spawns_missing_elements<T, GK>(
         }
     }
 }
-

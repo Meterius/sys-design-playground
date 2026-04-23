@@ -1,5 +1,5 @@
+use crate::app::geo::element_requests::ElementRequestsPlugin;
 use crate::app::geo::elements_grid::roads::RoadElementsGridPlugin;
-use crate::app::geo::element_requests::{ElementRequestsPlugin, RoadRequestKind};
 use crate::app::geo::geometry::GeometryPlugin;
 use crate::app::geo::geometry_vello::VelloGeometryPlugin;
 use crate::app::geo::grid::GridPlugin;
@@ -9,6 +9,7 @@ use crate::app::geo::zoom_visibility::MapZoomVisibilityPlugin;
 use bevy::app::App;
 use bevy::prelude::Plugin;
 
+pub mod despawn_indicator;
 pub mod element_requests;
 pub mod elements_grid;
 pub mod geometry;
@@ -17,7 +18,6 @@ pub mod grid;
 pub mod map;
 pub mod tiling;
 pub mod zoom_visibility;
-pub mod despawn_indicator;
 
 pub struct GeoPlugin {}
 

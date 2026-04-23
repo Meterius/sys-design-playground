@@ -1,5 +1,5 @@
+use crate::app::geo::elements_grid::roads::RoadElementsGridPlugin;
 use crate::app::geo::element_requests::{ElementRequestsPlugin, RoadRequestKind};
-use crate::app::geo::elements_grid::{ElementsGridPlugin, RoadGridKind};
 use crate::app::geo::geometry::GeometryPlugin;
 use crate::app::geo::geometry_vello::VelloGeometryPlugin;
 use crate::app::geo::grid::GridPlugin;
@@ -31,7 +31,7 @@ impl Plugin for GeoPlugin {
             GridPlugin {},
             MapZoomVisibilityPlugin {},
             ElementRequestsPlugin {},
-            ElementsGridPlugin::<RoadRequestKind, RoadGridKind>::default(),
+            RoadElementsGridPlugin {},
         ));
     }
 }

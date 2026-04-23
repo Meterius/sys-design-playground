@@ -50,7 +50,7 @@ where
             Update,
             (
                 on_request_completed::<T, RK, GK>,
-                on_dirty_grid_tile_spawns_missing_roads::<T, GK>.after(TileSpawningSystems),
+                on_dirty_grid_tile_spawns_missing_elements::<T, GK>.after(TileSpawningSystems),
             )
                 .chain(),
         );
@@ -161,17 +161,17 @@ impl Element for Road {
 
 #[derive(Clone, Reflect)]
 pub struct ElementTileGridConfig {
-    grid: LinearGrid,
+    pub grid: LinearGrid,
 }
 
 #[derive(Reflect)]
 pub struct ElementsConfig<T, GK: Reflect> {
-    request_grid: LinearGrid,
-    tile_grids: HashMap<GK, ElementTileGridConfig>,
+    pub request_grid: LinearGrid,
+    pub tile_grids: HashMap<GK, ElementTileGridConfig>,
     #[reflect(ignore)]
-    get_tile_grid_for_element: Option<Box<dyn Fn(&T) -> Option<GK> + Send + Sync>>,
+    pub get_tile_grid_for_element: Option<Box<dyn Fn(&T) -> Option<GK> + Send + Sync>>,
     #[reflect(ignore)]
-    on_spawn_element_instance: Option<Box<dyn Fn(&mut Commands, DVec2, Entity, Entity, &T) + Send + Sync>>,
+    pub on_spawn_element_instance: Option<Box<dyn Fn(&mut Commands, DVec2, Entity, Entity, &T) + Send + Sync>>,
 }
 
 #[derive(Component, Reflect)]
@@ -182,6 +182,16 @@ pub struct ElementProvider<T, GK: Reflect> {
     grid_elements: HashMap<(GK, LinearGridKey), HashMap<i64, T>>,
     #[reflect(ignore)]
     grid_elements_dirty: HashSet<(GK, LinearGridKey)>,
+}
+
+impl<T, GK: Reflect> ElementProvider<T, GK> {
+    pub fn new(config: ElementsConfig<T, GK>) -> Self {
+        Self {
+            config,
+            grid_elements: HashMap::new(),
+            grid_elements_dirty: HashSet::new(),
+        }
+    }
 }
 
 fn on_request_completed<T, RK, GK>(
@@ -197,9 +207,9 @@ fn on_request_completed<T, RK, GK>(
         if let RequestState::Completed(roads) = request.state()
             && let Ok(roads) = roads
             && let Some(mut provider) = providers
-                .get_mut(request_p.provider_id)
-                .ok()
-                .soft_expect("")
+            .get_mut(request_p.provider_id)
+            .ok()
+            .soft_expect("")
             && let Some(ctx) = view_ctx.get(request_p.provider_id).soft_expect("")
         {
             let bounds_abs = ctx.map.projection.abs_bounds();
@@ -214,7 +224,7 @@ fn on_request_completed<T, RK, GK>(
                 for el in roads.iter() {
                     if let Some(grid_idx) = get_tile_grid_for_element(el)
                         && let Some(grid_config) =
-                            provider.config.tile_grids.get(&grid_idx).soft_expect("")
+                        provider.config.tile_grids.get(&grid_idx).soft_expect("")
                     {
                         let center = (ctx.map.projection.gcs_to_abs(el.aabb().min())
                             + ctx.map.projection.gcs_to_abs(el.aabb().max()))
@@ -261,7 +271,7 @@ pub struct ElementTile<GK> {
     pub spawned_roads: HashSet<i64>,
 }
 
-fn on_dirty_grid_tile_spawns_missing_roads<T, GK>(
+fn on_dirty_grid_tile_spawns_missing_elements<T, GK>(
     mut commands: Commands,
     mut providers: Query<&mut ElementProvider<Road, GK>, Without<ElementTile<GK>>>,
     mut tiles: Query<
@@ -276,9 +286,9 @@ fn on_dirty_grid_tile_spawns_missing_roads<T, GK>(
         if ind == DespawnIndicator::Active
             && let Some(mut provider) = providers.get_mut(*provider_id).ok().soft_expect("")
             && (provider
-                .grid_elements_dirty
-                .remove(&(tile.grid_idx, tile.tile_idx))
-                || tile.is_added())
+            .grid_elements_dirty
+            .remove(&(tile.grid_idx, tile.tile_idx))
+            || tile.is_added())
             && let Some(roads) = provider.grid_elements.get(&(tile.grid_idx, tile.tile_idx))
         {
             for (&road_id, road) in roads {
@@ -298,109 +308,3 @@ fn on_dirty_grid_tile_spawns_missing_roads<T, GK>(
     }
 }
 
-// Implementations
-
-#[derive(Reflect, Eq, PartialEq, Hash, Debug, Clone, Copy)]
-pub enum RoadGridKind {
-    Small,
-    Medium,
-    Large,
-}
-
-fn make_road_bundle(scene_id: Entity, scene_center_abs: DVec2, road: &Road) -> impl Bundle {
-    (
-        Transform::from_translation(vec3(0.0, 0.0, 1000.0)),
-        Name::new("Road"),
-        // Visibility::Visible,
-        // MapZoomVisibility {
-        //     visible_abs_view_perc: (
-        //         0.0,
-        //         0.00075
-        //             * match road.class.category() {
-        //                 RoadClassCategory::HighwayLinks => 3.0,
-        //                 RoadClassCategory::MajorRoads => 3.0,
-        //                 RoadClassCategory::MinorRoads => 0.85,
-        //                 RoadClassCategory::Unknown => 0.25,
-        //                 RoadClassCategory::VerySmallRoads => 0.25,
-        //                 RoadClassCategory::PathsUnsuitableForCars => 0.25,
-        //             },
-        //     ),
-        // },
-        VelloMapLine::new(
-            scene_id,
-            scene_center_abs,
-            road.geometry
-                .iter()
-                .map(|pos| dvec2(pos.x.to_radians(), pos.y.to_radians()))
-                .collect_vec(),
-            match road.class.category() {
-                RoadClassCategory::HighwayLinks => 6.0,
-                RoadClassCategory::MajorRoads => 3.0,
-                RoadClassCategory::MinorRoads => 1.0,
-                RoadClassCategory::Unknown => 0.1,
-                RoadClassCategory::VerySmallRoads => 0.2,
-                RoadClassCategory::PathsUnsuitableForCars => 0.25,
-            },
-            Color::hsva(38.0, 0.0, 0.7, 1.),
-        ),
-    )
-}
-
-pub fn spawn_road_elements_grid(commands: &mut Commands, view_id: Entity, client: Arc<OsmClient>) {
-    let make_grid = |count: UVec2, max_spawned: UVec2| -> LinearGrid {
-        LinearGrid {
-            count,
-            active_tile_buffer_using_expansion: uvec2(1, 1),
-            active_tile_buffer_using_viewport_extension: vec2(0.2, 0.2),
-            min_tile_viewport_percentage: Vec2::ONE / max_spawned.as_vec2(),
-        }
-    };
-
-    let config = ElementsConfig::<Road, RoadGridKind> {
-        request_grid: make_grid(uvec2(1000, 1000), uvec2(4, 4)),
-        tile_grids: HashMap::from([
-            (
-                RoadGridKind::Large,
-                ElementTileGridConfig {
-                    grid: make_grid(uvec2(1000, 1000), uvec2(2, 2)),
-                },
-            ),
-            (
-                RoadGridKind::Medium,
-                ElementTileGridConfig {
-                    grid: make_grid(uvec2(6000, 6000), uvec2(2, 2)),
-                },
-            ),
-            (
-                RoadGridKind::Small,
-                ElementTileGridConfig {
-                    grid: make_grid(uvec2(24000, 24000), uvec2(2, 2)),
-                },
-            ),
-        ]),
-        get_tile_grid_for_element: Some(Box::new(|r: &Road| match (r.class.category(), r.class) {
-            (_, RoadClass::Primary | RoadClass::PrimaryLink) => Some(RoadGridKind::Large),
-            (_, RoadClass::Motorway | RoadClass::MotorwayLink) => Some(RoadGridKind::Large),
-            (_, RoadClass::Trunk | RoadClass::TrunkLink) => Some(RoadGridKind::Large),
-
-            (RoadClassCategory::HighwayLinks, _) => Some(RoadGridKind::Medium),
-            (RoadClassCategory::MajorRoads, _) => Some(RoadGridKind::Medium),
-            (RoadClassCategory::MinorRoads, _) => Some(RoadGridKind::Medium),
-
-            (RoadClassCategory::VerySmallRoads, _) => Some(RoadGridKind::Small),
-            (RoadClassCategory::PathsUnsuitableForCars, _) => Some(RoadGridKind::Small),
-            (RoadClassCategory::Unknown, _) => Some(RoadGridKind::Small),
-            _ => None,
-        })),
-        on_spawn_element_instance: Some(Box::new(|commands, center_abs, tile_id, road_id, road| {
-            commands
-                .entity(road_id)
-                .insert(make_road_bundle(tile_id, center_abs, road));
-        })),
-    };
-
-    let request_manager =
-        RequestManager::new(10, Some(Ratelimiter::new(20)), RoadRequestClient { client });
-
-    spawn_elements_grid(commands, view_id, config, request_manager);
-}

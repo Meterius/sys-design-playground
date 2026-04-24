@@ -1,8 +1,10 @@
 use crate::model::building::Building;
 use crate::model::road::{Road, RoadClassCategory};
+use crate::model::water::Water;
 use futures::StreamExt;
-use generated_queries::queries::osm_roads_queries::{
+use generated_queries::queries::osm_queries::{
     fetch_buildings_by_area, fetch_roads_by_area, fetch_roads_by_area_and_category,
+    fetch_waters_by_area,
 };
 use generated_queries::tokio_postgres;
 use geojson::FeatureCollection;
@@ -160,6 +162,44 @@ impl OsmClient {
                 Ok(Building {
                     osm_id: data.osm_id,
                     kind: data.kind,
+                    geometry: postgis_multi_polygon_to_geotype(&MultiPolygon::read_ewkb(
+                        &mut std::io::Cursor::new(data.geom),
+                    )?),
+                })
+            })
+        }))
+    }
+
+    pub async fn fetch_waters(
+        &self,
+        bounds: DAabb2,
+    ) -> Result<impl futures::Stream<Item = Result<Water, OsmError>>, OsmError> {
+        let corners = bounds.corners().map(dvec2_to_point).collect::<Vec<_>>();
+
+        let iter = fetch_waters_by_area()
+            .bind(
+                &self.client,
+                &ewkb_to_vec(
+                    Polygon {
+                        rings: vec![LineString {
+                            points: std::iter::once(corners[corners.len() - 1])
+                                .chain(corners.into_iter())
+                                .collect(),
+                            srid: None,
+                        }],
+                        srid: None,
+                    }
+                    .as_ewkb(),
+                )?,
+            )
+            .iter()
+            .await?;
+
+        Ok(iter.map(|r| {
+            r.map_err(OsmError::from).and_then(|data| {
+                Ok(Water {
+                    osm_id: data.osm_id,
+                    class: data.class.into(),
                     geometry: postgis_multi_polygon_to_geotype(&MultiPolygon::read_ewkb(
                         &mut std::io::Cursor::new(data.geom),
                     )?),

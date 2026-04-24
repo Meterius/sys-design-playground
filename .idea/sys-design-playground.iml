@@ -9,6 +9,8 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/backend_model/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/utilities/vendor/irox-carto/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/osm/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/bevy_vello/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/bevy_vello/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/crates/backend/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/datasets/sat" />

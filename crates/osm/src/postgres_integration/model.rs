@@ -1,4 +1,5 @@
 use crate::model::road::{OneWay, RoadClass, RoadClassCategory};
+use crate::model::water::WaterClass;
 use generated_queries::types as sql_types;
 
 impl From<OneWay> for sql_types::RoadOneway {
@@ -113,6 +114,52 @@ impl From<sql_types::RoadClass> for RoadClass {
             sql_types::RoadClass::path => Self::Path,
             sql_types::RoadClass::steps => Self::Steps,
             sql_types::RoadClass::unknown => Self::Unknown,
+        }
+    }
+}
+
+impl From<WaterClass> for sql_types::WaterClass {
+    fn from(value: WaterClass) -> Self {
+        match value {
+            WaterClass::Dock => Self::dock,
+            WaterClass::Reservoir => Self::reservoir,
+            WaterClass::River => Self::river,
+            WaterClass::Water => Self::water,
+            WaterClass::Wetland => Self::wetland,
+            WaterClass::Glacier => Self::glacier,
+            WaterClass::Riverbank => Self::riverbank,
+            WaterClass::WetlandFen => Self::wetland_fen,
+            WaterClass::WetlandReedbed => Self::wetland_reedbed,
+            WaterClass::WetlandSwamp => Self::wetland_swamp,
+            WaterClass::WetlandTidalflat => Self::wetland_tidalflat,
+            WaterClass::WetlandWetMeadow => Self::wetland_wet_meadow,
+            WaterClass::WetlandMangrove => Self::wetland_mangrove,
+            WaterClass::WetlandMarsh => Self::wetland_marsh,
+            WaterClass::WetlandSaltmarsh => Self::wetland_saltmarsh,
+            WaterClass::WetlandBog => Self::wetland_bog,
+        }
+    }
+}
+
+impl From<sql_types::WaterClass> for WaterClass {
+    fn from(value: sql_types::WaterClass) -> Self {
+        match value {
+            sql_types::WaterClass::water => Self::Water,
+            sql_types::WaterClass::river => Self::River,
+            sql_types::WaterClass::reservoir => Self::Reservoir,
+            sql_types::WaterClass::dock => Self::Dock,
+            sql_types::WaterClass::wetland => Self::Wetland,
+            sql_types::WaterClass::glacier => Self::Glacier,
+            sql_types::WaterClass::riverbank => Self::Riverbank,
+            sql_types::WaterClass::wetland_fen => Self::WetlandFen,
+            sql_types::WaterClass::wetland_reedbed => Self::WetlandReedbed,
+            sql_types::WaterClass::wetland_swamp => Self::WetlandSwamp,
+            sql_types::WaterClass::wetland_tidalflat => Self::WetlandTidalflat,
+            sql_types::WaterClass::wetland_wet_meadow => Self::WetlandWetMeadow,
+            sql_types::WaterClass::wetland_mangrove => Self::WetlandMangrove,
+            sql_types::WaterClass::wetland_marsh => Self::WetlandMarsh,
+            sql_types::WaterClass::wetland_saltmarsh => Self::WetlandSaltmarsh,
+            sql_types::WaterClass::wetland_bog => Self::WetlandBog,
         }
     }
 }

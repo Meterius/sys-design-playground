@@ -180,6 +180,8 @@ impl<P: Parser<Output = bool>, const DEFAULT: bool> Parser for DefaultParser<P, 
 }
 
 pub trait ShapefileElement: Sized {
+    fn id(&self) -> i64;
+
     fn from_shapefile_item(
         item: (shapefile::Shape, &shapefile::dbase::Record),
     ) -> Result<Self, RecordParseError>;

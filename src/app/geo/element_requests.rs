@@ -6,9 +6,10 @@ use glam::dvec2;
 use ordered_float::OrderedFloat;
 use osm::model::building::Building;
 use osm::model::road::Road;
+use osm::model::water::Water;
 use osm::postgres_integration::client::{OsmClient, OsmError};
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::debug;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 
 pub struct ElementRequestsPlugin;
@@ -16,7 +17,11 @@ pub struct ElementRequestsPlugin;
 impl Plugin for ElementRequestsPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(AsyncRequestsPlugin::<RoadRequestKind, RoadRequestClient>::new());
-        app.add_plugins(AsyncRequestsPlugin::<BuildingRequestKind, BuildingRequestClient>::new());
+        app.add_plugins(AsyncRequestsPlugin::<
+            BuildingRequestKind,
+            BuildingRequestClient,
+        >::new());
+        app.add_plugins(AsyncRequestsPlugin::<WaterRequestKind, WaterRequestClient>::new());
     }
 }
 
@@ -109,5 +114,50 @@ impl RequestClient<BuildingRequestKind> for BuildingRequestClient {
         debug!("Received {} buildings", buildings.len());
 
         Ok(buildings)
+    }
+}
+
+#[derive(Reflect)]
+pub struct WaterRequestKind;
+
+impl RequestKind for WaterRequestKind {
+    type Key = Bounds;
+    type Value = Vec<Water>;
+    type Error = OsmError;
+}
+
+#[derive(Clone)]
+pub struct WaterRequestClient {
+    pub client: Arc<OsmClient>,
+}
+
+impl RequestClient<WaterRequestKind> for WaterRequestClient {
+    async fn fetch_preflight(
+        &self,
+        _bounds: &Bounds,
+    ) -> bevy::prelude::Result<Option<Vec<Water>>, OsmError> {
+        Ok(None)
+    }
+
+    async fn fetch(&self, bounds: &Bounds) -> bevy::prelude::Result<Vec<Water>, OsmError> {
+        let waters: Vec<_> = self
+            .client
+            .fetch_waters(DAabb2::new(
+                dvec2(
+                    bounds[0].into_inner().to_degrees(),
+                    bounds[1].into_inner().to_degrees(),
+                ),
+                dvec2(
+                    bounds[2].into_inner().to_degrees(),
+                    bounds[3].into_inner().to_degrees(),
+                ),
+            ))
+            .await?
+            .try_collect()
+            .await?;
+
+        debug!("Received {} waters", waters.len());
+
+        Ok(waters)
     }
 }

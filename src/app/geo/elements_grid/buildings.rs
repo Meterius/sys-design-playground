@@ -2,7 +2,7 @@ use crate::app::geo::element_requests::{BuildingRequestClient, BuildingRequestKi
 use crate::app::geo::elements_grid::manager::{
     ElementTileGridConfig, ElementsConfig, ElementsGridPlugin, spawn_elements_grid,
 };
-use crate::app::geo::geometry_vello::VelloMapLine;
+use crate::app::geo::geometry_vello::{VelloMapLine, VelloMapPolygon};
 use crate::app::geo::grid::manager::LinearGrid;
 use crate::app::utils::async_requests::RequestManager;
 use bevy::prelude::*;
@@ -12,6 +12,8 @@ use osm::postgres_integration::client::OsmClient;
 use ratelimit::Ratelimiter;
 use std::collections::HashMap;
 use std::sync::Arc;
+use geo_types::{LineString, MultiPolygon};
+use bevy_vello::prelude::kurbo;
 
 pub struct BuildingElementsGridPlugin;
 
@@ -41,29 +43,29 @@ fn make_building_bundle(
     scene_center_abs: DVec2,
     building: &Building,
 ) -> impl Bundle {
-    let geom: Vec<_> = building
-        .geometry
-        .iter()
-        .next()
-        .map(|poly| {
-            poly.exterior()
-                .points()
-                .map(|p| dvec2(p.x().to_radians(), p.y().to_radians()))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    assert!(geom.len() >= 2);
+    let geom = MultiPolygon::from_iter(building.geometry.iter().map(|poly| {
+        geo_types::Polygon::new(
+            LineString::from_iter(poly.exterior().points().map(|p| p.to_radians())),
+            poly.interiors()
+                .iter()
+                .map(|interior| LineString::from_iter(interior.points().map(|p| p.to_radians())))
+                .collect(),
+        )
+    }));
 
     (
         Transform::from_translation(vec3(0.0, 0.0, 1000.0)),
         Name::new("Building"),
-        VelloMapLine::new(
+        VelloMapPolygon::new(
             scene_id,
+            0,
             scene_center_abs,
             geom,
-            0.5,
-            Color::hsva(38.0, 0.1, 0.4, 1.),
+            Color::hsva(38.0, 0.1, 0.6, 1.),
+            Some((
+                Color::hsva(38.0, 0.1, 0.3, 1.),
+                kurbo::Stroke::new(0.075),
+            )),
         ),
     )
 }
@@ -100,6 +102,7 @@ pub fn spawn_building_elements_grid(
                     .insert(make_building_bundle(tile_id, center_abs, building));
             },
         )),
+        on_spawn_tile: None,
     };
 
     let request_manager = RequestManager::new(

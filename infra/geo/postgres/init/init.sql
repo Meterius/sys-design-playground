@@ -1,5 +1,10 @@
 CREATE EXTENSION IF NOT EXISTS postgis;
 
+CREATE TYPE WATER_CLASS AS ENUM (
+    'water','reservoir','river','dock','glacier','wetland','wetland_fen','riverbank','wetland_mangrove','wetland_marsh',
+    'wetland_tidalflat', 'wetland_reedbed', 'wetland_wet_meadow', 'wetland_swamp', 'wetland_saltmarsh', 'wetland_bog'
+);
+
 CREATE TYPE ROAD_CLASS AS ENUM (
     'motorway','trunk','primary','secondary','tertiary',
     'unclassified','residential','living_street','pedestrian','busway',
@@ -41,3 +46,13 @@ CREATE TABLE osm_buildings (
 CREATE INDEX idx_osm_buildings_geom ON osm_buildings USING GIST (geom);
 
 CREATE TABLE tmp_upsert_buildings_streaming AS SELECT * FROM osm_buildings LIMIT 0;
+
+CREATE TABLE osm_waters (
+    osm_id        bigint primary key,
+    class         WATER_CLASS not null,
+    geom          geography(MULTIPOLYGON, 4326) not null
+);
+
+CREATE INDEX idx_osm_waters_geom ON osm_waters USING GIST (geom);
+
+CREATE TABLE tmp_upsert_waters_streaming AS SELECT * FROM osm_waters LIMIT 0;

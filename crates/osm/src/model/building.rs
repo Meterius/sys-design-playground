@@ -11,6 +11,10 @@ pub struct Building {
 }
 
 impl ShapefileElement for Building {
+    fn id(&self) -> i64 {
+        self.osm_id
+    }
+
     fn from_shapefile_item(
         (shape, record): (shapefile::Shape, &shapefile::dbase::Record),
     ) -> Result<Self, RecordParseError> {

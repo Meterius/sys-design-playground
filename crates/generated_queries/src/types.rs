@@ -380,3 +380,148 @@ impl<'a> postgres_types::FromSql<'a> for RoadOneway {
         }
     }
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(non_camel_case_types)]
+pub enum WaterClass {
+    water,
+    reservoir,
+    river,
+    dock,
+    glacier,
+    wetland,
+    wetland_fen,
+    riverbank,
+    wetland_mangrove,
+    wetland_marsh,
+    wetland_tidalflat,
+    wetland_reedbed,
+    wetland_wet_meadow,
+    wetland_swamp,
+    wetland_saltmarsh,
+    wetland_bog,
+}
+impl<'a> postgres_types::ToSql for WaterClass {
+    fn to_sql(
+        &self,
+        ty: &postgres_types::Type,
+        buf: &mut postgres_types::private::BytesMut,
+    ) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        let s = match *self {
+            WaterClass::water => "water",
+            WaterClass::reservoir => "reservoir",
+            WaterClass::river => "river",
+            WaterClass::dock => "dock",
+            WaterClass::glacier => "glacier",
+            WaterClass::wetland => "wetland",
+            WaterClass::wetland_fen => "wetland_fen",
+            WaterClass::riverbank => "riverbank",
+            WaterClass::wetland_mangrove => "wetland_mangrove",
+            WaterClass::wetland_marsh => "wetland_marsh",
+            WaterClass::wetland_tidalflat => "wetland_tidalflat",
+            WaterClass::wetland_reedbed => "wetland_reedbed",
+            WaterClass::wetland_wet_meadow => "wetland_wet_meadow",
+            WaterClass::wetland_swamp => "wetland_swamp",
+            WaterClass::wetland_saltmarsh => "wetland_saltmarsh",
+            WaterClass::wetland_bog => "wetland_bog",
+        };
+        buf.extend_from_slice(s.as_bytes());
+        std::result::Result::Ok(postgres_types::IsNull::No)
+    }
+    fn accepts(ty: &postgres_types::Type) -> bool {
+        if ty.name() != "water_class" {
+            return false;
+        }
+        match *ty.kind() {
+            postgres_types::Kind::Enum(ref variants) => {
+                if variants.len() != 16 {
+                    return false;
+                }
+                variants.iter().all(|v| match &**v {
+                    "water" => true,
+                    "reservoir" => true,
+                    "river" => true,
+                    "dock" => true,
+                    "glacier" => true,
+                    "wetland" => true,
+                    "wetland_fen" => true,
+                    "riverbank" => true,
+                    "wetland_mangrove" => true,
+                    "wetland_marsh" => true,
+                    "wetland_tidalflat" => true,
+                    "wetland_reedbed" => true,
+                    "wetland_wet_meadow" => true,
+                    "wetland_swamp" => true,
+                    "wetland_saltmarsh" => true,
+                    "wetland_bog" => true,
+                    _ => false,
+                })
+            }
+            _ => false,
+        }
+    }
+    fn to_sql_checked(
+        &self,
+        ty: &postgres_types::Type,
+        out: &mut postgres_types::private::BytesMut,
+    ) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        postgres_types::__to_sql_checked(self, ty, out)
+    }
+}
+impl<'a> postgres_types::FromSql<'a> for WaterClass {
+    fn from_sql(
+        ty: &postgres_types::Type,
+        buf: &'a [u8],
+    ) -> Result<WaterClass, Box<dyn std::error::Error + Sync + Send>> {
+        match std::str::from_utf8(buf)? {
+            "water" => Ok(WaterClass::water),
+            "reservoir" => Ok(WaterClass::reservoir),
+            "river" => Ok(WaterClass::river),
+            "dock" => Ok(WaterClass::dock),
+            "glacier" => Ok(WaterClass::glacier),
+            "wetland" => Ok(WaterClass::wetland),
+            "wetland_fen" => Ok(WaterClass::wetland_fen),
+            "riverbank" => Ok(WaterClass::riverbank),
+            "wetland_mangrove" => Ok(WaterClass::wetland_mangrove),
+            "wetland_marsh" => Ok(WaterClass::wetland_marsh),
+            "wetland_tidalflat" => Ok(WaterClass::wetland_tidalflat),
+            "wetland_reedbed" => Ok(WaterClass::wetland_reedbed),
+            "wetland_wet_meadow" => Ok(WaterClass::wetland_wet_meadow),
+            "wetland_swamp" => Ok(WaterClass::wetland_swamp),
+            "wetland_saltmarsh" => Ok(WaterClass::wetland_saltmarsh),
+            "wetland_bog" => Ok(WaterClass::wetland_bog),
+            s => Result::Err(Into::into(format!("invalid variant `{}`", s))),
+        }
+    }
+    fn accepts(ty: &postgres_types::Type) -> bool {
+        if ty.name() != "water_class" {
+            return false;
+        }
+        match *ty.kind() {
+            postgres_types::Kind::Enum(ref variants) => {
+                if variants.len() != 16 {
+                    return false;
+                }
+                variants.iter().all(|v| match &**v {
+                    "water" => true,
+                    "reservoir" => true,
+                    "river" => true,
+                    "dock" => true,
+                    "glacier" => true,
+                    "wetland" => true,
+                    "wetland_fen" => true,
+                    "riverbank" => true,
+                    "wetland_mangrove" => true,
+                    "wetland_marsh" => true,
+                    "wetland_tidalflat" => true,
+                    "wetland_reedbed" => true,
+                    "wetland_wet_meadow" => true,
+                    "wetland_swamp" => true,
+                    "wetland_saltmarsh" => true,
+                    "wetland_bog" => true,
+                    _ => false,
+                })
+            }
+            _ => false,
+        }
+    }
+}

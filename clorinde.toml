@@ -1,4 +1,4 @@
 [manifest.package]
 name = "generated_queries"
 
-# update command:
+# update command: clorinde live "postgresql://localhost?dbname=app_db&user=dev&password=dev" --destination crates/generated_queries

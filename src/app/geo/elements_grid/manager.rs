@@ -1,7 +1,7 @@
 use crate::app::geo::despawn_indicator::DespawnIndicator;
 use crate::app::geo::element_requests::Bounds;
-use crate::app::geo::grid::manager::{LinearGrid, LinearGridKey, MapViewGrid, TileSpawningSystems};
-use crate::app::geo::map::{MapViewContextQuery, MapViewContextRef};
+use crate::app::geo::grid::manager::{LinearGrid, LinearGridKey, MapViewGrid, MapViewTile, TileSpawningSystems};
+use crate::app::geo::map::{MapViewContext, MapViewContextQuery, MapViewContextRef};
 use crate::app::utils::async_requests::{
     Request, RequestClient, RequestKind, RequestManager, RequestState, RequestWithManager,
 };
@@ -9,18 +9,20 @@ use crate::app::utils::big_space_ext::CommandsWithSpatial;
 use crate::app::utils::debug::SoftExpect;
 use crate::geo::coords::Projection2D;
 use bevy::app::{App, Plugin};
-use bevy::camera::visibility::{NoAutoAabb, NoFrustumCulling, RenderLayers};
+use bevy::camera::primitives::Aabb;
+use bevy::camera::visibility::{NoAutoAabb, RenderLayers};
 use bevy::prelude::*;
 use bevy_vello::prelude::VelloScene2d;
 use big_space::grid::Grid;
 use glam::{DVec2, dvec2};
 use osm::model::building::Building;
+use osm::model::road::Road;
+use osm::model::water::Water;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use bevy::camera::primitives::Aabb;
-use osm::model::road::Road;
+use std::sync::Arc;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 
 pub struct ElementsGridPlugin<RK, GK> {
@@ -97,6 +99,8 @@ pub fn spawn_elements_grid<T, RK, GK, GC>(
     commands.entity(provider_id).add_child(request_grid_id);
 
     for (&grid_idx, grid_config) in config.tile_grids.iter() {
+        let on_spawn_tile = config.on_spawn_tile.clone();
+
         let grid_id = commands
             .spawn_spatial((
                 Grid::default(),
@@ -134,6 +138,10 @@ pub fn spawn_elements_grid<T, RK, GK, GC>(
                             RenderLayers::layer(4),
                             ElementTileWithProvider(provider_id),
                         ));
+
+                        if let Some(on_spawn_tile) = on_spawn_tile.as_ref() {
+                            on_spawn_tile(commands, ctx, tile_id, tile);
+                        }
                     })),
                 ),
             ))
@@ -196,6 +204,35 @@ impl Element for Building {
     }
 }
 
+impl Element for Water {
+    fn id(&self) -> i64 {
+        self.osm_id
+    }
+
+    fn aabb(&self) -> DAabb2 {
+        DAabb2::new(
+            self.geometry
+                .iter()
+                .flat_map(|p| {
+                    p.exterior()
+                        .points()
+                        .map(|p| dvec2(p.x().to_radians(), p.y().to_radians()))
+                })
+                .reduce(|a, b| a.min(b))
+                .unwrap_or(DVec2::ZERO),
+            self.geometry
+                .iter()
+                .flat_map(|p| {
+                    p.exterior()
+                        .points()
+                        .map(|p| dvec2(p.x().to_radians(), p.y().to_radians()))
+                })
+                .reduce(|a, b| a.max(b))
+                .unwrap_or(DVec2::ZERO),
+        )
+    }
+}
+
 #[derive(Clone, Reflect)]
 pub struct ElementTileGridConfig {
     pub grid: LinearGrid,
@@ -210,6 +247,9 @@ pub struct ElementsConfig<T, GK: Reflect> {
     #[reflect(ignore)]
     pub on_spawn_element_instance:
         Option<Box<dyn Fn(&mut Commands, DVec2, Entity, Entity, &T) + Send + Sync>>,
+    #[reflect(ignore)]
+    pub on_spawn_tile:
+        Option<Arc<dyn Fn(&mut Commands, MapViewContext, Entity, &MapViewTile) + Send + Sync>>,
 }
 
 #[derive(Component, Reflect)]

@@ -1,25 +1,31 @@
 use futures::stream::{self, StreamExt};
-use generated_queries::queries::osm_roads_queries::{
+use generated_queries::queries::osm_queries::{
     UpsertBuildingsStreamingCommitStmt, UpsertBuildingsStreamingEndStmt,
     UpsertBuildingsStreamingTransferStmt, UpsertRoadStreamingTransferStmt,
-    UpsertRoadsStreamingCommitStmt, UpsertRoadsStreamingEndStmt, upsert_buildings_streaming_commit,
-    upsert_buildings_streaming_end, upsert_buildings_streaming_start,
-    upsert_buildings_streaming_transfer, upsert_road_streaming_transfer,
-    upsert_roads_streaming_commit, upsert_roads_streaming_end, upsert_roads_streaming_start,
+    UpsertRoadsStreamingCommitStmt, UpsertRoadsStreamingEndStmt, UpsertWatersStreamingCommitStmt,
+    UpsertWatersStreamingEndStmt, UpsertWatersStreamingTransferStmt,
+    upsert_buildings_streaming_commit, upsert_buildings_streaming_end,
+    upsert_buildings_streaming_start, upsert_buildings_streaming_transfer,
+    upsert_road_streaming_transfer, upsert_roads_streaming_commit, upsert_roads_streaming_end,
+    upsert_roads_streaming_start, upsert_waters_streaming_commit, upsert_waters_streaming_end,
+    upsert_waters_streaming_start, upsert_waters_streaming_transfer,
 };
 use glam::DVec2;
 use osm::model::building::Building;
 use osm::model::parser::ShapefileElement;
 use osm::model::road::Road;
+use osm::model::water::Water;
 use osm::postgres_integration::client::geotype_multi_polygon_to_postgis;
 use postgis::ewkb::{AsEwkbLineString, AsEwkbMultiPolygon, EwkbWrite, LineString, Point};
+use std::collections::HashSet;
+use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::time::{Duration, Instant};
 use tokio_postgres::binary_copy::BinaryCopyInWriter;
 use tokio_postgres::types::Type;
 use tokio_postgres::{Client, NoTls};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 const MAX_PARALLEL_DIRS: usize = 8;
 
@@ -246,10 +252,80 @@ impl<'a> ElementStreamingWriter<Building> for BuildingStreamingWriter<'a> {
     }
 }
 
-async fn process_shapefile_dir<'a, T: ShapefileElement, W: ElementStreamingWriter<T>>(
+struct WaterStreamingWriter<'a> {
     client: &'a Client,
+    // Prepared for consistency with generated query flow; COPY still uses protocol API.
+    _transfer_stmt: UpsertWatersStreamingTransferStmt,
+    commit_stmt: UpsertWatersStreamingCommitStmt,
+    end_stmt: UpsertWatersStreamingEndStmt,
+    copy_writer: Pin<Box<BinaryCopyInWriter>>,
+}
+
+impl<'a> WaterStreamingWriter<'a> {
+    async fn begin(client: &'a Client) -> Result<Self, tokio_postgres::Error> {
+        let (start_stmt, transfer_stmt, commit_stmt, end_stmt) = tokio::try_join!(
+            upsert_waters_streaming_start().prepare(client),
+            upsert_waters_streaming_transfer().prepare(client),
+            upsert_waters_streaming_commit().prepare(client),
+            upsert_waters_streaming_end().prepare(client),
+        )?;
+        start_stmt.bind(client).await?;
+
+        let copy_sink = client
+            .copy_in(
+                "COPY tmp_upsert_waters_streaming (
+                    osm_id, class, geom
+                ) FROM stdin binary",
+            )
+            .await?;
+
+        let copy_writer = Box::pin(BinaryCopyInWriter::new(
+            copy_sink,
+            &[Type::INT8, Type::TEXT, Type::BYTEA],
+        ));
+
+        Ok(Self {
+            client,
+            _transfer_stmt: transfer_stmt,
+            commit_stmt,
+            end_stmt,
+            copy_writer,
+        })
+    }
+}
+
+impl<'a> ElementStreamingWriter<Water> for WaterStreamingWriter<'a> {
+    async fn write(&mut self, water: Water) -> Result<(), tokio_postgres::Error> {
+        let geom_ewkb = multi_polygon_to_ewkb(&water.geometry);
+
+        self.copy_writer
+            .as_mut()
+            .write(&[&water.osm_id, &water.class.as_ref(), &geom_ewkb])
+            .await
+    }
+
+    async fn finish(mut self) -> Result<(u64, u64), tokio_postgres::Error> {
+        let res = async {
+            let copied = self.copy_writer.as_mut().finish().await?;
+            let merged = self.commit_stmt.bind(self.client).await?;
+            Ok((copied, merged))
+        }
+        .await;
+
+        self.end_stmt.bind(self.client).await?;
+
+        res
+    }
+}
+
+async fn process_shapefile_dir<
+    'a,
+    T: ShapefileElement + Clone + Debug,
+    W: ElementStreamingWriter<T>,
+>(
+    _client: &'a Client,
     shp_path: &Path,
-    table_name: &str,
+    _table_name: &str,
     make_writer: impl AsyncFnOnce() -> Result<W, tokio_postgres::Error>,
 ) -> Result<DirStats, tokio_postgres::Error> {
     if !shp_path.exists() {
@@ -266,45 +342,47 @@ async fn process_shapefile_dir<'a, T: ShapefileElement, W: ElementStreamingWrite
         }
     };
 
-    // Probe the first parsable element id and skip whole shapefile if it is already ingested.
-    let first_osm_id = {
-        let mut probe_reader = match shapefile::reader::Reader::from_path(shp_path) {
-            Ok(reader) => reader,
-            Err(err) => {
-                error!("probe_open_error path={} err={err:?}", shp_path.display());
-                return Ok(DirStats::default());
-            }
-        };
-        let mut found = None;
-        for item in probe_reader.iter_shapes_and_records() {
-            let Ok((shape, rec)) = item else {
-                continue;
-            };
-            if let Ok(road) = Road::from_shapefile_item((shape, &rec)) {
-                found = Some(road.osm_id);
-                break;
-            }
-        }
-        found
-    };
+    // // Probe the first parsable element id and skip whole shapefile if it is already ingested.
+    // let first_osm_id = {
+    //     let mut probe_reader = match shapefile::reader::Reader::from_path(shp_path) {
+    //         Ok(reader) => reader,
+    //         Err(err) => {
+    //             error!("probe_open_error path={} err={err:?}", shp_path.display());
+    //             return Ok(DirStats::default());
+    //         }
+    //     };
+    //     let mut found = None;
+    //     for item in probe_reader.iter_shapes_and_records() {
+    //         let Ok((shape, rec)) = item else {
+    //             continue;
+    //         };
+    //         if let Ok(road) = Road::from_shapefile_item((shape, &rec)) {
+    //             found = Some(road.osm_id);
+    //             break;
+    //         }
+    //     }
+    //     found
+    // };
+    //
+    // if let Some(first_id) = first_osm_id {
+    //     let exists = client
+    //         .query_one(
+    //             &format!("SELECT EXISTS(SELECT 1 FROM {table_name} WHERE osm_id = $1)"),
+    //             &[&first_id],
+    //         )
+    //         .await?
+    //         .get::<_, bool>(0);
+    //     if exists {
+    //         info!(
+    //             "skip_shapefile_already_ingested path={} first_osm_id={}",
+    //             shp_path.display(),
+    //             first_id
+    //         );
+    //         return Ok(DirStats::default());
+    //     }
+    // }
 
-    if let Some(first_id) = first_osm_id {
-        let exists = client
-            .query_one(
-                &format!("SELECT EXISTS(SELECT 1 FROM {table_name} WHERE osm_id = $1)"),
-                &[&first_id],
-            )
-            .await?
-            .get::<_, bool>(0);
-        if exists {
-            info!(
-                "skip_shapefile_already_ingested path={} first_osm_id={}",
-                shp_path.display(),
-                first_id
-            );
-            return Ok(DirStats::default());
-        }
-    }
+    let mut found = HashSet::new();
 
     let mut writer = make_writer().await?;
     let started_at = Instant::now();
@@ -316,8 +394,12 @@ async fn process_shapefile_dir<'a, T: ShapefileElement, W: ElementStreamingWrite
         match item {
             Ok((shape, rec)) => match T::from_shapefile_item((shape, &rec)) {
                 Ok(el) => {
-                    if let Err(err) = writer.write(el).await {
-                        error!("Encountered error writing element: {err:?}");
+                    if found.insert(el.id()) {
+                        if let Err(err) = writer.write(el).await {
+                            error!("Encountered error writing element: {err:?}");
+                        }
+                    } else {
+                        warn!("Duplicate element id: {:?}", el.id());
                     }
 
                     stats.processed += 1;
@@ -336,11 +418,11 @@ async fn process_shapefile_dir<'a, T: ShapefileElement, W: ElementStreamingWrite
                     }
                 }
                 Err(err) => {
-                    error!("Error={err:?} Rec={rec:?}");
+                    warn!("Error={err:?} Rec={rec:?}");
                 }
             },
             Err(err) => {
-                error!("Error: {err:?}");
+                warn!("Error: {err:?}");
             }
         }
     }
@@ -365,9 +447,6 @@ async fn process_shapefile_dir<'a, T: ShapefileElement, W: ElementStreamingWrite
 }
 
 async fn worker_task(worker_idx: usize, mut rx: tokio::sync::mpsc::Receiver<PathBuf>) -> DirStats {
-    let shapefile_name = "gis_osm_buildings_a_free_1.shp";
-    let table_name = "osm_buildings";
-
     let (client, connection) =
         tokio_postgres::connect("dbname=app_db host=localhost user=dev password=dev", NoTls)
             .await
@@ -378,12 +457,18 @@ async fn worker_task(worker_idx: usize, mut rx: tokio::sync::mpsc::Receiver<Path
         }
     });
 
+    // let shapefile_name = "gis_osm_buildings_a_free_1.shp";
+    // let table_name = "osm_buildings";
+    // let make_writer = || BuildingStreamingWriter::begin(&client);
+
+    let shapefile_name = "gis_osm_water_a_free_1.shp";
+    let table_name = "osm_waters";
+    let make_writer = || WaterStreamingWriter::begin(&client);
+
     let mut totals = DirStats::default();
     while let Some(dir) = rx.recv().await {
-        match process_shapefile_dir(&client, &dir.join(shapefile_name), table_name, || {
-            BuildingStreamingWriter::begin(&client)
-        })
-        .await
+        match process_shapefile_dir(&client, &dir.join(shapefile_name), table_name, make_writer)
+            .await
         {
             Ok(stats) => {
                 totals.processed += stats.processed;

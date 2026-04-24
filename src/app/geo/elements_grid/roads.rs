@@ -5,7 +5,9 @@ use crate::app::geo::elements_grid::manager::{
 use crate::app::geo::geometry_vello::VelloMapLine;
 use crate::app::geo::grid::manager::LinearGrid;
 use crate::app::utils::async_requests::RequestManager;
+use crate::app::utils::vello_ext::VelloEnhancedScene;
 use bevy::prelude::*;
+use bevy_vello::prelude::{VelloScene2d, peniko};
 use glam::{DVec2, dvec2};
 use osm::model::road::{Road, RoadClass, RoadClassCategory};
 use osm::postgres_integration::client::OsmClient;
@@ -86,16 +88,6 @@ fn make_road_bundle(scene_id: Entity, scene_center_abs: DVec2, road: &Road) -> i
         //             },
         //     ),
         // },
-        VelloMapLine::new(
-            scene_id,
-            scene_center_abs,
-            road.geometry
-                .iter()
-                .map(|pos| dvec2(pos.x.to_radians(), pos.y.to_radians()))
-                .collect(),
-            road_classification(road).map(|c| c.width).unwrap_or(1.),
-            Color::hsva(38.0, 0.0, 0.7, 1.),
-        ),
     )
 }
 
@@ -139,8 +131,55 @@ pub fn spawn_road_elements_grid(commands: &mut Commands, view_id: Entity, client
                 commands
                     .entity(road_id)
                     .insert(make_road_bundle(tile_id, center_abs, road));
+
+                commands.entity(road_id).with_children(|commands| {
+                    commands.spawn((
+                        Transform::default(),
+                        VelloMapLine::new(
+                            tile_id,
+                            0,
+                            center_abs,
+                            road.geometry
+                                .iter()
+                                .map(|pos| dvec2(pos.x.to_radians(), pos.y.to_radians()))
+                                .collect(),
+                            road_classification(road).map(|c| c.width).unwrap_or(1.) + 0.1,
+                            Color::hsva(38.0, 0.0, 0.3, 1.),
+                        ),
+                    ));
+
+                    commands.spawn((
+                        Transform::default(),
+                        VelloMapLine::new(
+                            tile_id,
+                            1,
+                            center_abs,
+                            road.geometry
+                                .iter()
+                                .map(|pos| dvec2(pos.x.to_radians(), pos.y.to_radians()))
+                                .collect(),
+                            road_classification(road).map(|c| c.width).unwrap_or(1.),
+                            Color::hsva(38.0, 0.0, 0.7, 1.),
+                        ),
+                    ));
+                });
             },
         )),
+        on_spawn_tile: Some(Arc::new(|commands, ctx, tile_id, tile| {
+            commands.entity(tile_id).insert(VelloEnhancedScene {
+                on_layer_draw_begin: HashMap::from([
+                        // (1, Box::new(move |scene: &mut VelloScene2d| {
+                        //     scene.push_layer(
+                        //         peniko::Fill::default(),
+                        //         peniko::BlendMode {
+                        //             compose: peniko::Compose::SrcOver,
+                        //             mix: peniko::Mix::Normal,
+                        //         }
+                        //     )
+                        // }))
+                    ]),
+            });
+        })),
     };
 
     let request_manager =

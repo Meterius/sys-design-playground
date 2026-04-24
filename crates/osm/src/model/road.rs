@@ -214,6 +214,10 @@ fn parse_polyline(shape: &shapefile::Shape) -> Result<Vec<DVec2>, RecordParseErr
 }
 
 impl ShapefileElement for Road {
+    fn id(&self) -> i64 {
+        self.osm_id
+    }
+
     fn from_shapefile_item(
         (shape, record): (shapefile::Shape, &shapefile::dbase::Record),
     ) -> Result<Self, RecordParseError> {

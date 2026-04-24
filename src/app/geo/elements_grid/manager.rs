@@ -9,16 +9,18 @@ use crate::app::utils::big_space_ext::CommandsWithSpatial;
 use crate::app::utils::debug::SoftExpect;
 use crate::geo::coords::Projection2D;
 use bevy::app::{App, Plugin};
-use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
+use bevy::camera::visibility::{NoAutoAabb, NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
 use bevy_vello::prelude::VelloScene2d;
 use big_space::grid::Grid;
-use glam::DVec2;
-use osm::model::road::Road;
+use glam::{DVec2, dvec2};
+use osm::model::building::Building;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
+use bevy::camera::primitives::Aabb;
+use osm::model::road::Road;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 
 pub struct ElementsGridPlugin<RK, GK> {
@@ -104,11 +106,21 @@ pub fn spawn_elements_grid<T, RK, GK, GC>(
                     grid_config.grid.clone(),
                     Some(Box::new(move |commands, ctx, tile_id, tile| {
                         // TODO: use proper view grid to determine position, refactor hierarchy coordinate translations to allow for relative positioning
-                        let center_local = ctx.view.abs_to_local(tile.bounds_abs.center());
+
+                        let bounds_local = DAabb2::new(
+                            ctx.view.abs_to_local(tile.bounds_abs.min()),
+                            ctx.view.abs_to_local(tile.bounds_abs.max()),
+                        );
+
                         let (cell_idx, cell_pos) =
-                            Grid::default().translation_to_grid(center_local.extend(0.));
+                            Grid::default().translation_to_grid(bounds_local.center().extend(0.));
 
                         commands.entity(tile_id).insert((
+                            NoAutoAabb,
+                            Aabb {
+                                center: Vec3A::default(),
+                                half_extents: (bounds_local.size() / 2.).extend(0.).as_vec3a(),
+                            },
                             cell_idx,
                             Transform::from_translation(cell_pos),
                             ElementTile {
@@ -120,7 +132,6 @@ pub fn spawn_elements_grid<T, RK, GK, GC>(
                             },
                             VelloScene2d::default(),
                             RenderLayers::layer(4),
-                            NoFrustumCulling,
                             ElementTileWithProvider(provider_id),
                         ));
                     })),
@@ -152,6 +163,35 @@ impl Element for Road {
         DAabb2::new(
             self.aabb().min().map(f64::to_radians),
             self.aabb().max().map(f64::to_radians),
+        )
+    }
+}
+
+impl Element for Building {
+    fn id(&self) -> i64 {
+        self.osm_id
+    }
+
+    fn aabb(&self) -> DAabb2 {
+        DAabb2::new(
+            self.geometry
+                .iter()
+                .flat_map(|p| {
+                    p.exterior()
+                        .points()
+                        .map(|p| dvec2(p.x().to_radians(), p.y().to_radians()))
+                })
+                .reduce(|a, b| a.min(b))
+                .unwrap_or(DVec2::ZERO),
+            self.geometry
+                .iter()
+                .flat_map(|p| {
+                    p.exterior()
+                        .points()
+                        .map(|p| dvec2(p.x().to_radians(), p.y().to_radians()))
+                })
+                .reduce(|a, b| a.max(b))
+                .unwrap_or(DVec2::ZERO),
         )
     }
 }
@@ -271,7 +311,7 @@ pub struct ElementTile<GK> {
 
 fn on_dirty_grid_tile_spawns_missing_elements<T, GK>(
     mut commands: Commands,
-    mut providers: Query<&mut ElementProvider<Road, GK>, Without<ElementTile<GK>>>,
+    mut providers: Query<&mut ElementProvider<T, GK>, Without<ElementTile<GK>>>,
     mut tiles: Query<
         (
             Entity,

@@ -143,8 +143,8 @@ impl UiState {
             .show(ctx, &mut tab_viewer);
     }
 
-    pub fn allow_game_interaction(state: Res<UiState>) -> bool {
-        state.pointer_in_viewport
+    pub fn allow_game_interaction(state: Option<Res<UiState>>) -> bool {
+        state.is_none_or(|s| s.pointer_in_viewport)
     }
 }
 

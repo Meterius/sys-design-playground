@@ -37,6 +37,7 @@ use std::env;
 use std::f64::consts::PI;
 use std::sync::Arc;
 use utilities::glam_ext::bounding::AxisAlignedBoundingBox2D;
+use crate::app::geo::elements_grid::buildings::spawn_building_elements_grid;
 
 pub fn initialize(_width: usize, _height: usize) {
     App::new()
@@ -80,6 +81,9 @@ pub fn initialize(_width: usize, _height: usize) {
             SettingsPlugin::default(),
             BigSpaceDefaultPlugins,
             EditorPlugin {},
+            // Vello appears to have issues when a large number of elements are drawn in the same render, see https://github.com/linebender/vello/issues/366
+            // this causes the render call to not update the texture, making it appear frozen on screen.
+            // TODO: implement work-around, e.g. adjusting bevy_vello to draw in multiple stages or draw to a texture instead such that for example each tile or scene can be independent
             VelloPlugin {
                 canvas_render_layers: RenderLayers::layer(4),
                 ..default()
@@ -169,12 +173,14 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
         runtime.spawn_background_task(async move |mut task| {
             let get_client = async || -> anyhow::Result<OsmClient> {
                 let config = make_osm_config_from_env()?;
-               Ok(OsmClient::connect(OsmClientConfig { database_config: config }).await?)
+                Ok(OsmClient::connect(OsmClientConfig { database_config: config }).await?)
             };
 
             if let Ok(client) = get_client().await.inspect_err(|err| error!("{:?}", err)) {
             task.run_on_main_thread(move |ctx| {
-                       spawn_road_elements_grid(&mut ctx.world.commands(), map_view_id, Arc::new(client));
+                    let client = Arc::new(client);
+                    spawn_road_elements_grid(&mut ctx.world.commands(), map_view_id, client.clone());
+                    spawn_building_elements_grid(&mut ctx.world.commands(), map_view_id, client.clone());
                 }).await;
             }
         });

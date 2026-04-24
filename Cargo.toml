@@ -80,7 +80,7 @@ egui_dock = { git = "https://github.com/Avarel/egui_dock", branch = "egui_0.33" 
 bimap = "0.6.3"
 geo-types = { version = "0.7.19", features = ["rstar_0_12"] }
 rstar = "0.12.2"
-bevy_vello = "0.13.1"
+bevy_vello = { path = "./vendor/bevy_vello" }
 
 [profile.release]
 #opt-level = 3

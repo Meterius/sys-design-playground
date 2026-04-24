@@ -1,11 +1,11 @@
 use futures::stream::{self, StreamExt};
 use generated_queries::queries::osm_roads_queries::{
-    UpsertBuildingsStreamingCommitStmt, UpsertBuildingsStreamingEndStmt, UpsertBuildingsStreamingTransferStmt,
-    UpsertRoadStreamingTransferStmt, UpsertRoadsStreamingCommitStmt, UpsertRoadsStreamingEndStmt,
-    upsert_buildings_streaming_commit, upsert_buildings_streaming_end,
-    upsert_buildings_streaming_start, upsert_buildings_streaming_transfer,
-    upsert_road_streaming_transfer, upsert_roads_streaming_commit, upsert_roads_streaming_end,
-    upsert_roads_streaming_start,
+    UpsertBuildingsStreamingCommitStmt, UpsertBuildingsStreamingEndStmt,
+    UpsertBuildingsStreamingTransferStmt, UpsertRoadStreamingTransferStmt,
+    UpsertRoadsStreamingCommitStmt, UpsertRoadsStreamingEndStmt, upsert_buildings_streaming_commit,
+    upsert_buildings_streaming_end, upsert_buildings_streaming_start,
+    upsert_buildings_streaming_transfer, upsert_road_streaming_transfer,
+    upsert_roads_streaming_commit, upsert_roads_streaming_end, upsert_roads_streaming_start,
 };
 use glam::DVec2;
 use osm::model::building::Building;

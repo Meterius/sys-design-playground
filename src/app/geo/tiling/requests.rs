@@ -52,7 +52,7 @@ fn startup(world: &mut World) {
                     max_concurrent,
                     Some(Ratelimiter::new(rate)),
                     TileImageRequestClient {
-                        url: api_url.clone(),
+                        api_url: api_url.clone(),
                         connection_refused: Arc::new(AtomicBool::new(false)),
                         layer,
                         client: client.clone(),
@@ -81,11 +81,13 @@ pub enum TileImageRequestError {
     Serialization(#[from] serde_json::Error),
     #[error("IO error: {0:?}")]
     Io(#[from] tokio::io::Error),
+    #[error("Unexpected error: {0:?}")]
+    Unexpected(#[from] anyhow::Error),
 }
 
 #[derive(Clone)]
 pub struct TileImageRequestClient {
-    pub url: Url,
+    pub api_url: Url,
     pub client: reqwest::Client,
     pub layer: Layer,
     pub connection_refused: Arc<AtomicBool>,
@@ -165,7 +167,7 @@ impl RequestClient<TileImageRequestKind> for TileImageRequestClient {
 
         let res = self
             .client
-            .get(self.url.clone())
+            .get(self.api_url.join("tile").map_err(anyhow::Error::from)?)
             .json(&GetTileRequest {
                 tile_key: backend_model::earth_tiling_service_model::TileKey::from_iter(
                     key.1.iter().map(|x| match x {

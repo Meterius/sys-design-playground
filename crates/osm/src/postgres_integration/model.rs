@@ -1,6 +1,7 @@
 use crate::model::road::{OneWay, RoadClass, RoadClassCategory};
 use crate::model::water::WaterClass;
 use generated_queries::types as sql_types;
+use crate::model::landuse::LanduseClass;
 
 impl From<OneWay> for sql_types::RoadOneway {
     fn from(value: OneWay) -> Self {
@@ -160,6 +161,60 @@ impl From<sql_types::WaterClass> for WaterClass {
             sql_types::WaterClass::wetland_marsh => Self::WetlandMarsh,
             sql_types::WaterClass::wetland_saltmarsh => Self::WetlandSaltmarsh,
             sql_types::WaterClass::wetland_bog => Self::WetlandBog,
+        }
+    }
+}
+
+impl From<LanduseClass> for sql_types::LanduseClass {
+    fn from(value: LanduseClass) -> Self {
+        match value {
+            LanduseClass::Forest => Self::forest,
+            LanduseClass::Park => Self::park,
+            LanduseClass::Residential => Self::residential,
+            LanduseClass::Industrial => Self::industrial,
+            LanduseClass::Cemetery => Self::cemetery,
+            LanduseClass::Allotments => Self::allotments,
+            LanduseClass::Meadow => Self::meadow,
+            LanduseClass::Commercial => Self::commercial,
+            LanduseClass::RecreationGround => Self::recreation_ground,
+            LanduseClass::Retail => Self::retail,
+            LanduseClass::Military => Self::military,
+            LanduseClass::Quarry => Self::quarry,
+            LanduseClass::Orchard => Self::orchard,
+            LanduseClass::Vineyard => Self::vineyard,
+            LanduseClass::Scrub => Self::scrub,
+            LanduseClass::Grass => Self::grass,
+            LanduseClass::Heath => Self::heath,
+            LanduseClass::Farmland => Self::farmland,
+            LanduseClass::Farmyard => Self::farmyard,
+            LanduseClass::Landfill => Self::landfill,
+        }
+    }
+}
+
+impl From<sql_types::LanduseClass> for LanduseClass {
+    fn from(value: sql_types::LanduseClass) -> Self {
+        match value {
+            sql_types::LanduseClass::forest => Self::Forest,
+            sql_types::LanduseClass::park => Self::Park,
+            sql_types::LanduseClass::residential => Self::Residential,
+            sql_types::LanduseClass::industrial => Self::Industrial,
+            sql_types::LanduseClass::cemetery => Self::Cemetery,
+            sql_types::LanduseClass::allotments => Self::Allotments,
+            sql_types::LanduseClass::meadow => Self::Meadow,
+            sql_types::LanduseClass::commercial => Self::Commercial,
+            sql_types::LanduseClass::recreation_ground => Self::RecreationGround,
+            sql_types::LanduseClass::retail => Self::Retail,
+            sql_types::LanduseClass::military => Self::Military,
+            sql_types::LanduseClass::quarry => Self::Quarry,
+            sql_types::LanduseClass::orchard => Self::Orchard,
+            sql_types::LanduseClass::vineyard => Self::Vineyard,
+            sql_types::LanduseClass::scrub => Self::Scrub,
+            sql_types::LanduseClass::grass => Self::Grass,
+            sql_types::LanduseClass::heath => Self::Heath,
+            sql_types::LanduseClass::farmland => Self::Farmland,
+            sql_types::LanduseClass::farmyard => Self::Farmyard,
+            sql_types::LanduseClass::landfill => Self::Landfill,
         }
     }
 }

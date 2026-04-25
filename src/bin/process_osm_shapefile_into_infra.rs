@@ -1,15 +1,5 @@
 use futures::stream::{self, StreamExt};
-use generated_queries::queries::osm_queries::{
-    UpsertBuildingsStreamingCommitStmt, UpsertBuildingsStreamingEndStmt,
-    UpsertBuildingsStreamingTransferStmt, UpsertRoadStreamingTransferStmt,
-    UpsertRoadsStreamingCommitStmt, UpsertRoadsStreamingEndStmt, UpsertWatersStreamingCommitStmt,
-    UpsertWatersStreamingEndStmt, UpsertWatersStreamingTransferStmt,
-    upsert_buildings_streaming_commit, upsert_buildings_streaming_end,
-    upsert_buildings_streaming_start, upsert_buildings_streaming_transfer,
-    upsert_road_streaming_transfer, upsert_roads_streaming_commit, upsert_roads_streaming_end,
-    upsert_roads_streaming_start, upsert_waters_streaming_commit, upsert_waters_streaming_end,
-    upsert_waters_streaming_start, upsert_waters_streaming_transfer,
-};
+use generated_queries::queries::osm_queries::{UpsertBuildingsStreamingCommitStmt, UpsertBuildingsStreamingEndStmt, UpsertBuildingsStreamingTransferStmt, UpsertRoadStreamingTransferStmt, UpsertRoadsStreamingCommitStmt, UpsertRoadsStreamingEndStmt, UpsertWatersStreamingCommitStmt, UpsertWatersStreamingEndStmt, UpsertWatersStreamingTransferStmt, upsert_buildings_streaming_commit, upsert_buildings_streaming_end, upsert_buildings_streaming_start, upsert_buildings_streaming_transfer, upsert_road_streaming_transfer, upsert_roads_streaming_commit, upsert_roads_streaming_end, upsert_roads_streaming_start, upsert_waters_streaming_commit, upsert_waters_streaming_end, upsert_waters_streaming_start, upsert_waters_streaming_transfer, UpsertLandusesStreamingTransferStmt, UpsertLandusesStreamingCommitStmt, UpsertLandusesStreamingEndStmt, upsert_landuses_streaming_start, upsert_landuses_streaming_transfer, upsert_landuses_streaming_commit, upsert_landuses_streaming_end};
 use glam::DVec2;
 use osm::model::building::Building;
 use osm::model::parser::ShapefileElement;
@@ -26,6 +16,7 @@ use tokio_postgres::binary_copy::BinaryCopyInWriter;
 use tokio_postgres::types::Type;
 use tokio_postgres::{Client, NoTls};
 use tracing::{error, info, warn};
+use osm::model::landuse::Landuse;
 
 const MAX_PARALLEL_DIRS: usize = 8;
 
@@ -318,6 +309,72 @@ impl<'a> ElementStreamingWriter<Water> for WaterStreamingWriter<'a> {
     }
 }
 
+struct LanduseStreamingWriter<'a> {
+    client: &'a Client,
+    // Prepared for consistency with generated query flow; COPY still uses protocol API.
+    _transfer_stmt: UpsertLandusesStreamingTransferStmt,
+    commit_stmt: UpsertLandusesStreamingCommitStmt,
+    end_stmt: UpsertLandusesStreamingEndStmt,
+    copy_writer: Pin<Box<BinaryCopyInWriter>>,
+}
+
+impl<'a> LanduseStreamingWriter<'a> {
+    async fn begin(client: &'a Client) -> Result<Self, tokio_postgres::Error> {
+        let (start_stmt, transfer_stmt, commit_stmt, end_stmt) = tokio::try_join!(
+            upsert_landuses_streaming_start().prepare(client),
+            upsert_landuses_streaming_transfer().prepare(client),
+            upsert_landuses_streaming_commit().prepare(client),
+            upsert_landuses_streaming_end().prepare(client),
+        )?;
+        start_stmt.bind(client).await?;
+
+        let copy_sink = client
+            .copy_in(
+                "COPY tmp_upsert_landuses_streaming (
+                    osm_id, class, geom
+                ) FROM stdin binary",
+            )
+            .await?;
+
+        let copy_writer = Box::pin(BinaryCopyInWriter::new(
+            copy_sink,
+            &[Type::INT8, Type::TEXT, Type::BYTEA],
+        ));
+
+        Ok(Self {
+            client,
+            _transfer_stmt: transfer_stmt,
+            commit_stmt,
+            end_stmt,
+            copy_writer,
+        })
+    }
+}
+
+impl<'a> ElementStreamingWriter<Landuse> for LanduseStreamingWriter<'a> {
+    async fn write(&mut self, landuse: Landuse) -> Result<(), tokio_postgres::Error> {
+        let geom_ewkb = multi_polygon_to_ewkb(&landuse.geometry);
+
+        self.copy_writer
+            .as_mut()
+            .write(&[&landuse.osm_id, &landuse.class.as_ref(), &geom_ewkb])
+            .await
+    }
+
+    async fn finish(mut self) -> Result<(u64, u64), tokio_postgres::Error> {
+        let res = async {
+            let copied = self.copy_writer.as_mut().finish().await?;
+            let merged = self.commit_stmt.bind(self.client).await?;
+            Ok((copied, merged))
+        }
+            .await;
+
+        self.end_stmt.bind(self.client).await?;
+
+        res
+    }
+}
+
 async fn process_shapefile_dir<
     'a,
     T: ShapefileElement + Clone + Debug,
@@ -461,9 +518,13 @@ async fn worker_task(worker_idx: usize, mut rx: tokio::sync::mpsc::Receiver<Path
     // let table_name = "osm_buildings";
     // let make_writer = || BuildingStreamingWriter::begin(&client);
 
-    let shapefile_name = "gis_osm_water_a_free_1.shp";
-    let table_name = "osm_waters";
-    let make_writer = || WaterStreamingWriter::begin(&client);
+    // let shapefile_name = "gis_osm_water_a_free_1.shp";
+    // let table_name = "osm_waters";
+    // let make_writer = || WaterStreamingWriter::begin(&client);
+
+    let shapefile_name = "gis_osm_landuse_a_free_1.shp";
+    let table_name = "osm_landuses";
+    let make_writer = || LanduseStreamingWriter::begin(&client);
 
     let mut totals = DirStats::default();
     while let Some(dir) = rx.recv().await {

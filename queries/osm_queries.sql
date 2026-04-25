@@ -122,3 +122,33 @@ SELECT
     osm_id, class, ST_asewkb(geom::geometry) as geom
 FROM osm_waters
 WHERE st_intersects(geom, st_setsrid(st_geomfromewkb(:bounds), 4326)::geography);
+
+--! upsert_landuses_streaming_start
+CREATE TEMP TABLE tmp_upsert_landuses_streaming AS SELECT * FROM osm_landuses LIMIT 0;
+
+--! upsert_landuses_streaming_transfer
+COPY tmp_upsert_landuses_streaming (
+                                  osm_id, class, geom
+    ) FROM stdin binary;
+
+--! upsert_landuses_streaming_commit
+INSERT INTO osm_landuses (
+    osm_id, class, geom
+)
+SELECT
+    s.osm_id,
+    s.class,
+    st_setsrid(st_geomfromewkb(s.geom), 4326)::geography
+FROM tmp_upsert_landuses_streaming s
+ON CONFLICT(osm_id)
+    DO UPDATE SET
+    (class, geom) = (excluded.class, excluded.geom);
+
+--! upsert_landuses_streaming_end
+DROP TABLE tmp_upsert_landuses_streaming;
+
+--! fetch_landuses_by_area
+SELECT
+    osm_id, class, ST_asewkb(geom::geometry) as geom
+FROM osm_landuses
+WHERE st_intersects(geom, st_setsrid(st_geomfromewkb(:bounds), 4326)::geography);

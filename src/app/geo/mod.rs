@@ -2,6 +2,7 @@ use crate::app::geo::element_requests::ElementRequestsPlugin;
 use crate::app::geo::elements_grid::buildings::BuildingElementsGridPlugin;
 use crate::app::geo::elements_grid::roads::RoadElementsGridPlugin;
 use crate::app::geo::elements_grid::water::WaterElementsGridPlugin;
+use crate::app::geo::elements_grid::landuse::LanduseElementsGridPlugin;
 use crate::app::geo::geometry::GeometryPlugin;
 use crate::app::geo::geometry_vello::VelloGeometryPlugin;
 use crate::app::geo::grid::GridPlugin;
@@ -36,6 +37,7 @@ impl Plugin for GeoPlugin {
             RoadElementsGridPlugin {},
             BuildingElementsGridPlugin {},
             WaterElementsGridPlugin {},
+            LanduseElementsGridPlugin {},
         ));
     }
 }

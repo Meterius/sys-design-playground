@@ -525,3 +525,168 @@ impl<'a> postgres_types::FromSql<'a> for WaterClass {
         }
     }
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(non_camel_case_types)]
+pub enum LanduseClass {
+    forest,
+    park,
+    residential,
+    industrial,
+    cemetery,
+    allotments,
+    meadow,
+    commercial,
+    recreation_ground,
+    retail,
+    military,
+    quarry,
+    orchard,
+    vineyard,
+    scrub,
+    grass,
+    heath,
+    farmland,
+    farmyard,
+    landfill,
+}
+impl<'a> postgres_types::ToSql for LanduseClass {
+    fn to_sql(
+        &self,
+        ty: &postgres_types::Type,
+        buf: &mut postgres_types::private::BytesMut,
+    ) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        let s = match *self {
+            LanduseClass::forest => "forest",
+            LanduseClass::park => "park",
+            LanduseClass::residential => "residential",
+            LanduseClass::industrial => "industrial",
+            LanduseClass::cemetery => "cemetery",
+            LanduseClass::allotments => "allotments",
+            LanduseClass::meadow => "meadow",
+            LanduseClass::commercial => "commercial",
+            LanduseClass::recreation_ground => "recreation_ground",
+            LanduseClass::retail => "retail",
+            LanduseClass::military => "military",
+            LanduseClass::quarry => "quarry",
+            LanduseClass::orchard => "orchard",
+            LanduseClass::vineyard => "vineyard",
+            LanduseClass::scrub => "scrub",
+            LanduseClass::grass => "grass",
+            LanduseClass::heath => "heath",
+            LanduseClass::farmland => "farmland",
+            LanduseClass::farmyard => "farmyard",
+            LanduseClass::landfill => "landfill",
+        };
+        buf.extend_from_slice(s.as_bytes());
+        std::result::Result::Ok(postgres_types::IsNull::No)
+    }
+    fn accepts(ty: &postgres_types::Type) -> bool {
+        if ty.name() != "landuse_class" {
+            return false;
+        }
+        match *ty.kind() {
+            postgres_types::Kind::Enum(ref variants) => {
+                if variants.len() != 20 {
+                    return false;
+                }
+                variants.iter().all(|v| match &**v {
+                    "forest" => true,
+                    "park" => true,
+                    "residential" => true,
+                    "industrial" => true,
+                    "cemetery" => true,
+                    "allotments" => true,
+                    "meadow" => true,
+                    "commercial" => true,
+                    "recreation_ground" => true,
+                    "retail" => true,
+                    "military" => true,
+                    "quarry" => true,
+                    "orchard" => true,
+                    "vineyard" => true,
+                    "scrub" => true,
+                    "grass" => true,
+                    "heath" => true,
+                    "farmland" => true,
+                    "farmyard" => true,
+                    "landfill" => true,
+                    _ => false,
+                })
+            }
+            _ => false,
+        }
+    }
+    fn to_sql_checked(
+        &self,
+        ty: &postgres_types::Type,
+        out: &mut postgres_types::private::BytesMut,
+    ) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        postgres_types::__to_sql_checked(self, ty, out)
+    }
+}
+impl<'a> postgres_types::FromSql<'a> for LanduseClass {
+    fn from_sql(
+        ty: &postgres_types::Type,
+        buf: &'a [u8],
+    ) -> Result<LanduseClass, Box<dyn std::error::Error + Sync + Send>> {
+        match std::str::from_utf8(buf)? {
+            "forest" => Ok(LanduseClass::forest),
+            "park" => Ok(LanduseClass::park),
+            "residential" => Ok(LanduseClass::residential),
+            "industrial" => Ok(LanduseClass::industrial),
+            "cemetery" => Ok(LanduseClass::cemetery),
+            "allotments" => Ok(LanduseClass::allotments),
+            "meadow" => Ok(LanduseClass::meadow),
+            "commercial" => Ok(LanduseClass::commercial),
+            "recreation_ground" => Ok(LanduseClass::recreation_ground),
+            "retail" => Ok(LanduseClass::retail),
+            "military" => Ok(LanduseClass::military),
+            "quarry" => Ok(LanduseClass::quarry),
+            "orchard" => Ok(LanduseClass::orchard),
+            "vineyard" => Ok(LanduseClass::vineyard),
+            "scrub" => Ok(LanduseClass::scrub),
+            "grass" => Ok(LanduseClass::grass),
+            "heath" => Ok(LanduseClass::heath),
+            "farmland" => Ok(LanduseClass::farmland),
+            "farmyard" => Ok(LanduseClass::farmyard),
+            "landfill" => Ok(LanduseClass::landfill),
+            s => Result::Err(Into::into(format!("invalid variant `{}`", s))),
+        }
+    }
+    fn accepts(ty: &postgres_types::Type) -> bool {
+        if ty.name() != "landuse_class" {
+            return false;
+        }
+        match *ty.kind() {
+            postgres_types::Kind::Enum(ref variants) => {
+                if variants.len() != 20 {
+                    return false;
+                }
+                variants.iter().all(|v| match &**v {
+                    "forest" => true,
+                    "park" => true,
+                    "residential" => true,
+                    "industrial" => true,
+                    "cemetery" => true,
+                    "allotments" => true,
+                    "meadow" => true,
+                    "commercial" => true,
+                    "recreation_ground" => true,
+                    "retail" => true,
+                    "military" => true,
+                    "quarry" => true,
+                    "orchard" => true,
+                    "vineyard" => true,
+                    "scrub" => true,
+                    "grass" => true,
+                    "heath" => true,
+                    "farmland" => true,
+                    "farmyard" => true,
+                    "landfill" => true,
+                    _ => false,
+                })
+            }
+            _ => false,
+        }
+    }
+}

@@ -10,6 +10,7 @@ use osm::model::water::Water;
 use osm::postgres_integration::client::{OsmClient, OsmError};
 use std::sync::Arc;
 use tracing::debug;
+use osm::model::landuse::Landuse;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 
 pub struct ElementRequestsPlugin;
@@ -22,6 +23,7 @@ impl Plugin for ElementRequestsPlugin {
             BuildingRequestClient,
         >::new());
         app.add_plugins(AsyncRequestsPlugin::<WaterRequestKind, WaterRequestClient>::new());
+        app.add_plugins(AsyncRequestsPlugin::<LanduseRequestKind, LanduseRequestClient>::new());
     }
 }
 
@@ -159,5 +161,50 @@ impl RequestClient<WaterRequestKind> for WaterRequestClient {
         debug!("Received {} waters", waters.len());
 
         Ok(waters)
+    }
+}
+
+#[derive(Reflect)]
+pub struct LanduseRequestKind;
+
+impl RequestKind for LanduseRequestKind {
+    type Key = Bounds;
+    type Value = Vec<Landuse>;
+    type Error = OsmError;
+}
+
+#[derive(Clone)]
+pub struct LanduseRequestClient {
+    pub client: Arc<OsmClient>,
+}
+
+impl RequestClient<LanduseRequestKind> for LanduseRequestClient {
+    async fn fetch_preflight(
+        &self,
+        _bounds: &Bounds,
+    ) -> bevy::prelude::Result<Option<Vec<Landuse>>, OsmError> {
+        Ok(None)
+    }
+
+    async fn fetch(&self, bounds: &Bounds) -> bevy::prelude::Result<Vec<Landuse>, OsmError> {
+        let landuses: Vec<_> = self
+            .client
+            .fetch_landuses(DAabb2::new(
+                dvec2(
+                    bounds[0].into_inner().to_degrees(),
+                    bounds[1].into_inner().to_degrees(),
+                ),
+                dvec2(
+                    bounds[2].into_inner().to_degrees(),
+                    bounds[3].into_inner().to_degrees(),
+                ),
+            ))
+            .await?
+            .try_collect()
+            .await?;
+
+        debug!("Received {} landuses", landuses.len());
+
+        Ok(landuses)
     }
 }

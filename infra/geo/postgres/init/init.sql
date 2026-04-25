@@ -1,5 +1,28 @@
 CREATE EXTENSION IF NOT EXISTS postgis;
 
+CREATE TYPE LANDUSE_CLASS AS ENUM (
+    'forest',
+    'park',
+    'residential',
+    'industrial',
+    'cemetery',
+    'allotments',
+    'meadow',
+    'commercial',
+    'recreation_ground',
+    'retail',
+    'military',
+    'quarry',
+    'orchard',
+    'vineyard',
+    'scrub',
+    'grass',
+    'heath',
+    'farmland',
+    'farmyard',
+    'landfill'
+);
+
 CREATE TYPE WATER_CLASS AS ENUM (
     'water','reservoir','river','dock','glacier','wetland','wetland_fen','riverbank','wetland_mangrove','wetland_marsh',
     'wetland_tidalflat', 'wetland_reedbed', 'wetland_wet_meadow', 'wetland_swamp', 'wetland_saltmarsh', 'wetland_bog'
@@ -56,3 +79,13 @@ CREATE TABLE osm_waters (
 CREATE INDEX idx_osm_waters_geom ON osm_waters USING GIST (geom);
 
 CREATE TABLE tmp_upsert_waters_streaming AS SELECT * FROM osm_waters LIMIT 0;
+
+CREATE TABLE osm_landuses (
+                            osm_id        bigint primary key,
+                            class         LANDUSE_CLASS not null,
+                            geom          geography(MULTIPOLYGON, 4326) not null
+);
+
+CREATE INDEX idx_osm_landuses_geom ON osm_landuses USING GIST (geom);
+
+CREATE TABLE tmp_upsert_landuses_streaming AS SELECT * FROM osm_landuses LIMIT 0;

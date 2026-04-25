@@ -23,6 +23,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use osm::model::landuse::Landuse;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 
 pub struct ElementsGridPlugin<RK, GK> {
@@ -205,6 +206,35 @@ impl Element for Building {
 }
 
 impl Element for Water {
+    fn id(&self) -> i64 {
+        self.osm_id
+    }
+
+    fn aabb(&self) -> DAabb2 {
+        DAabb2::new(
+            self.geometry
+                .iter()
+                .flat_map(|p| {
+                    p.exterior()
+                        .points()
+                        .map(|p| dvec2(p.x().to_radians(), p.y().to_radians()))
+                })
+                .reduce(|a, b| a.min(b))
+                .unwrap_or(DVec2::ZERO),
+            self.geometry
+                .iter()
+                .flat_map(|p| {
+                    p.exterior()
+                        .points()
+                        .map(|p| dvec2(p.x().to_radians(), p.y().to_radians()))
+                })
+                .reduce(|a, b| a.max(b))
+                .unwrap_or(DVec2::ZERO),
+        )
+    }
+}
+
+impl Element for Landuse {
     fn id(&self) -> i64 {
         self.osm_id
     }

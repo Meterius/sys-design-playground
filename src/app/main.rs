@@ -39,6 +39,7 @@ use std::env;
 use std::f64::consts::PI;
 use std::sync::Arc;
 use utilities::glam_ext::bounding::AxisAlignedBoundingBox2D;
+use crate::app::geo::elements_grid::landuse::spawn_landuse_elements_grid;
 
 pub fn initialize(_width: usize, _height: usize) {
     App::new()
@@ -155,7 +156,7 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
             ))
             .id();
 
-        root_grid.spawn_spatial((Grid::default(), Name::new("Tiling"), MapViewTiling::new(6), MapViewTilingWithView(map_view_id)));
+        // root_grid.spawn_spatial((Grid::default(), Name::new("Tiling"), MapViewTiling::new(6), MapViewTilingWithView(map_view_id)));
 
         cam_id = Some(root_grid.spawn_spatial((
             Camera2d,
@@ -183,6 +184,7 @@ fn setup(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
                     spawn_road_elements_grid(&mut ctx.world.commands(), map_view_id, client.clone());
                     spawn_building_elements_grid(&mut ctx.world.commands(), map_view_id, client.clone());
                     spawn_water_elements_grid(&mut ctx.world.commands(), map_view_id, client.clone());
+                    spawn_landuse_elements_grid(&mut ctx.world.commands(), map_view_id, client.clone());
                 }).await;
             }
         });

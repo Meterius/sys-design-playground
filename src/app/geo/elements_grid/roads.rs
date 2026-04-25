@@ -113,7 +113,7 @@ pub fn spawn_road_elements_grid(commands: &mut Commands, view_id: Entity, client
             (
                 RoadGridKind::Medium,
                 ElementTileGridConfig {
-                    grid: make_grid(uvec2(6000, 6000), uvec2(2, 2)),
+                    grid: make_grid(uvec2(2000, 2000), uvec2(2, 2)),
                 },
             ),
             (

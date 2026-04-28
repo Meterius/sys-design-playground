@@ -1,16 +1,24 @@
 services:
-  postgres:
-    image: postgis/postgis:15-3.4
-    container_name: postgres_postgis
-    restart: unless-stopped
+  traefik:
+    image: traefik:v3.6
 
-    environment:
-      POSTGRES_USER: dev
-      POSTGRES_PASSWORD: dev
-      POSTGRES_DB: app_db
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
 
     ports:
-      - "5432:5432"
+      - "80:80"
+      - "8081:8080"
+
+  postgres:
+    image: postgis/postgis:15-3.4
+    container_name: postgres_postgis_default
+    restart: unless-stopped
 
     volumes:
       # Persist database data
@@ -19,15 +27,43 @@ services:
       # Run initialization SQL on first startup
       - ./postgres/init:/docker-entrypoint-initdb.d/
 
+    environment:
+      POSTGRES_USER: ${POSTGRES_DEF_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_DEF_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DEF_DB}
+
+    ports:
+      - "5433:5432"
+
+  omt_tileserver_gl:
+    image: "maptiler/tileserver-gl:latest"
+    command:
+      - --port
+      - "${TPORT:-8080}"
+      - --config
+      - "/style/config.json"
+    ports:
+      - "${TPORT:-8080}:${TPORT:-8080}"
+    volumes:
+      - ${OPENMAPTILES_DIR}/data:/data
+      - ${OPENMAPTILES_DIR}/style:/style
+      - ${OPENMAPTILES_DIR}/build:/build
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.omt_tileserver_gl.rule=Host(`omt_tileserver_gl.localhost`)"
+      - "traefik.http.routers.omt_tileserver_gl.entrypoints=web"
+      - "traefik.http.services.omt_tileserver_gl.loadbalancer.server.port=8080"
+
   tiling-backend:
     build:
       context: ../../
       dockerfile: infra/geo/tiling_backend/Dockerfile
-
     container_name: tiling-backend
+    restart: unless-stopped
 
-    ports:
-      - "8080:8080"
+    volumes:
+      - H:/tiling-backend-volume:/app/assets
 
     environment:
       RUST_LOG: info
@@ -35,10 +71,11 @@ services:
       PORT: 8080
       ASSET_ROOT: /app/assets
 
-    volumes:
-      - H:/tiling-backend-volume:/app/assets
-
-    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=Host(`backend.localhost`)"
+      - "traefik.http.routers.backend.entrypoints=web"
+      - "traefik.http.services.backend.loadbalancer.server.port=8080"
 
 volumes:
   postgres_data:

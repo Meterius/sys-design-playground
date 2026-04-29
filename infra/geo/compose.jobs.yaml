@@ -1,0 +1,22 @@
+services:
+  osm2pgsql_osm_import:
+    image: iboates/osm2pgsql:latest
+    environment:
+      PGPASSWORD: ${POSTGRES_OSM_PASSWORD}
+
+    volumes:
+      - ./postgres_osm/osm2pgsql/:/data/
+
+    depends_on:
+      - postgres_osm
+
+    command:
+      - -d
+      - ${POSTGRES_OSM_DB}
+      - -U
+      - ${POSTGRES_OSM_USER}
+      - -H postgres_osm
+      - -P 5432
+      - -O flex
+      - -S /data/style.lua
+      - https://download.geofabrik.de/europe/germany/berlin-latest.osm.pbf

@@ -15,22 +15,21 @@ services:
       - "80:80"
       - "8081:8080"
 
-  postgres:
+  postgres_osm:
     image: postgis/postgis:15-3.4
-    container_name: postgres_postgis_default
     restart: unless-stopped
 
     volumes:
       # Persist database data
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_osm_data:/var/lib/postgresql/data
 
       # Run initialization SQL on first startup
-      - ./postgres/init:/docker-entrypoint-initdb.d/
+      - ./postgres_osm/init:/docker-entrypoint-initdb.d/
 
     environment:
-      POSTGRES_USER: ${POSTGRES_DEF_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_DEF_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DEF_DB}
+      POSTGRES_USER: ${POSTGRES_OSM_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_OSM_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_OSM_DB}
 
     ports:
       - "5433:5432"
@@ -78,4 +77,4 @@ services:
       - "traefik.http.services.backend.loadbalancer.server.port=8080"
 
 volumes:
-  postgres_data:
+  postgres_osm_data:

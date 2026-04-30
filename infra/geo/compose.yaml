@@ -54,25 +54,21 @@ services:
       - "traefik.http.routers.omt_tileserver_gl.entrypoints=web"
       - "traefik.http.services.omt_tileserver_gl.loadbalancer.server.port=8080"
 
-  tiling-backend:
+  core_service:
     build:
       context: ../../
-      dockerfile: infra/geo/tiling_backend/Dockerfile
-    container_name: tiling-backend
+      dockerfile: infra/geo/core_service/Dockerfile
     restart: unless-stopped
-
-    volumes:
-      - H:/tiling-backend-volume:/app/assets
 
     environment:
       RUST_LOG: info
       HOST: 0.0.0.0
       PORT: 8080
-      ASSET_ROOT: /app/assets
+      POSTGRES_OSM_URL: postgres://${POSTGRES_OSM_USER}:${POSTGRES_OSM_PASSWORD}@postgres_osm:5432/${POSTGRES_OSM_DB}
 
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.backend.rule=Host(`backend.localhost`)"
+      - "traefik.http.routers.backend.rule=Host(`api.jlh_maps.localhost`)"
       - "traefik.http.routers.backend.entrypoints=web"
       - "traefik.http.services.backend.loadbalancer.server.port=8080"
 

@@ -1,0 +1,23 @@
+[package]
+name = "jlh_maps_core_service"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "run_server"
+path = "src/bin/run_server.rs"
+
+[dependencies]
+juniper = "0.17.1"
+actix-cors = "0.7.1"
+actix-web = "4.13.0"
+env_logger = "0.11.10"
+dotenvy = "0.15.7"
+sea-orm = { version = "1.1.20", features = ["sqlx-postgres", "runtime-tokio"] }
+serde = { version = "1.0.228", features = ["derive"] }
+log = "0.4.29"
+anyhow = "1.0.102"
+strum = { version = "0.28.0", features = ["derive"] }

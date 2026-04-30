@@ -1,0 +1,4 @@
+set dotenv-load
+
+generate-database-model:
+    sea-orm-cli generate entity --output-dir ./src/model/postgres_osm/ --tables unitable --database-url $POSTGRES_OSM_URL --with-serde serialize

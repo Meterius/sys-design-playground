@@ -21,6 +21,7 @@
     "@nuxt/ui": "^4.7.1",
     "@primeuix/themes": "^2.0.3",
     "@turf/turf": "^7.3.5",
+    "@vueuse/core": "^14.2.1",
     "geojson": "^0.5.0",
     "maplibre-gl": "^5.24.0",
     "pinia": "^3.0.4",

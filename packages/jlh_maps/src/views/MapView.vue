@@ -12,18 +12,10 @@
       :modal="false"
       :overlay="false"
       :open="selection.length === 1"
-      @update:open="
-        (value) => {
-          if (!value) {
-            selection.splice(0)
-          }
-        }
-      "
+      @update:open="(value: boolean) => { if (!value) selection.splice(0) }"
     >
       <template #content>
-        <h2 class="p-4">Placeholder</h2>
-        <UDivider />
-        <UPlaceholder></UPlaceholder>
+        <location-details :osm_id="selection[0]?.osm_id" :feature="selection[0]?.feature" />
       </template>
     </USlideover>
   </div>
@@ -43,6 +35,8 @@ import {
 import { center } from '@turf/turf'
 import type { FeatureCollection } from 'geojson'
 import { TILESERVER_OMT_DEFAULT_STYLE_TILEJSON_URL } from '@/external/endpoints.ts'
+import LocationDetails from "@/components/LocationDetails.vue";
+import {extractOsmIdFromOmtFeatureId, type OsmId} from "@/external/osm.ts";
 
 const mapInstance = useMap()
 
@@ -51,6 +45,7 @@ console.debug('Using TileJson URL: ', tilejsonUrl);
 
 const selection = reactive<
   {
+    osm_id?: OsmId,
     coords: LngLat
     feature: GeoJSONFeature
   }[]
@@ -161,6 +156,7 @@ onMounted(() => {
                         )
                       : e.lngLat,
                   feature,
+                  osm_id: typeof feature.id === 'number' ? extractOsmIdFromOmtFeatureId(feature.id) ?? undefined : undefined,
                 })
               } else {
                 selection.splice(0)

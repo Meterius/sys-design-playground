@@ -8,3 +8,5 @@
 .cursor
 /datasets/sat/
 /crates/utilities/test-data/
+/crates/*/target
+node_modules

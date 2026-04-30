@@ -50,7 +50,7 @@ services:
 
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.omt_tileserver_gl.rule=Host(`omt_tileserver_gl.localhost`)"
+      - "traefik.http.routers.omt_tileserver_gl.rule=Host(`tiles.jlh_maps.localhost`)"
       - "traefik.http.routers.omt_tileserver_gl.entrypoints=web"
       - "traefik.http.services.omt_tileserver_gl.loadbalancer.server.port=8080"
 

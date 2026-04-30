@@ -5,7 +5,8 @@ interface ViteTypeOptions {
 }
 
 interface ImportMetaEnv {
-    readonly VITE_OTM_TILESERVER_TILEJSON_URL: string
+    readonly VITE_TILESERVER_OMT_URL: string
+    readonly VITE_API_URL: string
 }
 
 interface ImportMeta {

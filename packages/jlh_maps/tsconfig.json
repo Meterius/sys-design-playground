@@ -10,5 +10,13 @@
     {
       "path": "./tsconfig.vitest.json"
     }
-  ]
+  ],
+  "include": ["auto-imports.d.ts", "components.d.ts"],
+  "compilerOptions": {
+    "paths": {
+      "#build/ui": [
+        "./node_modules/.nuxt-ui/ui"
+      ]
+    }
+  }
 }

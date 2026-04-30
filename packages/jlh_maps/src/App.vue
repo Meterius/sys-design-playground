@@ -1,9 +1,16 @@
 <template>
-  <RouterView />
+  <UApp>
+    <UMain>
+      <RouterView />
+    </UMain>
+  </UApp>
 </template>
 
 <script setup lang="ts">
 import { RouterView } from 'vue-router'
 </script>
 
-<style scoped></style>
+<style>
+@import 'tailwindcss';
+@import '@nuxt/ui';
+</style>

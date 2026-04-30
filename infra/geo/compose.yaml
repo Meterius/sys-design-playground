@@ -19,11 +19,11 @@ services:
     image: postgis/postgis:15-3.4
     restart: unless-stopped
 
-    volumes:
-      # Persist database data
-      - postgres_osm_data:/var/lib/postgresql/data
+    command: -c config_file=/etc/postgresql.conf
 
-      # Run initialization SQL on first startup
+    volumes:
+      - postgres_osm_data:/var/lib/postgresql/data
+      - ./postgres_osm/postgres.conf:/etc/postgresql.conf
       - ./postgres_osm/init:/docker-entrypoint-initdb.d/
 
     environment:

@@ -10,7 +10,7 @@ local dtable = osm2pgsql.define_table{
     name = "unitable",
     -- This will generate a column "osm_id INT8" for the id, and a column
     -- "osm_type CHAR(1)" for the type of object: N(ode), W(way), R(relation)
-    ids = { type = 'any', id_column = 'osm_id', type_column = 'osm_type' },
+    ids = { type = 'any', id_column = 'osm_key', type_column = 'osm_type', create_index = "primary_key" },
     columns = {
         { column = 'attrs', type = 'jsonb' },
         { column = 'tags',  type = 'jsonb' },

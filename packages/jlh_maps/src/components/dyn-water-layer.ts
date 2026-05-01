@@ -4,6 +4,7 @@ import {
   type Map as MapLibreMap,
   type MapGeoJSONFeature,
   Point,
+  StyleLayer,
 } from 'maplibre-gl'
 import { OverscaledTileID } from 'maplibre-gl/src/tile/tile_id'
 import earcut from 'earcut'
@@ -11,6 +12,7 @@ import dynWaterFragShader from '../shaders/dyn_water.frag.glsl?raw'
 import dynWaterVertexShader from '../shaders/dyn_water.vertex.glsl?raw'
 import { loadGeometry } from 'maplibre-gl/src/data/load_geometry.ts'
 import { classifyRings } from '@maplibre/maplibre-gl-style-spec'
+import { isEqual } from 'lodash'
 
 type TileKey = string
 
@@ -34,7 +36,7 @@ export class DynWaterLayer implements CustomLayerInterface {
   private uResolution!: WebGLUniformLocation
   private uTime!: WebGLUniformLocation
 
-  private targetLayer = 'Water'
+  private targetLayer: StyleLayer
 
   private tileCache = new Map<
     TileKey,
@@ -44,6 +46,10 @@ export class DynWaterLayer implements CustomLayerInterface {
       containedFeatures: Set<string>
     }
   >()
+
+  constructor(targetLayer: StyleLayer) {
+    this.targetLayer = targetLayer
+  }
 
   onAdd(map: MapLibreMap, gl: WebGLRenderingContext): void {
     this.map = map
@@ -111,7 +117,7 @@ export class DynWaterLayer implements CustomLayerInterface {
     const gl = this.gl
 
     const features = this.map.queryRenderedFeatures({
-      layers: [this.targetLayer],
+      layers: [this.targetLayer.id],
     })
 
     const grouped = new Map<
@@ -155,7 +161,7 @@ export class DynWaterLayer implements CustomLayerInterface {
       const existing = this.tileCache.get(key)
 
       // check if not exists or features have changed
-      const needsRebuild = !existing || existing.containedFeatures !== containedFeatures
+      const needsRebuild = !existing || !isEqual(existing.containedFeatures, containedFeatures)
 
       if (!needsRebuild) continue
 
@@ -205,8 +211,6 @@ export class DynWaterLayer implements CustomLayerInterface {
     const vertices: number[] = []
     const holes: number[] = []
     let holeIndex = 0
-
-    console.log(rings)
 
     for (let i = 0; i < rings.length; i++) {
       if (i > 0) {

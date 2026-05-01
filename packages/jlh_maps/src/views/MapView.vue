@@ -179,7 +179,7 @@ onMounted(() => {
             'Water labels',
           )
 
-          const dynWaterLayer = new DynWaterLayer()
+          const dynWaterLayer = new DynWaterLayer(map.getLayer('Water')!)
           map.addLayer(dynWaterLayer, 'Landcover patterns')
           map.setLayoutProperty(dynWaterLayer.id, 'visibility', 'visible')
 

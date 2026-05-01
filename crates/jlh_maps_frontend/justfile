@@ -1,0 +1,9 @@
+build-dev:
+    wasm-pack build --dev --target web -- --target wasm32-unknown-unknown
+
+build-release:
+    wasm-pack build --release --target web -- --target wasm32-unknown-unknown
+
+clean:
+    cargo clean -p jlh_maps_frontend
+    if exist pkg rmdir /s /q pkg

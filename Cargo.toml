@@ -5,7 +5,7 @@ edition = "2024"
 
 [workspace]
 resolver = "3"
-members = ["crates/backend", "crates/backend_model","crates/generated_queries", "crates/jlh_maps_core_service", "crates/osm", "crates/utilities"]
+members = ["crates/backend", "crates/backend_model","crates/generated_queries", "crates/jlh_maps_core_service", "crates/jlh_maps_frontend", "crates/osm", "crates/utilities"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]

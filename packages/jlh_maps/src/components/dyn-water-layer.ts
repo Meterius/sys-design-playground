@@ -1,6 +1,7 @@
 import {
   type CustomLayerInterface,
-  type CustomRenderMethodInput, type GeoJSONFeature,
+  type CustomRenderMethodInput,
+  type GeoJSONFeature,
   type Map as MapLibreMap,
   Point,
   StyleLayer,
@@ -12,6 +13,7 @@ import dynWaterVertexShader from '../shaders/dyn_water.vertex.glsl?raw'
 import { loadGeometry } from 'maplibre-gl/src/data/load_geometry.ts'
 import { classifyRings } from '@maplibre/maplibre-gl-style-spec'
 import { isEqual } from 'lodash'
+import initJlhMapsFrontendWasm, { update_edge_distance_texture } from 'jlh_maps_frontend'
 
 type TileKey = string
 
@@ -37,9 +39,8 @@ interface TileEntry {
 }
 
 const TILE_EXTEND = 8192
-const TILE_EDGE_DISTANCE_TEXTURE_SIZE = 256
-const TILE_EDGE_DISTANCE_MAX_DISTANCE = 500
-const TILE_EDGE_DISTANCE_MAX_BYTE = 255
+const TILE_EDGE_DISTANCE_TEXTURE_SIZE = 4096
+const TILE_EDGE_DISTANCE_MAX_DISTANCE = 0.01
 
 export class DynWaterLayer implements CustomLayerInterface {
   id = 'dyn-water'
@@ -61,7 +62,7 @@ export class DynWaterLayer implements CustomLayerInterface {
 
   private tileCache = new Map<TileKey, TileEntry>()
   private tileCacheInactiveCapacity = 8
-  private tileCacheBuild = 0
+  private wasmReady = false
 
   constructor(targetLayer: StyleLayer) {
     this.targetLayer = targetLayer
@@ -95,10 +96,19 @@ export class DynWaterLayer implements CustomLayerInterface {
     this.uTime = gl.getUniformLocation(program, 'u_time')!
     this.uEdgeDistanceTexture = gl.getUniformLocation(program, 'u_edge_distance_texture')!
 
-    this.buildMeshes()
+    void initJlhMapsFrontendWasm().then(() => {
+      this.wasmReady = true
+      this.buildMeshes()
+      this.map.triggerRepaint()
+    })
   }
 
   render(gl: WebGLRenderingContext, _options: CustomRenderMethodInput): boolean {
+    if (!this.wasmReady) {
+      this.map.triggerRepaint()
+      return true
+    }
+
     this.buildMeshes()
 
     gl.useProgram(this.program)
@@ -137,8 +147,9 @@ export class DynWaterLayer implements CustomLayerInterface {
   }
 
   private buildMeshes = () => {
+    if (!this.wasmReady) return
+
     const gl = this.gl
-    const activeBuild = ++this.tileCacheBuild
 
     const features = this.map.querySourceFeatures(this.targetLayer.source, {
       sourceLayer: this.targetLayer.sourceLayer,
@@ -181,7 +192,7 @@ export class DynWaterLayer implements CustomLayerInterface {
     }
 
     for (const entry of this.tileCache.values()) {
-      entry.inactive = true;
+      entry.inactive = true
     }
 
     // create / update
@@ -189,7 +200,7 @@ export class DynWaterLayer implements CustomLayerInterface {
       const existing = this.tileCache.get(key)
 
       if (existing) {
-        existing.inactive = false;
+        existing.inactive = false
       }
 
       // check if not exists or features have changed
@@ -234,7 +245,7 @@ export class DynWaterLayer implements CustomLayerInterface {
       })
     }
 
-    this.evictInactiveTiles(activeBuild)
+    this.evictInactiveTiles()
   }
 
   onRemove(): void {
@@ -256,9 +267,7 @@ export class DynWaterLayer implements CustomLayerInterface {
   }
 
   private evictInactiveTiles() {
-    const inactiveTiles = [...this.tileCache].filter(
-      ([, entry]) => entry.inactive
-    )
+    const inactiveTiles = [...this.tileCache].filter(([, entry]) => entry.inactive)
     const deleteCount = inactiveTiles.length - this.tileCacheInactiveCapacity
 
     if (deleteCount <= 0) return
@@ -345,51 +354,28 @@ export class DynWaterLayer implements CustomLayerInterface {
   }
 
   private updateEdgeDistanceData(out: Uint8Array, edges: Edge[]) {
-    const maxDistSq = TILE_EDGE_DISTANCE_MAX_DISTANCE * TILE_EDGE_DISTANCE_MAX_DISTANCE
-
-    for (let y = 0; y < TILE_EDGE_DISTANCE_TEXTURE_SIZE; y++) {
-      const rowOffset = y * TILE_EDGE_DISTANCE_TEXTURE_SIZE
-      const py = ((y + 0.5) * TILE_EXTEND) / TILE_EDGE_DISTANCE_TEXTURE_SIZE
-
-      for (let x = 0; x < TILE_EDGE_DISTANCE_TEXTURE_SIZE; x++) {
-        const px = ((x + 0.5) * TILE_EXTEND) / TILE_EDGE_DISTANCE_TEXTURE_SIZE
-        let closestDistSq = maxDistSq
-
-        for (const edge of edges) {
-          const distSq = this.distanceToEdgeSq(px, py, edge)
-
-          if (distSq < closestDistSq) {
-            closestDistSq = distSq
-          }
-        }
-
-        const distance = Math.min(Math.sqrt(closestDistSq), TILE_EDGE_DISTANCE_MAX_DISTANCE)
-        out[rowOffset + x] = Math.round(
-          (distance / TILE_EDGE_DISTANCE_MAX_DISTANCE) * TILE_EDGE_DISTANCE_MAX_BYTE,
-        )
-      }
-    }
+    update_edge_distance_texture(
+      this.packEdges(edges),
+      out,
+      TILE_EDGE_DISTANCE_TEXTURE_SIZE,
+      TILE_EDGE_DISTANCE_MAX_DISTANCE,
+    )
   }
 
-  private distanceToEdgeSq(px: number, py: number, edge: Edge) {
-    const dx = edge.bx - edge.ax
-    const dy = edge.by - edge.ay
-    const lenSq = dx * dx + dy * dy
+  private packEdges(edges: Edge[]) {
+    const packed = new Float32Array(edges.length * 4)
 
-    if (lenSq === 0) {
-      const distX = px - edge.ax
-      const distY = py - edge.ay
+    for (let i = 0; i < edges.length; i++) {
+      const edge = edges[i]!
+      const offset = i * 4
 
-      return distX * distX + distY * distY
+      packed[offset] = edge.ax / TILE_EXTEND
+      packed[offset + 1] = edge.ay / TILE_EXTEND
+      packed[offset + 2] = edge.bx / TILE_EXTEND
+      packed[offset + 3] = edge.by / TILE_EXTEND
     }
 
-    const t = Math.max(0, Math.min(1, ((px - edge.ax) * dx + (py - edge.ay) * dy) / lenSq))
-    const closestX = edge.ax + t * dx
-    const closestY = edge.ay + t * dy
-    const distX = px - closestX
-    const distY = py - closestY
-
-    return distX * distX + distY * distY
+    return packed
   }
 
   private triangulatePolygon(out: number[], rings: Point[][]) {

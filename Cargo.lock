@@ -5508,6 +5508,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "jlh_maps_frontend"
+version = "0.1.0"
+dependencies = [
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "jlh_sys_design_playground"
 version = "0.1.0"
 dependencies = [

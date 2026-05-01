@@ -3,8 +3,10 @@ precision mediump float;
 uniform vec2 u_resolution;
 uniform float u_time;
 uniform mat4 u_matrix;
+uniform sampler2D u_edge_distance_texture;
 
 varying vec2 v_world;
+varying vec2 v_tile_pos;
 
 #define WATER_COL vec3(170.0/255.0, 210.0/255.0, 223.0/255.0)
 #define WATER2_COL vec3(144.0/255.0, 198.0/255.0, 215.0/255.0)
@@ -141,6 +143,7 @@ void main()
     vec2 uv = v_world;
 
     vec3 col = water(uv, vec3(0.0, 1.0, 0.0));
+    float edge_distance = texture2D(u_edge_distance_texture, v_tile_pos).r;
 
-    gl_FragColor = vec4(col, 1.0);
+    gl_FragColor = vec4(vec3(edge_distance), 1.0);
 }

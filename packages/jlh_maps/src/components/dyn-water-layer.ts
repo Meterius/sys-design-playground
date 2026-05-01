@@ -36,7 +36,14 @@ export class DynWaterLayer implements CustomLayerInterface {
 
   private targetLayer = 'Water'
 
-  private tileCache = new Map<TileKey, { mesh: TileMesh; tileId: OverscaledTileID }>()
+  private tileCache = new Map<
+    TileKey,
+    {
+      mesh: TileMesh
+      tileId: OverscaledTileID
+      containedFeatures: Set<string>
+    }
+  >()
 
   onAdd(map: MapLibreMap, gl: WebGLRenderingContext): void {
     this.map = map
@@ -65,13 +72,12 @@ export class DynWaterLayer implements CustomLayerInterface {
     this.uResolution = gl.getUniformLocation(program, 'u_resolution')!
     this.uTime = gl.getUniformLocation(program, 'u_time')!
 
-    map.on('moveend', this.rebuild)
-    map.on('zoomend', this.rebuild)
-
-    this.rebuild()
+    this.buildMeshes()
   }
 
   render(gl: WebGLRenderingContext, _options: CustomRenderMethodInput): boolean {
+    this.buildMeshes()
+
     gl.useProgram(this.program)
 
     gl.uniform1f(this.uTime, performance.now() / 1000)
@@ -101,35 +107,65 @@ export class DynWaterLayer implements CustomLayerInterface {
     return true
   }
 
-  private rebuild = () => {
+  private buildMeshes = () => {
     const gl = this.gl
-
-    // cleanup old buffers
-    for (const { mesh } of this.tileCache.values()) {
-      gl.deleteBuffer(mesh.buffer)
-    }
-    this.tileCache.clear()
 
     const features = this.map.queryRenderedFeatures({
       layers: [this.targetLayer],
     })
 
-    const grouped = new Map<TileKey, { vertices: number[]; tileId: OverscaledTileID }>()
+    const grouped = new Map<
+      TileKey,
+      {
+        features: MapGeoJSONFeature[]
+        tileId: OverscaledTileID
+        containedFeatures: Set<string>
+      }
+    >()
 
     for (const feature of features) {
       const key = this.getTileKey(feature)
-      if (!key) continue
+      if (!key) {
+        throw new Error('Missing tile key')
+      }
 
-      if (!grouped.has(key))
+      const tileId = new OverscaledTileID(feature._z, 0, feature._z, feature._x, feature._y)
+
+      if (!grouped.has(key)) {
         grouped.set(key, {
-          vertices: [],
-          tileId: new OverscaledTileID(feature._z, 0, feature._z, feature._x, feature._y),
+          features: [],
+          tileId,
+          containedFeatures: new Set(),
         })
-      this.addFeature(grouped.get(key)!.vertices, feature)
+      }
+
+      const entry = grouped.get(key)!
+      const featureId = feature.id ?? feature._vectorTileFeature?.id
+
+      if (featureId === undefined) {
+        throw new Error('Missing feature id')
+      }
+
+      entry.features.push(feature)
+      entry.containedFeatures.add(featureId.toString())
     }
 
-    for (const [key, { vertices, tileId }] of grouped) {
-      if (vertices.length === 0) continue
+    // create / update
+    for (const [key, { features, tileId, containedFeatures }] of grouped) {
+      const existing = this.tileCache.get(key)
+
+      // check if not exists or features have changed
+      const needsRebuild = !existing || existing.containedFeatures !== containedFeatures
+
+      if (!needsRebuild) continue
+
+      // delete existing buffer
+      if (existing) {
+        gl.deleteBuffer(existing.mesh.buffer)
+      }
+
+      const vertices: number[] = []
+      features.forEach((feature) => this.addFeature(vertices, feature))
 
       const buffer = gl.createBuffer()!
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
@@ -141,22 +177,25 @@ export class DynWaterLayer implements CustomLayerInterface {
           vertexCount: vertices.length / 2,
         },
         tileId,
+        containedFeatures,
       })
+    }
+
+    // delete stale
+    for (const key of this.tileCache.keys()) {
+      if (!grouped.has(key)) {
+        const entry = this.tileCache.get(key)!
+        gl.deleteBuffer(entry.mesh.buffer)
+        this.tileCache.delete(key)
+      }
     }
   }
 
   private getTileKey(feature: MapGeoJSONFeature): TileKey | null {
-    // z/x/y key
     return `${feature._z}/${feature._x}/${feature._y}`
   }
 
   private addFeature(out: number[], feature: MapGeoJSONFeature) {
-    console.log(
-      feature,
-      feature._vectorTileFeature.loadGeometry(),
-      classifyRings(feature._vectorTileFeature.loadGeometry(), 0),
-    )
-
     classifyRings(loadGeometry(feature._vectorTileFeature), 0).forEach((ring) => {
       this.triangulatePolygon(out, ring)
     })

@@ -1,21 +1,37 @@
 <template>
   <div style="position: absolute; left: 0; right: 0; top: 0; bottom: 0">
-    <mgl-map
-      :map-style="tilejsonUrl"
-      :center="[13.35203105083487, 52.499757263332086]"
-      :zoom="14"
-    >
+    <canvas class="hidden" id="water-render" style="position: absolute; inset: 0"></canvas>
+
+    <mgl-map :map-style="tilejsonUrl" :center="[13.35203105083487, 52.499757263332086]" :zoom="14">
+      <mgl-custom-control position="top-right">
+        <button @click="slideoverOpen = SlideoverTab.Settings">
+          <span class="maplibregl-ctrl-icon"></span>
+        </button>
+      </mgl-custom-control>
     </mgl-map>
 
     <USlideover
       side="left"
       :modal="false"
       :overlay="false"
-      :open="selection.length === 1"
-      @update:open="(value: boolean) => { if (!value) selection.splice(0) }"
+      :open="slideoverOpen !== null"
+      @update:open="
+        (value: boolean) => {
+          if (!value) onSlideoverClose()
+        }
+      "
     >
       <template #content>
-        <location-details :osm_id="selection[0]?.osm_id" :feature="selection[0]?.feature" />
+        <map-details
+          v-if="slideoverOpen === SlideoverTab.Details"
+          :osm_id="selection[0]?.osm_id"
+          :feature="selection[0]?.feature"
+        />
+
+        <map-settings
+          v-if="slideoverOpen === SlideoverTab.Settings && mapInstance.map"
+          :map="mapInstance.map"
+        />
       </template>
     </USlideover>
   </div>
@@ -23,7 +39,7 @@
 
 <script setup lang="ts">
 import { MglMap, useMap } from '@indoorequal/vue-maplibre-gl'
-import { computed, onMounted, reactive, watch, watchEffect } from 'vue'
+import { computed, onMounted, reactive, ref, watch, watchEffect } from 'vue'
 import {
   GeoJSONFeature,
   GeoJSONSource,
@@ -35,21 +51,51 @@ import {
 import { center } from '@turf/turf'
 import type { FeatureCollection } from 'geojson'
 import { TILESERVER_OMT_DEFAULT_STYLE_TILEJSON_URL } from '@/external/endpoints.ts'
-import LocationDetails from "@/components/LocationDetails.vue";
-import {extractOsmIdFromOmtFeatureId, type OsmId} from "@/external/osm.ts";
+import { extractOsmIdFromOmtFeatureId, type OsmId } from '@/external/osm.ts'
+import MapDetails from '@/components/MapDetails.vue'
+import MapSettings from '@/components/MapSettings.vue'
+import { DynWaterLayer } from '@/components/dyn-water-layer.ts'
 
 const mapInstance = useMap()
 
-const tilejsonUrl = TILESERVER_OMT_DEFAULT_STYLE_TILEJSON_URL.toString();
-console.debug('Using TileJson URL: ', tilejsonUrl);
+const tilejsonUrl = TILESERVER_OMT_DEFAULT_STYLE_TILEJSON_URL.toString()
+console.debug('Using TileJson URL: ', tilejsonUrl)
+
+enum SlideoverTab {
+  Details,
+  Settings,
+}
+
+const slideoverOpen = ref<SlideoverTab | null>(null)
+
+const onSlideoverClose = () => {
+  switch (slideoverOpen.value) {
+    case SlideoverTab.Details:
+      selection.splice(0)
+      break
+
+    case SlideoverTab.Settings:
+      break
+  }
+
+  slideoverOpen.value = null
+}
 
 const selection = reactive<
   {
-    osm_id?: OsmId,
+    osm_id?: OsmId
     coords: LngLat
     feature: GeoJSONFeature
   }[]
 >([])
+
+watchEffect(() => {
+  if (selection.length === 1) {
+    slideoverOpen.value = SlideoverTab.Details
+  } else if (selection.length !== 1 && slideoverOpen.value === SlideoverTab.Details) {
+    slideoverOpen.value = null
+  }
+})
 
 const highlightGeoJsonData = computed(
   (): FeatureCollection => ({
@@ -133,6 +179,15 @@ onMounted(() => {
             'Water labels',
           )
 
+          const dynWaterLayer = new DynWaterLayer()
+          map.addLayer(dynWaterLayer, 'Landcover patterns')
+          map.setLayoutProperty(dynWaterLayer.id, 'visibility', 'visible')
+
+          map.on('zoom', () => {
+            const visible = map.getZoom() >= 14
+            map.setLayoutProperty(dynWaterLayer.id, 'visibility', visible ? 'visible' : 'none')
+          })
+
           map.on('pitch', () => {
             const visible = map.getPitch() > 20
             map.setLayoutProperty('3d-buildings', 'visibility', visible ? 'visible' : 'none')
@@ -156,7 +211,10 @@ onMounted(() => {
                         )
                       : e.lngLat,
                   feature,
-                  osm_id: typeof feature.id === 'number' ? extractOsmIdFromOmtFeatureId(feature.id) ?? undefined : undefined,
+                  osm_id:
+                    typeof feature.id === 'number'
+                      ? (extractOsmIdFromOmtFeatureId(feature.id) ?? undefined)
+                      : undefined,
                 })
               } else {
                 selection.splice(0)

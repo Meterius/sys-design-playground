@@ -8,9 +8,9 @@ uniform sampler2D u_edge_distance_texture;
 varying vec2 v_world;
 varying vec2 v_tile_pos;
 
-#define WATER_COL vec3(170.0/255.0, 210.0/255.0, 223.0/255.0)
-#define WATER2_COL vec3(144.0/255.0, 198.0/255.0, 215.0/255.0)
-#define FOAM_COL vec3(224.0/255.0, 242.0/255.0, 248.0/255.0)
+#define WATER_COL vec3(170.0/255.0, 210.0/255.0, 243.0/255.0)
+#define WATER2_COL vec3(144.0/255.0, 198.0/255.0, 235.0/255.0)
+#define FOAM_COL vec3(244.0/255.0, 247.0/255.0, 253.0/255.0)
 
 
 #define M_2PI 6.283185307
@@ -137,13 +137,47 @@ vec3 water(vec2 uv, vec3 cdir)
     return ret;
 }
 
+float surfStripe(float dist, float phaseOffset)
+{
+    float phase = fract(dist * 5.0 + u_time * 0.55 + phaseOffset);
+    float crest = 1.0 - smoothstep(0.035, 0.32, abs(phase - 0.5));
+    return crest;
+}
+
+float shoreSurf(vec2 uv, float edgeDistance)
+{
+    float shoreLine = 1.0 - smoothstep(0.0, 0.2, edgeDistance);
+    float surfZone = 1.0 - smoothstep(0.15, 0.72, edgeDistance);
+
+    float n1 = 0.0;
+    float n2 = 0.0;
+    float wave = sin(uv.x * 0.035 + uv.y * 0.018 + u_time * 2.7) * 0.025;
+    wave += sin(uv.x * -0.018 + uv.y * 0.04 - u_time * 2.15) * 0.018;
+
+    float distortedDistance = edgeDistance + 2.0 * wave * surfZone + (n1 - n2) * 0.065 * surfZone;
+    float stripes = surfStripe(distortedDistance, n1 * 0.3);
+    stripes += surfStripe(distortedDistance + 0.16, n2 * 0.2) * 0.55;
+
+    stripes = smoothstep(0.45, 0.78, stripes) * surfZone;
+    return clamp(max(shoreLine, stripes), 0.0, 1.0);
+}
+
 uniform float u_zoom;
 void main()
 {
     vec2 uv = v_world;
 
-    vec3 col = water(uv, vec3(0.0, 1.0, 0.0));
     float edge_distance = texture2D(u_edge_distance_texture, v_tile_pos).r;
 
-    gl_FragColor = vec4(vec3(edge_distance), 1.0);
+    vec2 dst = vec2(
+        sin(uv.x * 0.035 + uv.y * 0.018 + u_time * 1.7) * 0.025,
+        sin(uv.x * -0.018 + uv.y * 0.04 - u_time * 1.15) * 0.018
+    );
+    vec3 water_col = water(uv + 5.0 * dst * edge_distance, vec3(0.0, 1.0, 0.0));
+
+    float surf = shoreSurf(uv, clamp(2.0 * edge_distance, 0.0, 1.0));
+    vec3 toon_water = mix(WATER_COL, water_col, 0.55);
+    vec3 col = mix(toon_water, FOAM_COL, surf);
+
+    gl_FragColor = vec4(col, 1.0);
 }

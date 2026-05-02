@@ -39,22 +39,15 @@
 
 <script setup lang="ts">
 import { MglMap, useMap } from '@indoorequal/vue-maplibre-gl'
-import { computed, onMounted, reactive, ref, watch, watchEffect } from 'vue'
-import {
-  GeoJSONFeature,
-  GeoJSONSource,
-  GeolocateControl,
-  GlobeControl,
-  LngLat,
-  NavigationControl,
-} from 'maplibre-gl'
+import { computed, onMounted, ref, watch, watchEffect } from 'vue'
+import { GeoJSONSource, GeolocateControl, GlobeControl, NavigationControl } from 'maplibre-gl'
 import { center } from '@turf/turf'
 import type { FeatureCollection } from 'geojson'
 import { TILESERVER_OMT_DEFAULT_STYLE_TILEJSON_URL } from '@/external/endpoints.ts'
-import { extractOsmIdFromOmtFeatureId, type OsmId } from '@/external/osm.ts'
 import MapDetails from '@/components/MapDetails.vue'
 import MapSettings from '@/components/MapSettings.vue'
 import { DynWaterLayer } from '@/components/dyn-water-layer.ts'
+import { useMapSelection } from '@/composables/maplibre.ts'
 
 const mapInstance = useMap()
 
@@ -71,7 +64,7 @@ const slideoverOpen = ref<SlideoverTab | null>(null)
 const onSlideoverClose = () => {
   switch (slideoverOpen.value) {
     case SlideoverTab.Details:
-      selection.splice(0)
+      selection.value.splice(0)
       break
 
     case SlideoverTab.Settings:
@@ -81,18 +74,16 @@ const onSlideoverClose = () => {
   slideoverOpen.value = null
 }
 
-const selection = reactive<
-  {
-    osm_id?: OsmId
-    coords: LngLat
-    feature: GeoJSONFeature
-  }[]
->([])
+const selectableLayers = ref<string[]>([])
+
+const { selection } = useMapSelection({
+  targetLayers: selectableLayers,
+})
 
 watchEffect(() => {
-  if (selection.length === 1) {
+  if (selection.value.length === 1) {
     slideoverOpen.value = SlideoverTab.Details
-  } else if (selection.length !== 1 && slideoverOpen.value === SlideoverTab.Details) {
+  } else if (selection.value.length !== 1 && slideoverOpen.value === SlideoverTab.Details) {
     slideoverOpen.value = null
   }
 })
@@ -100,7 +91,7 @@ watchEffect(() => {
 const highlightGeoJsonData = computed(
   (): FeatureCollection => ({
     type: 'FeatureCollection',
-    features: selection.map((item) => center(item.feature.geometry)),
+    features: selection.value.map((item) => center(item.feature.geometry)),
   }),
 )
 
@@ -193,34 +184,9 @@ onMounted(() => {
             map.setLayoutProperty('3d-buildings', 'visibility', visible ? 'visible' : 'none')
           })
 
-          map.on(
-            'click',
-            map.getStyle().layers.map((l) => l.id),
-            (e) => {
-              const feature = e.features?.find((f) => f.layer.type === 'symbol')
-
-              if (feature) {
-                console.log(feature, feature.layer, e)
-                selection.splice(0)
-                selection.push({
-                  coords:
-                    feature.geometry.type === 'Point'
-                      ? new LngLat(
-                          feature.geometry.coordinates[0] ?? 0,
-                          feature.geometry.coordinates[1] ?? 0,
-                        )
-                      : e.lngLat,
-                  feature,
-                  osm_id:
-                    typeof feature.id === 'number'
-                      ? (extractOsmIdFromOmtFeatureId(feature.id) ?? undefined)
-                      : undefined,
-                })
-              } else {
-                selection.splice(0)
-              }
-            },
-          )
+          selectableLayers.value = map
+            .getLayersOrder()
+            .filter((layer) => map.getLayer(layer)?.type === 'symbol')
         })
       }
     },

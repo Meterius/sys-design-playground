@@ -1,4 +1,4 @@
-import { type OsmId, OsmType } from '@/external/osm.ts'
+import { type OsmId, OsmType } from '../utils/osm.ts'
 
 export const TILESERVER_URL = new URL(import.meta.env.VITE_TILESERVER_OMT_URL)
 export const API_URL = new URL(import.meta.env.VITE_API_URL)

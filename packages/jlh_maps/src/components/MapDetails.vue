@@ -46,7 +46,7 @@ import { computed, ref, watchEffect } from 'vue'
 import type { GeoJSONFeature } from 'maplibre-gl'
 import { computedAsync } from '@vueuse/core'
 import { getOsmData } from '@/external/endpoints.ts'
-import type { OsmId } from '@/external/osm.ts'
+import type { OsmId } from '@/utils/osm.js'
 
 const props = defineProps<{
   osm_id?: OsmId

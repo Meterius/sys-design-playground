@@ -46,6 +46,7 @@ export function useMapSelection(options: {
   }
 
   const makeOnClick = (targetLayers: string[]) => (e: MapLayerMouseEvent) => {
+    console.log('Click Event', e, e.features)
     lastTargetLayerClick = e
 
     const features = e.features?.filter((f) => targetLayers.includes(f.layer.id)) ?? []

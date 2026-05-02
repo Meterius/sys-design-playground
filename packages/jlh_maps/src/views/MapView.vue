@@ -48,7 +48,7 @@ import MapDetails from '@/components/MapDetails.vue'
 import MapSettings from '@/components/MapSettings.vue'
 import { DynWaterLayer } from '@/components/dyn-water-layer.ts'
 import { useMapSelection } from '@/composables/maplibre.ts'
-import {watchDefinedOnce} from "@/composables/helper.ts";
+import { watchDefinedOnce } from '@/composables/helper.ts'
 
 const mapInstance = useMap()
 
@@ -96,15 +96,17 @@ const highlightGeoJsonData = computed(
   }),
 )
 
-watchDefinedOnce(() => mapInstance.map, (map) => {
-  map.addControl(new GlobeControl())
-  map.addControl(new NavigationControl())
-  map.addControl(new GeolocateControl({}))
+watchDefinedOnce(
+  () => mapInstance.map,
+  (map) => {
+    map.addControl(new GlobeControl())
+    map.addControl(new NavigationControl())
+    map.addControl(new GeolocateControl({}))
 
-  const onLoaded = () => {
-    // 3D Buildings Layer
+    const onLoaded = () => {
+      // 3D Buildings Layer
 
-    map.addLayer(
+      map.addLayer(
         {
           id: '3d-buildings',
           source: 'openmaptiles',
@@ -143,61 +145,61 @@ watchDefinedOnce(() => mapInstance.map, (map) => {
           },
         },
         'Water labels',
-    )
+      )
 
-    map.on('pitch', () => {
-      const visible = map.getPitch() > 20
-      map.setLayoutProperty('3d-buildings', 'visibility', visible ? 'visible' : 'none')
-    })
+      map.on('pitch', () => {
+        const visible = map.getPitch() > 20
+        map.setLayoutProperty('3d-buildings', 'visibility', visible ? 'visible' : 'none')
+      })
 
-    // Dyn Water Layer
+      // Dyn Water Layer
 
-    const dynWaterLayer = new DynWaterLayer(map.getLayer('Water')!)
-    map.addLayer(dynWaterLayer, 'Landcover patterns')
-    map.setLayoutProperty(dynWaterLayer.id, 'visibility', 'visible')
+      const dynWaterLayer = new DynWaterLayer(map.getLayer('Water')!)
+      map.addLayer(dynWaterLayer, 'Landcover patterns')
+      map.setLayoutProperty(dynWaterLayer.id, 'visibility', 'visible')
 
-    map.on('zoom', () => {
-      const visible = map.getZoom() >= 14
-      map.setLayoutProperty(dynWaterLayer.id, 'visibility', visible ? 'visible' : 'none')
-    })
+      map.on('zoom', () => {
+        const visible = map.getZoom() >= 14
+        map.setLayoutProperty(dynWaterLayer.id, 'visibility', visible ? 'visible' : 'none')
+      })
 
-    // Highlight Layer
+      // Highlight Layer
 
-    map.addSource('highlight', {
-      type: 'geojson',
-      data: highlightGeoJsonData.value,
-    })
+      map.addSource('highlight', {
+        type: 'geojson',
+        data: highlightGeoJsonData.value,
+      })
 
-    watchEffect(() => {
-      map.getSource<GeoJSONSource>('highlight')?.setData(highlightGeoJsonData.value)
-    })
+      watchEffect(() => {
+        map.getSource<GeoJSONSource>('highlight')?.setData(highlightGeoJsonData.value)
+      })
 
-    map.addLayer({
-      id: 'highlight',
-      source: 'highlight',
-      type: 'circle',
-      paint: {
-        'circle-radius': 25,
-        'circle-color': 'transparent',
-        'circle-stroke-color': '#1d87bf',
-        'circle-stroke-opacity': 0.75,
-        'circle-stroke-width': 3,
-      },
-    })
+      map.addLayer({
+        id: 'highlight',
+        source: 'highlight',
+        type: 'circle',
+        paint: {
+          'circle-radius': 25,
+          'circle-color': 'transparent',
+          'circle-stroke-color': '#1d87bf',
+          'circle-stroke-opacity': 0.75,
+          'circle-stroke-width': 3,
+        },
+      })
 
-    //
+      //
 
-    selectableLayers.value = map
-        .getLayersOrder()
-        .filter((layer) => map.getLayer(layer)?.type === 'symbol')
-  };
+      selectableLayers.value = map.getLayersOrder()
+      //.filter((layer) => map.getLayer(layer)?.type === 'symbol')
+    }
 
-  if (map.loaded()) {
-    onLoaded();
-  } else {
-    map.on('load', onLoaded);
-  }
-})
+    if (map.loaded()) {
+      onLoaded()
+    } else {
+      map.on('load', onLoaded)
+    }
+  },
+)
 </script>
 
 <style lang="css">

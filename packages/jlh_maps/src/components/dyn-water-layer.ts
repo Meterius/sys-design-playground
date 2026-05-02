@@ -24,6 +24,12 @@ interface Edge {
   by: number
 }
 
+interface TileCoord {
+  z: number
+  x: number
+  y: number
+}
+
 interface TileMesh {
   buffer: WebGLBuffer
   vertexCount: number
@@ -32,7 +38,9 @@ interface TileMesh {
 interface TileEntry {
   mesh: TileMesh
   tileId: OverscaledTileID
+  coord: TileCoord
   containedFeatures: Set<string>
+  edges: Edge[]
   edgeDistanceTexture: WebGLTexture
   edgeDistanceData: Float32Array
   inactive: boolean
@@ -40,7 +48,7 @@ interface TileEntry {
 
 const TILE_EXTEND = 8192
 const TILE_EDGE_DISTANCE_TEXTURE_SIZE = 1024
-const TILE_EDGE_DISTANCE_MAX_DISTANCE = 0.01
+const TILE_EDGE_DISTANCE_MAX_DISTANCE = 0.0075
 
 export class DynWaterLayer implements CustomLayerInterface {
   id = 'dyn-water'
@@ -126,7 +134,7 @@ export class DynWaterLayer implements CustomLayerInterface {
     gl.uniform1i(this.uEdgeDistanceTexture, 0)
 
     gl.enable(gl.BLEND)
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
 
     for (const { mesh, tileId, edgeDistanceTexture, inactive } of this.tileCache.values()) {
       if (inactive) continue
@@ -168,22 +176,22 @@ export class DynWaterLayer implements CustomLayerInterface {
       {
         features: GeoJSONFeature[]
         tileId: OverscaledTileID
+        coord: TileCoord
         containedFeatures: Set<string>
       }
     >()
 
     for (const feature of features) {
-      const key = this.getTileKey(feature)
-      if (!key) {
-        throw new Error('Missing tile key')
-      }
+      const coord = this.getTileCoord(feature)
+      const key = this.getTileKey(coord)
 
-      const tileId = new OverscaledTileID(feature._z, 0, feature._z, feature._x, feature._y)
+      const tileId = new OverscaledTileID(coord.z, 0, coord.z, coord.x, coord.y)
 
       if (!grouped.has(key)) {
         grouped.set(key, {
           features: [],
           tileId,
+          coord,
           containedFeatures: new Set(),
         })
       }
@@ -203,8 +211,10 @@ export class DynWaterLayer implements CustomLayerInterface {
       entry.inactive = true
     }
 
+    const rebuiltTiles = new Set<TileKey>()
+
     // create / update
-    for (const [key, { features, tileId, containedFeatures }] of grouped) {
+    for (const [key, { features, tileId, coord, containedFeatures }] of grouped) {
       const existing = this.tileCache.get(key)
 
       if (existing) {
@@ -215,7 +225,6 @@ export class DynWaterLayer implements CustomLayerInterface {
       const needsRebuild = !existing || !isEqual(existing.containedFeatures, containedFeatures)
 
       if (!needsRebuild) {
-        existing.tileId = tileId
         continue
       }
 
@@ -223,6 +232,8 @@ export class DynWaterLayer implements CustomLayerInterface {
       if (existing) {
         gl.deleteBuffer(existing.mesh.buffer)
       }
+
+      console.log(key, features, tileId)
 
       const vertices: number[] = []
       const edges: Edge[] = []
@@ -237,22 +248,24 @@ export class DynWaterLayer implements CustomLayerInterface {
         existing?.edgeDistanceData ??
         new Float32Array(TILE_EDGE_DISTANCE_TEXTURE_SIZE * TILE_EDGE_DISTANCE_TEXTURE_SIZE)
 
-      this.updateEdgeDistanceData(edgeDistanceData, edges)
-      this.updateEdgeDistanceTexture(edgeDistanceTexture, edgeDistanceData)
-
       this.tileCache.set(key, {
         mesh: {
           buffer,
           vertexCount: vertices.length / 2,
         },
         tileId,
+        coord,
         containedFeatures,
+        edges,
         edgeDistanceTexture,
         edgeDistanceData,
         inactive: false,
       })
+
+      rebuiltTiles.add(key)
     }
 
+    this.updateEdgeDistanceTextures(rebuiltTiles)
     this.evictInactiveTiles()
   }
 
@@ -270,8 +283,16 @@ export class DynWaterLayer implements CustomLayerInterface {
     }
   }
 
-  private getTileKey(feature: GeoJSONFeature): TileKey | null {
-    return `${feature._z}/${feature._x}/${feature._y}`
+  private getTileCoord(feature: GeoJSONFeature): TileCoord {
+    return {
+      z: feature._z,
+      x: feature._x,
+      y: feature._y,
+    }
+  }
+
+  private getTileKey(coord: TileCoord): TileKey {
+    return `${coord.z}/${coord.x}/${coord.y}`
   }
 
   private evictInactiveTiles() {
@@ -316,6 +337,69 @@ export class DynWaterLayer implements CustomLayerInterface {
         })
       }
     }
+  }
+
+  private updateEdgeDistanceTextures(rebuiltTiles: Set<TileKey>) {
+    for (const [key, entry] of this.tileCache) {
+      const needsUpdate = rebuiltTiles.has(key)
+
+      if (!needsUpdate) {
+        continue
+      }
+
+      const edges = this.collectEdgeDistanceEdges(entry)
+      this.updateEdgeDistanceData(entry.edgeDistanceData, edges)
+      this.updateEdgeDistanceTexture(entry.edgeDistanceTexture, entry.edgeDistanceData)
+    }
+  }
+
+  private collectEdgeDistanceEdges(target: TileEntry) {
+    const edges: Edge[] = []
+
+    this.addTransformedEdges(edges, target, target)
+    return this.removeDuplicateEdges(edges)
+  }
+
+  private addTransformedEdges(outEdges: Edge[], target: TileEntry, source: TileEntry) {
+    const offsetX = source.coord.x - target.coord.x
+    const offsetY = source.coord.y - target.coord.y
+
+    for (const edge of source.edges) {
+      const ax = offsetX + edge.ax / TILE_EXTEND
+      const ay = offsetY + edge.ay / TILE_EXTEND
+      const bx = offsetX + edge.bx / TILE_EXTEND
+      const by = offsetY + edge.by / TILE_EXTEND
+
+      outEdges.push({ ax, ay, bx, by })
+    }
+  }
+
+  private removeDuplicateEdges(edges: Edge[]) {
+    const edgeCounts = new Map<string, number>()
+
+    for (const edge of edges) {
+      const key = this.getCanonicalEdgeKey(edge)
+      edgeCounts.set(key, (edgeCounts.get(key) ?? 0) + 1)
+    }
+
+    return edges.filter((edge) => edgeCounts.get(this.getCanonicalEdgeKey(edge)) === 1)
+  }
+
+  private getCanonicalEdgeKey(edge: Edge) {
+    const ax = this.quantizeNormalizedEdgeCoord(edge.ax)
+    const ay = this.quantizeNormalizedEdgeCoord(edge.ay)
+    const bx = this.quantizeNormalizedEdgeCoord(edge.bx)
+    const by = this.quantizeNormalizedEdgeCoord(edge.by)
+
+    if (ax < bx || (ax === bx && ay <= by)) {
+      return `${ax},${ay}:${bx},${by}`
+    }
+
+    return `${bx},${by}:${ax},${ay}`
+  }
+
+  private quantizeNormalizedEdgeCoord(value: number) {
+    return Math.round(0.25 * value * TILE_EXTEND)
   }
 
   private configureEdgeDistanceTextureFormat(gl: WebGLRenderingContext) {
@@ -384,24 +468,24 @@ export class DynWaterLayer implements CustomLayerInterface {
 
   private updateEdgeDistanceData(out: Float32Array, edges: Edge[]) {
     update_edge_distance_texture(
-      this.packEdges(edges),
+      this.packNormalizedEdges(edges),
       out,
       TILE_EDGE_DISTANCE_TEXTURE_SIZE,
       TILE_EDGE_DISTANCE_MAX_DISTANCE,
     )
   }
 
-  private packEdges(edges: Edge[]) {
+  private packNormalizedEdges(edges: Edge[]) {
     const packed = new Float32Array(edges.length * 4)
 
     for (let i = 0; i < edges.length; i++) {
       const edge = edges[i]!
       const offset = i * 4
 
-      packed[offset] = edge.ax / TILE_EXTEND
-      packed[offset + 1] = edge.ay / TILE_EXTEND
-      packed[offset + 2] = edge.bx / TILE_EXTEND
-      packed[offset + 3] = edge.by / TILE_EXTEND
+      packed[offset] = edge.ax
+      packed[offset + 1] = edge.ay
+      packed[offset + 2] = edge.bx
+      packed[offset + 3] = edge.by
     }
 
     return packed

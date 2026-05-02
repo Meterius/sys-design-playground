@@ -12,6 +12,8 @@ varying vec2 v_tile_pos;
 #define WATER2_COL vec3(144.0/255.0, 198.0/255.0, 235.0/255.0)
 #define FOAM_COL vec3(244.0/255.0, 247.0/255.0, 253.0/255.0)
 
+#define OVERLAP_ZONE 0.0001
+
 
 #define M_2PI 6.283185307
 #define M_6PI 18.84955592
@@ -165,6 +167,15 @@ float shoreSurf(vec2 uv, float edgeDistance)
 uniform float u_zoom;
 void main()
 {
+    float outside_dist = max(max(-v_tile_pos.x, v_tile_pos.x - 1.0), max(-v_tile_pos.y, v_tile_pos.y - 1.0));
+    float outside_fac = clamp(outside_dist / OVERLAP_ZONE, 0.0, 1.0);
+    float alpha_fac = 1.0 - outside_fac;
+
+    if (alpha_fac <= 0.001) {
+        discard;
+        return;
+    }
+
     vec2 uv = v_world;
 
     float edge_distance = texture2D(u_edge_distance_texture, v_tile_pos).r;
@@ -179,5 +190,5 @@ void main()
     vec3 toon_water = mix(WATER_COL, water_col, 0.55);
     vec3 col = mix(toon_water, FOAM_COL, surf);
 
-    gl_FragColor = vec4(col, 1.0);
+    gl_FragColor = vec4(col, alpha_fac);
 }

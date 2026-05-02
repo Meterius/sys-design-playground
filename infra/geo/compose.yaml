@@ -39,13 +39,13 @@ services:
 
   omt_tileserver_gl:
     image: "maptiler/tileserver-gl:latest"
+
     command:
       - --port
-      - "${TPORT:-8080}"
+      - "8080"
       - --config
       - "/style/config.json"
-    ports:
-      - "${TPORT:-8080}:${TPORT:-8080}"
+
     volumes:
       - ${OPENMAPTILES_DIR}/data:/data
       - ${OPENMAPTILES_DIR}/style:/style
@@ -71,9 +71,21 @@ services:
 
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.backend.rule=Host(`api.jlh_maps.localhost`)"
-      - "traefik.http.routers.backend.entrypoints=web"
-      - "traefik.http.services.backend.loadbalancer.server.port=8080"
+      - "traefik.http.routers.core_service.rule=Host(`api.jlh_maps.localhost`)"
+      - "traefik.http.routers.core_service.entrypoints=web"
+      - "traefik.http.services.core_service.loadbalancer.server.port=8080"
+
+  valhalla:
+    image: ghcr.io/valhalla/valhalla-scripted:latest
+
+    volumes:
+      - ./valhalla/custom_files:/custom_files
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.valhalla.rule=Host(`valhalla.jlh_maps.localhost`)"
+      - "traefik.http.routers.valhalla.entrypoints=web"
+      - "traefik.http.services.valhalla.loadbalancer.server.port=8002"
 
 volumes:
   postgres_osm_data:

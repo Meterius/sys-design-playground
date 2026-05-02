@@ -6,6 +6,7 @@
 /secrets
 .env
 .cursor
+.codex
 /datasets/sat/
 /crates/utilities/test-data/
 /crates/*/target

@@ -13,6 +13,7 @@
       <sourceFolder url="file://$MODULE_DIR$/vendor/bevy_vello/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/jlh_maps_core_service/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/jlh_maps_frontend/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/jlh_maps_frontend/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/crates/backend/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/datasets/sat" />

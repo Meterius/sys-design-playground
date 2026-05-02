@@ -4,6 +4,9 @@ build-dev:
 build-release:
     wasm-pack build --release --target web -- --target wasm32-unknown-unknown
 
+bench:
+    cargo test -p jlh_maps_frontend --release --test edge_distance_bench -- --ignored --nocapture
+
 clean:
     cargo clean -p jlh_maps_frontend
     if exist pkg rmdir /s /q pkg

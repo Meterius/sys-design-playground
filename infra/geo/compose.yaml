@@ -16,7 +16,10 @@ services:
       - "8081:8080"
 
   postgres_osm:
-    image: postgis/postgis:15-3.4
+    build:
+      context: ./postgres_osm
+      dockerfile: Dockerfile
+
     restart: unless-stopped
 
     command: -c config_file=/etc/postgresql.conf

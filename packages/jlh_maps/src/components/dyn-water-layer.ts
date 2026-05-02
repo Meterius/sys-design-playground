@@ -34,12 +34,12 @@ interface TileEntry {
   tileId: OverscaledTileID
   containedFeatures: Set<string>
   edgeDistanceTexture: WebGLTexture
-  edgeDistanceData: Uint8Array
+  edgeDistanceData: Float32Array
   inactive: boolean
 }
 
 const TILE_EXTEND = 8192
-const TILE_EDGE_DISTANCE_TEXTURE_SIZE = 4096
+const TILE_EDGE_DISTANCE_TEXTURE_SIZE = 1024
 const TILE_EDGE_DISTANCE_MAX_DISTANCE = 0.01
 
 export class DynWaterLayer implements CustomLayerInterface {
@@ -62,6 +62,9 @@ export class DynWaterLayer implements CustomLayerInterface {
 
   private tileCache = new Map<TileKey, TileEntry>()
   private tileCacheInactiveCapacity = 8
+  private edgeDistanceTextureFilter!: number
+  private edgeDistanceTextureInternalFormat!: number
+  private edgeDistanceTextureFormat!: number
   private wasmReady = false
 
   constructor(targetLayer: StyleLayer) {
@@ -95,6 +98,11 @@ export class DynWaterLayer implements CustomLayerInterface {
     this.uResolution = gl.getUniformLocation(program, 'u_resolution')!
     this.uTime = gl.getUniformLocation(program, 'u_time')!
     this.uEdgeDistanceTexture = gl.getUniformLocation(program, 'u_edge_distance_texture')!
+
+    this.configureEdgeDistanceTextureFormat(gl)
+    this.edgeDistanceTextureFilter = gl.getExtension('OES_texture_float_linear')
+      ? gl.LINEAR
+      : gl.NEAREST
 
     void initJlhMapsFrontendWasm().then(() => {
       this.wasmReady = true
@@ -227,7 +235,7 @@ export class DynWaterLayer implements CustomLayerInterface {
       const edgeDistanceTexture = existing?.edgeDistanceTexture ?? this.createEdgeDistanceTexture()
       const edgeDistanceData =
         existing?.edgeDistanceData ??
-        new Uint8Array(TILE_EDGE_DISTANCE_TEXTURE_SIZE * TILE_EDGE_DISTANCE_TEXTURE_SIZE)
+        new Float32Array(TILE_EDGE_DISTANCE_TEXTURE_SIZE * TILE_EDGE_DISTANCE_TEXTURE_SIZE)
 
       this.updateEdgeDistanceData(edgeDistanceData, edges)
       this.updateEdgeDistanceTexture(edgeDistanceTexture, edgeDistanceData)
@@ -310,32 +318,53 @@ export class DynWaterLayer implements CustomLayerInterface {
     }
   }
 
+  private configureEdgeDistanceTextureFormat(gl: WebGLRenderingContext) {
+    if (this.isWebGL2(gl)) {
+      this.edgeDistanceTextureInternalFormat = gl.R32F
+      this.edgeDistanceTextureFormat = gl.RED
+      return
+    }
+
+    if (!gl.getExtension('OES_texture_float')) {
+      throw new Error(
+        'DynWaterLayer requires WebGL2 or OES_texture_float for edge distance textures',
+      )
+    }
+
+    this.edgeDistanceTextureInternalFormat = gl.LUMINANCE
+    this.edgeDistanceTextureFormat = gl.LUMINANCE
+  }
+
+  private isWebGL2(gl: WebGLRenderingContext): gl is WebGL2RenderingContext {
+    return typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext
+  }
+
   private createEdgeDistanceTexture() {
     const gl = this.gl
     const texture = gl.createTexture()!
 
     gl.bindTexture(gl.TEXTURE_2D, texture)
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, this.edgeDistanceTextureFilter)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, this.edgeDistanceTextureFilter)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
     gl.texImage2D(
       gl.TEXTURE_2D,
       0,
-      gl.LUMINANCE,
+      this.edgeDistanceTextureInternalFormat,
       TILE_EDGE_DISTANCE_TEXTURE_SIZE,
       TILE_EDGE_DISTANCE_TEXTURE_SIZE,
       0,
-      gl.LUMINANCE,
-      gl.UNSIGNED_BYTE,
+      this.edgeDistanceTextureFormat,
+      gl.FLOAT,
       null,
     )
 
     return texture
   }
 
-  private updateEdgeDistanceTexture(texture: WebGLTexture, data: Uint8Array) {
+  private updateEdgeDistanceTexture(texture: WebGLTexture, data: Float32Array) {
     const gl = this.gl
 
     gl.bindTexture(gl.TEXTURE_2D, texture)
@@ -347,13 +376,13 @@ export class DynWaterLayer implements CustomLayerInterface {
       0,
       TILE_EDGE_DISTANCE_TEXTURE_SIZE,
       TILE_EDGE_DISTANCE_TEXTURE_SIZE,
-      gl.LUMINANCE,
-      gl.UNSIGNED_BYTE,
+      this.edgeDistanceTextureFormat,
+      gl.FLOAT,
       data,
     )
   }
 
-  private updateEdgeDistanceData(out: Uint8Array, edges: Edge[]) {
+  private updateEdgeDistanceData(out: Float32Array, edges: Edge[]) {
     update_edge_distance_texture(
       this.packEdges(edges),
       out,

@@ -83,7 +83,7 @@ fn benchmark_sample(sample: &EdgeTileSample, repeat_count: usize) -> BenchResult
         sample.tile_key
     );
 
-    let mut out = vec![0; sample.texture_size * sample.texture_size];
+    let mut out = vec![0.0; sample.texture_size * sample.texture_size];
     let mut best_duration = Duration::MAX;
     let mut total_duration = Duration::ZERO;
 

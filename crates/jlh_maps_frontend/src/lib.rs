@@ -1,3 +1,4 @@
+use smallvec::SmallVec;
 use wasm_bindgen::prelude::*;
 
 #[derive(Clone, Copy)]
@@ -14,7 +15,7 @@ struct Edge {
 #[wasm_bindgen]
 pub fn update_edge_distance_texture(
     edges: &[f32],
-    out: &mut [u8],
+    out: &mut [f32],
     texture_size: usize,
     max_distance: f32,
 ) {
@@ -39,8 +40,8 @@ pub fn update_edge_distance_texture(
             let px = (x as f32 + 0.5) / texture_size as f32;
             let mut closest_dist_sq = max_dist_sq;
 
-            for edge_index in bins.candidates(px, py) {
-                let dist_sq = distance_to_edge_sq(px, py, edges[*edge_index]);
+            for edge in bins.candidates(px, py) {
+                let dist_sq = distance_to_edge_sq(px, py, edge);
 
                 if dist_sq < closest_dist_sq {
                     closest_dist_sq = dist_sq;
@@ -48,7 +49,7 @@ pub fn update_edge_distance_texture(
             }
 
             let distance = closest_dist_sq.sqrt().min(max_distance);
-            out[row_offset + x] = ((distance / max_distance) * u8::MAX as f32).round() as u8;
+            out[row_offset + x] = distance / max_distance;
         }
     }
 }
@@ -78,17 +79,17 @@ fn prepare_edges(edges: &[f32]) -> Vec<Edge> {
         .collect()
 }
 
-struct EdgeBins {
+struct EdgeBins<'a> {
     bin_count: usize,
-    bins: Vec<Vec<usize>>,
+    bins: Vec<SmallVec<[&'a Edge; 5]>>,
 }
 
-impl EdgeBins {
-    fn new(edges: &[Edge], max_distance: f32) -> Self {
+impl<'a> EdgeBins<'a> {
+    fn new(edges: &'a [Edge], max_distance: f32) -> Self {
         let bin_count = (1.0 / max_distance).ceil().clamp(1.0, 256.0) as usize;
-        let mut bins = vec![Vec::new(); bin_count * bin_count];
+        let mut bins = vec![SmallVec::<[&Edge; 5]>::new(); bin_count * bin_count];
 
-        for (edge_index, edge) in edges.iter().enumerate() {
+        for edge in edges {
             let min_x = clamp_bin(
                 ((edge.ax.min(edge.bx) - max_distance) * bin_count as f32).floor(),
                 bin_count,
@@ -110,7 +111,7 @@ impl EdgeBins {
                 let row_offset = y * bin_count;
 
                 for x in min_x..=max_x {
-                    bins[row_offset + x].push(edge_index);
+                    bins[row_offset + x].push(edge);
                 }
             }
         }
@@ -118,11 +119,11 @@ impl EdgeBins {
         Self { bin_count, bins }
     }
 
-    fn candidates(&self, x: f32, y: f32) -> &[usize] {
+    fn candidates(&self, x: f32, y: f32) -> &[&'a Edge] {
         let bin_x = clamp_bin((x * self.bin_count as f32).floor(), self.bin_count);
         let bin_y = clamp_bin((y * self.bin_count as f32).floor(), self.bin_count);
 
-        &self.bins[bin_y * self.bin_count + bin_x]
+        self.bins[bin_y * self.bin_count + bin_x].as_slice()
     }
 }
 
@@ -130,7 +131,7 @@ fn clamp_bin(value: f32, bin_count: usize) -> usize {
     value.max(0.0).min((bin_count - 1) as f32) as usize
 }
 
-fn distance_to_edge_sq(px: f32, py: f32, edge: Edge) -> f32 {
+fn distance_to_edge_sq(px: f32, py: f32, edge: &Edge) -> f32 {
     let t = (((px - edge.ax) * edge.dx + (py - edge.ay) * edge.dy) / edge.len_sq).clamp(0.0, 1.0);
     let closest_x = edge.ax + t * edge.dx;
     let closest_y = edge.ay + t * edge.dy;
@@ -153,18 +154,22 @@ mod tests {
         ];
         let texture_size = 32;
         let max_distance = 0.15;
-        let mut actual = vec![0; texture_size * texture_size];
+        let mut actual = vec![0.0; texture_size * texture_size];
         let expected = brute_force(&raw_edges, texture_size, max_distance);
 
         update_edge_distance_texture(&raw_edges, &mut actual, texture_size, max_distance);
 
-        assert_eq!(actual, expected);
+        assert_eq!(actual.len(), expected.len());
+
+        for (actual, expected) in actual.iter().zip(expected.iter()) {
+            assert!((actual - expected).abs() < f32::EPSILON);
+        }
     }
 
-    fn brute_force(raw_edges: &[f32], texture_size: usize, max_distance: f32) -> Vec<u8> {
+    fn brute_force(raw_edges: &[f32], texture_size: usize, max_distance: f32) -> Vec<f32> {
         let edges = prepare_edges(raw_edges);
         let max_dist_sq = max_distance * max_distance;
-        let mut out = vec![0; texture_size * texture_size];
+        let mut out = vec![0.0; texture_size * texture_size];
 
         for y in 0..texture_size {
             let row_offset = y * texture_size;
@@ -175,7 +180,7 @@ mod tests {
                 let mut closest_dist_sq = max_dist_sq;
 
                 for edge in &edges {
-                    let dist_sq = distance_to_edge_sq(px, py, *edge);
+                    let dist_sq = distance_to_edge_sq(px, py, edge);
 
                     if dist_sq < closest_dist_sq {
                         closest_dist_sq = dist_sq;
@@ -183,7 +188,7 @@ mod tests {
                 }
 
                 let distance = closest_dist_sq.sqrt().min(max_distance);
-                out[row_offset + x] = ((distance / max_distance) * u8::MAX as f32).round() as u8;
+                out[row_offset + x] = distance / max_distance;
             }
         }
 

@@ -7,6 +7,16 @@ build-release:
 bench:
     cargo test -p jlh_maps_frontend --release --test edge_distance_bench -- --ignored --nocapture
 
+profile-build:
+    cargo build -p jlh_maps_frontend --release --bin edge_distance_profile
+
+profile-run: profile-build
+    ..\..\target\release\edge_distance_profile.exe
+
+profile-vtune: profile-build
+    if exist vtune-results\edge-distance rmdir /s /q vtune-results\edge-distance
+    vtune -collect hotspots -result-dir vtune-results\edge-distance -- ..\..\target\release\edge_distance_profile.exe
+
 clean:
     cargo clean -p jlh_maps_frontend
     if exist pkg rmdir /s /q pkg

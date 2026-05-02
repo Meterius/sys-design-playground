@@ -39,7 +39,7 @@
 
 <script setup lang="ts">
 import { MglMap, useMap } from '@indoorequal/vue-maplibre-gl'
-import { computed, onMounted, ref, watch, watchEffect } from 'vue'
+import { computed, ref, watchEffect } from 'vue'
 import { GeoJSONSource, GeolocateControl, GlobeControl, NavigationControl } from 'maplibre-gl'
 import { center } from '@turf/turf'
 import type { FeatureCollection } from 'geojson'
@@ -48,6 +48,7 @@ import MapDetails from '@/components/MapDetails.vue'
 import MapSettings from '@/components/MapSettings.vue'
 import { DynWaterLayer } from '@/components/dyn-water-layer.ts'
 import { useMapSelection } from '@/composables/maplibre.ts'
+import {watchDefinedOnce} from "@/composables/helper.ts";
 
 const mapInstance = useMap()
 
@@ -95,103 +96,107 @@ const highlightGeoJsonData = computed(
   }),
 )
 
-onMounted(() => {
-  watch(
-    mapInstance,
-    (val, prev) => {
-      if (val.map !== undefined && prev?.map === undefined) {
-        const map = val.map
+watchDefinedOnce(() => mapInstance.map, (map) => {
+  map.addControl(new GlobeControl())
+  map.addControl(new NavigationControl())
+  map.addControl(new GeolocateControl({}))
 
-        map.addControl(new GlobeControl())
-        map.addControl(new NavigationControl())
-        map.addControl(new GeolocateControl({}))
+  const onLoaded = () => {
+    // 3D Buildings Layer
 
-        map.on('load', () => {
-          map.addSource('highlight', {
-            type: 'geojson',
-            data: highlightGeoJsonData.value,
-          })
+    map.addLayer(
+        {
+          id: '3d-buildings',
+          source: 'openmaptiles',
+          'source-layer': 'building',
+          type: 'fill-extrusion',
+          minzoom: 15,
+          filter: ['!=', ['get', 'hide_3d'], true],
+          layout: {
+            visibility: 'none',
+          },
+          paint: {
+            'fill-extrusion-color': [
+              'interpolate',
+              ['linear'],
+              ['get', 'render_height'],
+              0,
+              'hsl(26, 12%, 82%)',
+              400,
+              'hsl(26, 15%, 82%)',
+            ],
+            'fill-extrusion-height': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              15,
+              0,
+              16,
+              ['get', 'render_height'],
+            ],
+            'fill-extrusion-base': [
+              'case',
+              ['>=', ['get', 'zoom'], 16],
+              ['get', 'render_min_height'],
+              0,
+            ],
+          },
+        },
+        'Water labels',
+    )
 
-          watchEffect(() => {
-            map.getSource<GeoJSONSource>('highlight')?.setData(highlightGeoJsonData.value)
-          })
+    map.on('pitch', () => {
+      const visible = map.getPitch() > 20
+      map.setLayoutProperty('3d-buildings', 'visibility', visible ? 'visible' : 'none')
+    })
 
-          map.addLayer({
-            id: 'highlight',
-            source: 'highlight',
-            type: 'circle',
-            paint: {
-              'circle-radius': 25,
-              'circle-color': 'transparent',
-              'circle-stroke-color': '#1d87bf',
-              'circle-stroke-opacity': 0.75,
-              'circle-stroke-width': 3,
-            },
-          })
+    // Dyn Water Layer
 
-          map.addLayer(
-            {
-              id: '3d-buildings',
-              source: 'openmaptiles',
-              'source-layer': 'building',
-              type: 'fill-extrusion',
-              minzoom: 15,
-              filter: ['!=', ['get', 'hide_3d'], true],
-              layout: {
-                visibility: 'none',
-              },
-              paint: {
-                'fill-extrusion-color': [
-                  'interpolate',
-                  ['linear'],
-                  ['get', 'render_height'],
-                  0,
-                  'hsl(26, 12%, 82%)',
-                  400,
-                  'hsl(26, 15%, 82%)',
-                ],
-                'fill-extrusion-height': [
-                  'interpolate',
-                  ['linear'],
-                  ['zoom'],
-                  15,
-                  0,
-                  16,
-                  ['get', 'render_height'],
-                ],
-                'fill-extrusion-base': [
-                  'case',
-                  ['>=', ['get', 'zoom'], 16],
-                  ['get', 'render_min_height'],
-                  0,
-                ],
-              },
-            },
-            'Water labels',
-          )
+    const dynWaterLayer = new DynWaterLayer(map.getLayer('Water')!)
+    map.addLayer(dynWaterLayer, 'Landcover patterns')
+    map.setLayoutProperty(dynWaterLayer.id, 'visibility', 'visible')
 
-          const dynWaterLayer = new DynWaterLayer(map.getLayer('Water')!)
-          map.addLayer(dynWaterLayer, 'Landcover patterns')
-          map.setLayoutProperty(dynWaterLayer.id, 'visibility', 'visible')
+    map.on('zoom', () => {
+      const visible = map.getZoom() >= 14
+      map.setLayoutProperty(dynWaterLayer.id, 'visibility', visible ? 'visible' : 'none')
+    })
 
-          map.on('zoom', () => {
-            const visible = map.getZoom() >= 14
-            map.setLayoutProperty(dynWaterLayer.id, 'visibility', visible ? 'visible' : 'none')
-          })
+    // Highlight Layer
 
-          map.on('pitch', () => {
-            const visible = map.getPitch() > 20
-            map.setLayoutProperty('3d-buildings', 'visibility', visible ? 'visible' : 'none')
-          })
+    map.addSource('highlight', {
+      type: 'geojson',
+      data: highlightGeoJsonData.value,
+    })
 
-          selectableLayers.value = map
-            .getLayersOrder()
-            .filter((layer) => map.getLayer(layer)?.type === 'symbol')
-        })
-      }
-    },
-    { immediate: true },
-  )
+    watchEffect(() => {
+      map.getSource<GeoJSONSource>('highlight')?.setData(highlightGeoJsonData.value)
+    })
+
+    map.addLayer({
+      id: 'highlight',
+      source: 'highlight',
+      type: 'circle',
+      paint: {
+        'circle-radius': 25,
+        'circle-color': 'transparent',
+        'circle-stroke-color': '#1d87bf',
+        'circle-stroke-opacity': 0.75,
+        'circle-stroke-width': 3,
+      },
+    })
+
+    //
+
+    selectableLayers.value = map
+        .getLayersOrder()
+        .filter((layer) => map.getLayer(layer)?.type === 'symbol')
+  };
+
+  if (map.loaded()) {
+    onLoaded();
+  } else {
+    map.on('load', onLoaded);
+  }
 })
 </script>
 

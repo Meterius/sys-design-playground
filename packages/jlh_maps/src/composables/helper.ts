@@ -1,12 +1,10 @@
-import { watchEffect } from 'vue'
+import {watch, type WatchSource} from 'vue'
 
-export function watchOnceDefined<T>(getValue: () => T | undefined, callback: (value: T) => void) {
-  const stop = watchEffect(() => {
-    const value = getValue()
-
-    if (value !== undefined) {
+export function watchDefinedOnce<T>(value: WatchSource<T | undefined>, callback: (value: T) => void) {
+  const stop = watch(value, (val) => {
+    if (val !== undefined) {
       stop()
-      callback(value)
+      callback(val)
     }
-  })
+  }, { immediate: true })
 }

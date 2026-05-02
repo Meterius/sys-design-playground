@@ -1,7 +1,22 @@
 use futures::stream::{self, StreamExt};
-use generated_queries::queries::osm_queries::{UpsertBuildingsStreamingCommitStmt, UpsertBuildingsStreamingEndStmt, UpsertBuildingsStreamingTransferStmt, UpsertRoadStreamingTransferStmt, UpsertRoadsStreamingCommitStmt, UpsertRoadsStreamingEndStmt, UpsertWatersStreamingCommitStmt, UpsertWatersStreamingEndStmt, UpsertWatersStreamingTransferStmt, upsert_buildings_streaming_commit, upsert_buildings_streaming_end, upsert_buildings_streaming_start, upsert_buildings_streaming_transfer, upsert_road_streaming_transfer, upsert_roads_streaming_commit, upsert_roads_streaming_end, upsert_roads_streaming_start, upsert_waters_streaming_commit, upsert_waters_streaming_end, upsert_waters_streaming_start, upsert_waters_streaming_transfer, UpsertLandusesStreamingTransferStmt, UpsertLandusesStreamingCommitStmt, UpsertLandusesStreamingEndStmt, upsert_landuses_streaming_start, upsert_landuses_streaming_transfer, upsert_landuses_streaming_commit, upsert_landuses_streaming_end};
+use generated_queries::queries::osm_queries::{
+    UpsertBuildingsStreamingCommitStmt, UpsertBuildingsStreamingEndStmt,
+    UpsertBuildingsStreamingTransferStmt, UpsertLandusesStreamingCommitStmt,
+    UpsertLandusesStreamingEndStmt, UpsertLandusesStreamingTransferStmt,
+    UpsertRoadStreamingTransferStmt, UpsertRoadsStreamingCommitStmt, UpsertRoadsStreamingEndStmt,
+    UpsertWatersStreamingCommitStmt, UpsertWatersStreamingEndStmt,
+    UpsertWatersStreamingTransferStmt, upsert_buildings_streaming_commit,
+    upsert_buildings_streaming_end, upsert_buildings_streaming_start,
+    upsert_buildings_streaming_transfer, upsert_landuses_streaming_commit,
+    upsert_landuses_streaming_end, upsert_landuses_streaming_start,
+    upsert_landuses_streaming_transfer, upsert_road_streaming_transfer,
+    upsert_roads_streaming_commit, upsert_roads_streaming_end, upsert_roads_streaming_start,
+    upsert_waters_streaming_commit, upsert_waters_streaming_end, upsert_waters_streaming_start,
+    upsert_waters_streaming_transfer,
+};
 use glam::DVec2;
 use osm::model::building::Building;
+use osm::model::landuse::Landuse;
 use osm::model::parser::ShapefileElement;
 use osm::model::road::Road;
 use osm::model::water::Water;
@@ -16,7 +31,6 @@ use tokio_postgres::binary_copy::BinaryCopyInWriter;
 use tokio_postgres::types::Type;
 use tokio_postgres::{Client, NoTls};
 use tracing::{error, info, warn};
-use osm::model::landuse::Landuse;
 
 const MAX_PARALLEL_DIRS: usize = 8;
 
@@ -367,7 +381,7 @@ impl<'a> ElementStreamingWriter<Landuse> for LanduseStreamingWriter<'a> {
             let merged = self.commit_stmt.bind(self.client).await?;
             Ok((copied, merged))
         }
-            .await;
+        .await;
 
         self.end_stmt.bind(self.client).await?;
 

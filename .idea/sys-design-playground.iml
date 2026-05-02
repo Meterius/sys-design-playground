@@ -7,13 +7,14 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/backend/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/utilities/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/backend_model/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/crates/utilities/vendor/irox-carto/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/osm/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/vendor/bevy_vello/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/vendor/bevy_vello/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/jlh_maps_core_service/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/jlh_maps_frontend/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/jlh_maps_frontend/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/sat_ingest/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/sat_ingest/vendor/irox-carto/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/crates/backend/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/datasets/sat" />

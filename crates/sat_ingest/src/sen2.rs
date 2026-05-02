@@ -1,4 +1,3 @@
-use crate::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use anyhow::{anyhow, bail};
 use geoconvert::Mgrs;
 use glam::{DVec2, dvec2};
@@ -11,6 +10,7 @@ use regex::Regex;
 use serde::Deserialize;
 use smallvec::SmallVec;
 use std::simd::Simd;
+use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]

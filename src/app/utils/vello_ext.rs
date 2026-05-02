@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use crate::app::utils::debug::SoftExpect;
 use bevy::prelude::*;
 use bevy_vello::prelude::VelloScene2d;
+use std::collections::HashMap;
 
 pub struct VelloExtPlugin;
 
@@ -36,7 +36,14 @@ pub struct VelloElement {
 
 fn on_spawn_draw(
     elements: Query<&VelloElement>,
-    scenes: Query<(&mut VelloScene2d, Option<&VelloEnhancedScene>, &VelloSceneWithElements), Or<(Changed<VelloEnhancedScene>, Changed<VelloSceneWithElements>)>>,
+    scenes: Query<
+        (
+            &mut VelloScene2d,
+            Option<&VelloEnhancedScene>,
+            &VelloSceneWithElements,
+        ),
+        Or<(Changed<VelloEnhancedScene>, Changed<VelloSceneWithElements>)>,
+    >,
 ) {
     for (mut scene, scene_enh, VelloSceneWithElements(scene_element_ids)) in scenes {
         scene.reset();
@@ -51,15 +58,22 @@ fn on_spawn_draw(
 
         for element in scene_element_ids
             .iter()
-            .flat_map(|element_id| elements.get(*element_id).ok().soft_expect("")) {
-            layer_elements.entry(element.layer).or_insert_with(Vec::new).push(element);
+            .flat_map(|element_id| elements.get(*element_id).ok().soft_expect(""))
+        {
+            layer_elements
+                .entry(element.layer)
+                .or_insert_with(Vec::new)
+                .push(element);
         }
 
         let mut layers = layer_elements.keys().copied().collect::<Vec<_>>();
         layers.sort_unstable();
 
         for layer in layers.into_iter() {
-            if let Some(on_layer_draw_begin) = scene_enh.as_ref().and_then(|enh| enh.on_layer_draw_begin.get(&layer)) {
+            if let Some(on_layer_draw_begin) = scene_enh
+                .as_ref()
+                .and_then(|enh| enh.on_layer_draw_begin.get(&layer))
+            {
                 (on_layer_draw_begin)(&mut scene);
             }
 

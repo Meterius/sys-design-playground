@@ -3,13 +3,7 @@ name = "utilities"
 version = "0.1.0"
 edition = "2024"
 
-[[bin]]
-name = "sen2_conv_test"
-path = "src/bin/run_sen2_conv_test.rs"
 
-[[bin]]
-name = "sen2_conv_stitching_test"
-path = "src/bin/run_sen2_conv_stitching_test.rs"
 
 [features]
 bevy-reflect = ["bevy_reflect"]
@@ -25,15 +19,6 @@ rstar = "0.12"
 serde_json = "1"
 serde = { version = "1.0.228", features = ["derive"] }
 rayon = "1.11.0"
-regex = "1.12.3"
-geoconvert = "1.0.2"
-utm = "0.1.6"
-# irox-carto = { version = "0.6.5", features = ["std"] }
-irox-carto = { path = "./vendor/irox-carto", features = ["std"] }
-sleef = "0.3.3"
 tiff = "0.11.3"
-crossbeam = "0.8.4"
-tracing = "0.1"
 csv = "1.4.0"
-tokio = { version = "1.52.1", features = ["sync"] }
 lru = "0.17.0"

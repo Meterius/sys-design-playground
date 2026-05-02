@@ -2,13 +2,13 @@ use crate::app::common::settings::SettingsPlugin;
 use crate::app::editor::{EditorPlugin, UiState};
 use crate::app::geo::GeoPlugin;
 use crate::app::geo::elements_grid::buildings::spawn_building_elements_grid;
+use crate::app::geo::elements_grid::landuse::spawn_landuse_elements_grid;
 use crate::app::geo::elements_grid::roads::spawn_road_elements_grid;
 use crate::app::geo::elements_grid::water::spawn_water_elements_grid;
 use crate::app::geo::geometry::{MapLine, MapRegion};
 use crate::app::geo::map::{
     Map, MapView, MapViewCamera, MapViewCameraWithView, MapViewContextQuery, MapViewWithMap,
 };
-use crate::app::geo::tiling::manager::{MapViewTiling, MapViewTilingWithView};
 use crate::app::utils::big_space_ext::CommandsWithSpatial;
 use crate::app::utils::synced_cam::{SyncedCam, SyncedCamPlugin};
 use crate::app::utils::vello_ext::VelloExtPlugin;
@@ -39,7 +39,6 @@ use std::env;
 use std::f64::consts::PI;
 use std::sync::Arc;
 use utilities::glam_ext::bounding::AxisAlignedBoundingBox2D;
-use crate::app::geo::elements_grid::landuse::spawn_landuse_elements_grid;
 
 pub fn initialize(_width: usize, _height: usize) {
     App::new()

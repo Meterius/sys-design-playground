@@ -6,6 +6,7 @@ use crate::app::geo::geometry_vello::VelloMapPolygon;
 use crate::app::geo::grid::manager::LinearGrid;
 use crate::app::utils::async_requests::RequestManager;
 use bevy::prelude::*;
+use bevy_vello::prelude::kurbo;
 use geo_types::geometry::Polygon;
 use geo_types::{LineString, MultiPolygon};
 use glam::DVec2;
@@ -14,7 +15,6 @@ use osm::postgres_integration::client::OsmClient;
 use ratelimit::Ratelimiter;
 use std::collections::HashMap;
 use std::sync::Arc;
-use bevy_vello::prelude::kurbo;
 
 pub struct WaterElementsGridPlugin;
 
@@ -59,10 +59,7 @@ fn make_water_bundle(scene_id: Entity, scene_center_abs: DVec2, water: &Water) -
             scene_center_abs,
             geom,
             Color::hsva(194.0, 0.7, 0.8, 1.),
-            Some((
-                Color::hsva(194.0, 0.7, 0.8, 1.),
-                kurbo::Stroke::new(0.5),
-            )),
+            Some((Color::hsva(194.0, 0.7, 0.8, 1.), kurbo::Stroke::new(0.5))),
         ),
     )
 }

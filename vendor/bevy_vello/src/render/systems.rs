@@ -18,7 +18,11 @@ use bevy::{
 };
 use vello::{RenderParams, Scene};
 
-use super::{VelloCanvasMaterial, VelloCanvasSettings, VelloEntityCountData, VelloFrameProfileData, VelloRenderQueue, VelloRenderSettings, VelloRenderer, VelloWorldRenderItem, extract::VelloRenderTarget, prepare::PreparedAffine, RENDER_TARGET_COUNT};
+use super::{
+    RENDER_TARGET_COUNT, VelloCanvasMaterial, VelloCanvasSettings, VelloEntityCountData,
+    VelloFrameProfileData, VelloRenderQueue, VelloRenderSettings, VelloRenderer,
+    VelloWorldRenderItem, extract::VelloRenderTarget, prepare::PreparedAffine,
+};
 #[cfg(feature = "lottie")]
 use crate::integrations::lottie::render::{ExtractedUiVelloLottie, ExtractedVelloLottie2d};
 #[cfg(feature = "svg")]
@@ -287,12 +291,9 @@ pub fn render_frame(
     //     None,
     //     &kurbo::Rect::new(0., 0., 50., 50. * (if *tick > 60 { 2.} else {1.})),
     // );
-    let mut count = 0;
 
     // World Renderables
     for render_item in render_queue.world.iter() {
-        count += 1;
-
         if scene_buffer.encoding().n_paths > (1 << 15) {
             if scene_buffers.len() < RENDER_TARGET_COUNT - 1 {
                 scene_buffers.push(scene_buffer);
@@ -542,16 +543,26 @@ pub fn render_frame(
     }
 
     frame_profile.n_paths = scene_buffers.iter().map(|sb| sb.encoding().n_paths).sum();
-    frame_profile.n_path_segs = scene_buffers.iter().map(|sb| sb.encoding().n_path_segments).sum();
+    frame_profile.n_path_segs = scene_buffers
+        .iter()
+        .map(|sb| sb.encoding().n_path_segments)
+        .sum();
     frame_profile.n_clips = scene_buffers.iter().map(|sb| sb.encoding().n_clips).sum();
-    frame_profile.n_open_clips = scene_buffers.iter().map(|sb| sb.encoding().n_open_clips).sum();
+    frame_profile.n_open_clips = scene_buffers
+        .iter()
+        .map(|sb| sb.encoding().n_open_clips)
+        .sum();
     #[cfg(feature = "text")]
     {
-        frame_profile.n_glyphs = scene_buffers.iter().map(|sb| sb.encoding().resources.glyphs.len() as u32).sum();
-        frame_profile.n_glyph_runs = scene_buffers.iter().map(|sb| sb.encoding().resources.glyph_runs.len() as u32).sum();
+        frame_profile.n_glyphs = scene_buffers
+            .iter()
+            .map(|sb| sb.encoding().resources.glyphs.len() as u32)
+            .sum();
+        frame_profile.n_glyph_runs = scene_buffers
+            .iter()
+            .map(|sb| sb.encoding().resources.glyph_runs.len() as u32)
+            .sum();
     }
-
-
 
     // info!("scene: {count}");
 
@@ -596,7 +607,6 @@ pub fn render_frame(
             )
             .unwrap();
     }
-
 }
 
 // Returns the width and height of the available viewport space;

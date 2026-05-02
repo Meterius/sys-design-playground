@@ -7,12 +7,12 @@ use actix_web::{
     App, Error, HttpServer, get, middleware,
     web::{self},
 };
+use jlh_maps_core_service::model::UnitablePartial;
 use jlh_maps_core_service::model::postgres_osm::prelude::*;
 use jlh_maps_core_service::model::postgres_osm::unitable;
 use log::error;
 use sea_orm::{Database, DatabaseConnection, EntityTrait};
 use serde::{Deserialize, Serialize};
-use jlh_maps_core_service::model::UnitablePartial;
 
 #[derive(Debug, Clone)]
 struct AppState {

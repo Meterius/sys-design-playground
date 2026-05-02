@@ -1,0 +1,37 @@
+[package]
+name = "sat_ingest"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+
+[[bin]]
+name = "sat_ingest"
+path = "src/bin/sat_ingest.rs"
+
+[[bin]]
+name = "sen2_conv_test"
+path = "src/bin/run_sen2_conv_test.rs"
+
+[[bin]]
+name = "sen2_conv_stitching_test"
+path = "src/bin/run_sen2_conv_stitching_test.rs"
+
+[dependencies]
+irox-carto = { path = "./vendor/irox-carto", features = ["std"] }
+utilities = { path = "../utilities" }
+glam = { version = "0.30", features = ["serde", "core-simd"] }
+itertools = "0.14.0"
+smallvec = "1.15.1"
+image = "0.25.10"
+anyhow = "1.0.102"
+serde_json = "1"
+serde = { version = "1.0.228", features = ["derive"] }
+rayon = "1.11.0"
+regex = "1.12.3"
+geoconvert = "1.0.2"
+sleef = "0.3.3"
+tiff = "0.11.3"
+crossbeam = "0.8.4"
+clap = { version = "4.6.1", features = ["derive"] }
+crossterm = "0.29.0"

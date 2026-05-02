@@ -1,8 +1,12 @@
 use crate::model::building::Building;
+use crate::model::landuse::Landuse;
 use crate::model::road::{Road, RoadClassCategory};
 use crate::model::water::Water;
 use futures::StreamExt;
-use generated_queries::queries::osm_queries::{fetch_buildings_by_area, fetch_landuses_by_area, fetch_roads_by_area, fetch_roads_by_area_and_category, fetch_waters_by_area};
+use generated_queries::queries::osm_queries::{
+    fetch_buildings_by_area, fetch_landuses_by_area, fetch_roads_by_area,
+    fetch_roads_by_area_and_category, fetch_waters_by_area,
+};
 use generated_queries::tokio_postgres;
 use geojson::FeatureCollection;
 use glam::{DVec2, dvec2};
@@ -13,7 +17,6 @@ use thiserror::Error;
 use tokio_postgres::NoTls;
 use tracing::error;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
-use crate::model::landuse::Landuse;
 
 const GEO_FABRIK_INDEX: &str = "https://download.geofabrik.de/index-v1.json";
 
@@ -130,7 +133,6 @@ impl OsmClient {
         })
     }
 
-
     pub async fn fetch_landuses(
         &self,
         bounds: DAabb2,
@@ -150,7 +152,7 @@ impl OsmClient {
                         }],
                         srid: None,
                     }
-                        .as_ewkb(),
+                    .as_ewkb(),
                 )?,
             )
             .iter()

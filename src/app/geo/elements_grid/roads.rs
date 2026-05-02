@@ -7,7 +7,6 @@ use crate::app::geo::grid::manager::LinearGrid;
 use crate::app::utils::async_requests::RequestManager;
 use crate::app::utils::vello_ext::VelloEnhancedScene;
 use bevy::prelude::*;
-use bevy_vello::prelude::{VelloScene2d, peniko};
 use glam::{DVec2, dvec2};
 use osm::model::road::{Road, RoadClass, RoadClassCategory};
 use osm::postgres_integration::client::OsmClient;
@@ -69,7 +68,7 @@ pub enum RoadGridKind {
     Large,
 }
 
-fn make_road_bundle(scene_id: Entity, scene_center_abs: DVec2, road: &Road) -> impl Bundle {
+fn make_road_bundle(_scene_id: Entity, _scene_center_abs: DVec2, _road: &Road) -> impl Bundle {
     (
         Transform::from_translation(vec3(0.0, 0.0, 1000.0)),
         Name::new("Road"),
@@ -165,7 +164,7 @@ pub fn spawn_road_elements_grid(commands: &mut Commands, view_id: Entity, client
                 });
             },
         )),
-        on_spawn_tile: Some(Arc::new(|commands, ctx, tile_id, tile| {
+        on_spawn_tile: Some(Arc::new(|commands, _ctx, tile_id, _tile| {
             commands.entity(tile_id).insert(VelloEnhancedScene {
                 on_layer_draw_begin: HashMap::from([
                         // (1, Box::new(move |scene: &mut VelloScene2d| {

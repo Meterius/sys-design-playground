@@ -5,7 +5,7 @@ edition = "2024"
 
 [workspace]
 resolver = "3"
-members = ["crates/backend", "crates/backend_model","crates/generated_queries", "crates/jlh_maps_core_service", "crates/jlh_maps_frontend", "crates/osm", "crates/utilities"]
+members = ["crates/backend", "crates/backend_model","crates/generated_queries", "crates/jlh_maps_core_service", "crates/jlh_maps_frontend", "crates/osm", "crates/sat_ingest", "crates/utilities"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -22,11 +22,6 @@ path = "src/bin/process_osm_shapefile_into_infra.rs"
 [[bin]]
 name = "fetch_osm_shapefiles"
 path = "src/bin/fetch_osm_shapefiles.rs"
-
-[[bin]]
-name = "sat_ingest"
-path = "src/bin/sat_ingest.rs"
-
 [features]
 default = []
 debug = ["bevy/debug", "bevy/bevy_debug_stepping"]

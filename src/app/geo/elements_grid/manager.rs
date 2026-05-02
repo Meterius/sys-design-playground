@@ -1,6 +1,8 @@
 use crate::app::geo::despawn_indicator::DespawnIndicator;
 use crate::app::geo::element_requests::Bounds;
-use crate::app::geo::grid::manager::{LinearGrid, LinearGridKey, MapViewGrid, MapViewTile, TileSpawningSystems};
+use crate::app::geo::grid::manager::{
+    LinearGrid, LinearGridKey, MapViewGrid, MapViewTile, TileSpawningSystems,
+};
 use crate::app::geo::map::{MapViewContext, MapViewContextQuery, MapViewContextRef};
 use crate::app::utils::async_requests::{
     Request, RequestClient, RequestKind, RequestManager, RequestState, RequestWithManager,
@@ -16,6 +18,7 @@ use bevy_vello::prelude::VelloScene2d;
 use big_space::grid::Grid;
 use glam::{DVec2, dvec2};
 use osm::model::building::Building;
+use osm::model::landuse::Landuse;
 use osm::model::road::Road;
 use osm::model::water::Water;
 use std::collections::{HashMap, HashSet};
@@ -23,7 +26,6 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use osm::model::landuse::Landuse;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 
 pub struct ElementsGridPlugin<RK, GK> {

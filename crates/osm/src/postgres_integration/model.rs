@@ -1,7 +1,7 @@
+use crate::model::landuse::LanduseClass;
 use crate::model::road::{OneWay, RoadClass, RoadClassCategory};
 use crate::model::water::WaterClass;
 use generated_queries::types as sql_types;
-use crate::model::landuse::LanduseClass;
 
 impl From<OneWay> for sql_types::RoadOneway {
     fn from(value: OneWay) -> Self {

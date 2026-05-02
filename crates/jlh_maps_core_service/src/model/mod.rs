@@ -1,5 +1,5 @@
-use sea_orm::{DerivePartialModel, FromQueryResult};
 use sea_orm::prelude::Json;
+use sea_orm::{DerivePartialModel, FromQueryResult};
 use serde::Serialize;
 
 pub mod postgres_osm;

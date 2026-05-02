@@ -5,6 +5,7 @@ use image::codecs::png::{CompressionType, FilterType, PngEncoder};
 use image::{EncodableLayout, ImageEncoder};
 use itertools::Itertools;
 use rayon::prelude::*;
+use sat_ingest::sen2::{UserData, convert_sen2_img_to_epsg4326};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufWriter, Cursor};
@@ -15,7 +16,6 @@ use std::time::Instant;
 use utilities::distributed_mapped_image::{DistributedMappedImage, TileMeta};
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use utilities::glam_ext::sub_division::{SubDivision2d, tile_key_str};
-use utilities::sen2::{UserData, convert_sen2_img_to_epsg4326};
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
 

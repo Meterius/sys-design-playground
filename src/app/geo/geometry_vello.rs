@@ -15,7 +15,7 @@ pub struct VelloGeometryPlugin {}
 
 impl Plugin for VelloGeometryPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (update_polygon, update_line).before(VelloDraw) );
+        app.add_systems(Update, (update_polygon, update_line).before(VelloDraw));
     }
 }
 
@@ -98,7 +98,10 @@ pub fn update_line(
 
             commands.queue(InsertIfActive {
                 entity: line_id,
-                bundle: (VelloElementWithScene(scene_id), VelloElement { layer, on_draw }),
+                bundle: (
+                    VelloElementWithScene(scene_id),
+                    VelloElement { layer, on_draw },
+                ),
             });
         }
     }
@@ -147,9 +150,12 @@ pub fn update_polygon(
 
             let on_draw = {
                 let color = peniko::Color::new(poly.color.to_srgba().to_f32_array());
-                let stroke = poly.stroke.as_ref().map(|(color, stroke)| (
-                    peniko::Color::new(color.to_srgba().to_f32_array()), stroke.clone()
-                ));
+                let stroke = poly.stroke.as_ref().map(|(color, stroke)| {
+                    (
+                        peniko::Color::new(color.to_srgba().to_f32_array()),
+                        stroke.clone(),
+                    )
+                });
 
                 let paths = poly
                     .poly
@@ -202,7 +208,10 @@ pub fn update_polygon(
 
             commands.queue(InsertIfActive {
                 entity: poly_id,
-                bundle: (VelloElementWithScene(scene_id), VelloElement { layer, on_draw }),
+                bundle: (
+                    VelloElementWithScene(scene_id),
+                    VelloElement { layer, on_draw },
+                ),
             });
         }
     }

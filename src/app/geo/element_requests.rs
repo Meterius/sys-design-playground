@@ -5,12 +5,12 @@ use bevy::tasks::futures_lite::StreamExt;
 use glam::dvec2;
 use ordered_float::OrderedFloat;
 use osm::model::building::Building;
+use osm::model::landuse::Landuse;
 use osm::model::road::Road;
 use osm::model::water::Water;
 use osm::postgres_integration::client::{OsmClient, OsmError};
 use std::sync::Arc;
 use tracing::debug;
-use osm::model::landuse::Landuse;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 
 pub struct ElementRequestsPlugin;
@@ -23,7 +23,10 @@ impl Plugin for ElementRequestsPlugin {
             BuildingRequestClient,
         >::new());
         app.add_plugins(AsyncRequestsPlugin::<WaterRequestKind, WaterRequestClient>::new());
-        app.add_plugins(AsyncRequestsPlugin::<LanduseRequestKind, LanduseRequestClient>::new());
+        app.add_plugins(AsyncRequestsPlugin::<
+            LanduseRequestKind,
+            LanduseRequestClient,
+        >::new());
     }
 }
 

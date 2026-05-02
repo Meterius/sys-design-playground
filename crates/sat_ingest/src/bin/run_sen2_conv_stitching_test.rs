@@ -7,7 +7,7 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use utilities::distributed_mapped_image::{DistributedMappedImage, TileMeta};
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
-use utilities::sen2::{UserData, convert_sen2_img_to_epsg4326};
+use sat_ingest::sen2::{UserData, convert_sen2_img_to_epsg4326};
 
 struct TiffBand {
     width: u32,

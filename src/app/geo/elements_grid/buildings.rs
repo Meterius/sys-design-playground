@@ -2,18 +2,18 @@ use crate::app::geo::element_requests::{BuildingRequestClient, BuildingRequestKi
 use crate::app::geo::elements_grid::manager::{
     ElementTileGridConfig, ElementsConfig, ElementsGridPlugin, spawn_elements_grid,
 };
-use crate::app::geo::geometry_vello::{VelloMapLine, VelloMapPolygon};
+use crate::app::geo::geometry_vello::VelloMapPolygon;
 use crate::app::geo::grid::manager::LinearGrid;
 use crate::app::utils::async_requests::RequestManager;
 use bevy::prelude::*;
-use glam::{DVec2, dvec2};
+use bevy_vello::prelude::kurbo;
+use geo_types::{LineString, MultiPolygon};
+use glam::DVec2;
 use osm::model::building::Building;
 use osm::postgres_integration::client::OsmClient;
 use ratelimit::Ratelimiter;
 use std::collections::HashMap;
 use std::sync::Arc;
-use geo_types::{LineString, MultiPolygon};
-use bevy_vello::prelude::kurbo;
 
 pub struct BuildingElementsGridPlugin;
 
@@ -62,10 +62,7 @@ fn make_building_bundle(
             scene_center_abs,
             geom,
             Color::hsva(38.0, 0.1, 0.6, 1.),
-            Some((
-                Color::hsva(38.0, 0.1, 0.3, 1.),
-                kurbo::Stroke::new(0.075),
-            )),
+            Some((Color::hsva(38.0, 0.1, 0.3, 1.), kurbo::Stroke::new(0.075))),
         ),
     )
 }

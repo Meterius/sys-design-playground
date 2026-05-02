@@ -6,6 +6,7 @@ use crate::app::geo::geometry_vello::VelloMapPolygon;
 use crate::app::geo::grid::manager::LinearGrid;
 use crate::app::utils::async_requests::RequestManager;
 use bevy::prelude::*;
+use bevy_vello::prelude::kurbo;
 use geo_types::geometry::Polygon;
 use geo_types::{LineString, MultiPolygon};
 use glam::DVec2;
@@ -14,7 +15,6 @@ use osm::postgres_integration::client::OsmClient;
 use ratelimit::Ratelimiter;
 use std::collections::HashMap;
 use std::sync::Arc;
-use bevy_vello::prelude::kurbo;
 
 pub struct LanduseElementsGridPlugin;
 
@@ -39,7 +39,11 @@ pub enum LanduseGridKind {
     Normal,
 }
 
-fn make_landuse_bundle(scene_id: Entity, scene_center_abs: DVec2, landuse: &Landuse) -> impl Bundle {
+fn make_landuse_bundle(
+    scene_id: Entity,
+    scene_center_abs: DVec2,
+    landuse: &Landuse,
+) -> impl Bundle {
     let geom = MultiPolygon::from_iter(landuse.geometry.iter().map(|poly| {
         Polygon::new(
             LineString::from_iter(poly.exterior().points().map(|p| p.to_radians())),
@@ -66,15 +70,16 @@ fn make_landuse_bundle(scene_id: Entity, scene_center_abs: DVec2, landuse: &Land
             scene_center_abs,
             geom,
             color,
-            Some((
-                color.darker(0.5),
-                kurbo::Stroke::new(0.5),
-            )),
+            Some((color.darker(0.5), kurbo::Stroke::new(0.5))),
         ),
     )
 }
 
-pub fn spawn_landuse_elements_grid(commands: &mut Commands, view_id: Entity, client: Arc<OsmClient>) {
+pub fn spawn_landuse_elements_grid(
+    commands: &mut Commands,
+    view_id: Entity,
+    client: Arc<OsmClient>,
+) {
     let make_grid = |count: UVec2, max_spawned: UVec2| -> LinearGrid {
         LinearGrid {
             count,

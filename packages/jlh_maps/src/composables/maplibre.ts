@@ -7,8 +7,9 @@ import {
   type MapMouseEvent,
   type Subscription,
 } from 'maplibre-gl'
-import { onUnmounted, ref, watch, type WatchSource } from 'vue'
+import { onUnmounted, onWatcherCleanup, ref, watch, type WatchSource } from 'vue'
 import { get } from '@vueuse/core'
+import { watchDefinedOnce } from '@/composables/helper.ts'
 
 const CLICK_LAYER_SYNC_BUFFER_MS = 50
 
@@ -124,5 +125,45 @@ export function useMapSelection(options: {
 
   return {
     selection,
+  }
+}
+
+export function useMapExtended(key?: symbol | string) {
+  const mapInstance = useMap(key)
+
+  const loaded = ref(false)
+  const zoom = ref(0)
+  const pitch = ref(0)
+
+  watchDefinedOnce(
+    () => mapInstance.map,
+    (map) => {
+      zoom.value = map.getZoom()
+      loaded.value = map.loaded()
+      pitch.value = map.getPitch()
+
+      const subscriptions = [
+        map.on('load', () => {
+          loaded.value = true
+        }),
+        map.on('zoom', () => {
+          zoom.value = map.getZoom()
+        }),
+        map.on('pitch', () => {
+          pitch.value = map.getPitch()
+        }),
+      ]
+
+      onWatcherCleanup(() => {
+        subscriptions.forEach((sub) => sub.unsubscribe())
+      })
+    },
+  )
+
+  return {
+    loaded,
+    zoom,
+    pitch,
+    mapInstance,
   }
 }

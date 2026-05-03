@@ -58,6 +58,13 @@ impl DistributedMappedImage {
         }
     }
 
+    pub fn bounds(&self) -> Option<DAabb2> {
+        self.tree
+            .iter()
+            .map(|entry| entry.bounds)
+            .reduce(|a, b| DAabb2::new(a.min().min(b.min()), a.max().max(b.max())))
+    }
+
     /// Scan `dir` for tile pairs and build a `DistributedMappedImage`.
     ///
     /// A tile pair is a file `<stem>` and a companion `<stem>.meta.json` in
@@ -209,12 +216,7 @@ impl DistributedMappedImage {
             .collect::<Vec<_>>()
             .into_par_iter()
             .map(|entry| {
-                let img = image::load_from_memory(
-                    &self
-                        .queued_reader
-                        .blocking_read(&entry.path)
-                        .with_context(|| format!("reading {:?}", entry.path))?,
-                )
+                let img = image::open(&entry.path)
                 .with_context(|| format!("decoding {:?}", entry.path))?
                 .to_rgba8();
                 Ok((entry.bounds, img))

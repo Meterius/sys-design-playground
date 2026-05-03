@@ -8,8 +8,10 @@ use irox_carto::proj::Projection;
 use irox_carto::tm::TransverseMercator;
 use regex::Regex;
 use serde::Deserialize;
+use sleef::Sleef;
 use smallvec::SmallVec;
 use std::simd::Simd;
+use utilities::distributed_mapped_image::DistributedMappedImage;
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 
 #[derive(Debug, Deserialize)]
@@ -60,6 +62,146 @@ fn sample_bilinear(img: &RgbaImage, p: DVec2) -> Rgba<u8> {
     }
 
     Rgba(out)
+}
+
+pub fn web_mercator_max_lat() -> f64 {
+    std::f64::consts::PI.sinh().atan()
+}
+
+pub fn web_mercator_xyz_tile_abs_bounds(z: u32, x: u32, y: u32) -> DAabb2 {
+    let n = 2_u32.pow(z) as f64;
+    let tile_size = 2.0 * std::f64::consts::PI / n;
+    let min_x = -std::f64::consts::PI + x as f64 * tile_size;
+    let max_x = min_x + tile_size;
+    let max_y = std::f64::consts::PI - y as f64 * tile_size;
+    let min_y = max_y - tile_size;
+
+    DAabb2::new(dvec2(min_x, min_y), dvec2(max_x, max_y))
+}
+
+pub fn reproject_epsg4326_rgba_to_web_mercator(
+    image: &RgbaImage,
+    mercator_bounds: DAabb2,
+    gcs_bounds_radians: DAabb2,
+) -> RgbaImage {
+    let mut out = RgbaImage::new(image.width(), image.height());
+
+    let image_size = dvec2(image.width() as f64, image.height() as f64);
+
+    fn img_pos_rel_batched<const N: usize>(
+        xs: Simd<f64, N>,
+        y: f64,
+        image_size: DVec2,
+        mercator_bounds: DAabb2,
+        gcs_bounds_radians: DAabb2,
+    ) -> (Simd<f64, N>, Simd<f64, N>) {
+        let rel_x = (xs + Simd::splat(0.5)) / Simd::splat(image_size.x);
+        let rel_y = Simd::splat(1.0) - Simd::splat(y + 0.5) / Simd::splat(image_size.y);
+
+        let lon =
+            Simd::splat(mercator_bounds.min().x) + rel_x * Simd::splat(mercator_bounds.size().x);
+        let mercator_y =
+            Simd::splat(mercator_bounds.min().y) + rel_y * Simd::splat(mercator_bounds.size().y);
+        let lat = mercator_y.sinh().atan();
+
+        let img_x_rel = (lon - Simd::splat(gcs_bounds_radians.min().x))
+            / Simd::splat(gcs_bounds_radians.size().x);
+        let img_y_rel = Simd::splat(1.0)
+            - (lat - Simd::splat(gcs_bounds_radians.min().y))
+                / Simd::splat(gcs_bounds_radians.size().y);
+
+        (img_x_rel, img_y_rel)
+    }
+
+    const N: usize = 64;
+    let k = out.width() / N as u32;
+    let r = out.width() % N as u32;
+
+    for y in 0..out.height() {
+        let mut update_pixel = |x: u32, img_x_rel: f64, img_y_rel: f64| {
+            out.put_pixel(
+                x,
+                y,
+                image::imageops::sample_bilinear(
+                    image,
+                    img_x_rel.clamp(0.0, 1.0) as f32,
+                    img_y_rel.clamp(0.0, 1.0) as f32,
+                )
+                .unwrap_or(Rgba([0, 0, 0, 0])),
+            );
+        };
+
+        for xk in 0..k {
+            let xs = std::array::from_fn::<_, N, _>(|i| (xk as usize * N + i) as f64);
+
+            let (img_x_rel, img_y_rel) = img_pos_rel_batched::<N>(
+                Simd::from_array(xs),
+                y as f64,
+                image_size,
+                mercator_bounds,
+                gcs_bounds_radians,
+            );
+
+            for (idx, (img_x_rel, img_y_rel)) in img_x_rel
+                .to_array()
+                .into_iter()
+                .zip(img_y_rel.to_array())
+                .enumerate()
+            {
+                update_pixel((xk as usize * N + idx) as u32, img_x_rel, img_y_rel);
+            }
+        }
+
+        if r > 0 {
+            let mut xs = [0.0; N];
+            for xr in 0..r {
+                xs[xr as usize] = (k * N as u32 + xr) as f64;
+            }
+
+            let (img_x_rel, img_y_rel) = img_pos_rel_batched::<N>(
+                Simd::from_array(xs),
+                y as f64,
+                image_size,
+                mercator_bounds,
+                gcs_bounds_radians,
+            );
+            let img_x_rel = img_x_rel.to_array();
+            let img_y_rel = img_y_rel.to_array();
+
+            for xr in 0..r {
+                let idx = xr as usize;
+                update_pixel(xs[idx] as u32, img_x_rel[idx], img_y_rel[idx]);
+            }
+        }
+    }
+
+    out
+}
+
+pub fn load_dist_img_web_mercator_tile(
+    dist_img: &DistributedMappedImage,
+    z: u32,
+    x: u32,
+    y: u32,
+    resolution: u32,
+) -> anyhow::Result<Option<RgbaImage>> {
+    let tile_abs_bbox = web_mercator_xyz_tile_abs_bounds(z, x, y);
+    let gcs_bbox_radians = DAabb2::new(
+        dvec2(tile_abs_bbox.min().x, tile_abs_bbox.min().y.sinh().atan()),
+        dvec2(tile_abs_bbox.max().x, tile_abs_bbox.max().y.sinh().atan()),
+    );
+    let gcs_bbox_degrees = DAabb2::new(
+        gcs_bbox_radians.min().map(f64::to_degrees),
+        gcs_bbox_radians.max().map(f64::to_degrees),
+    );
+
+    dist_img
+        .load_sub_image(gcs_bbox_degrees, glam::uvec2(resolution, resolution))
+        .map(|img| {
+            img.map(|img| {
+                reproject_epsg4326_rgba_to_web_mercator(&img, tile_abs_bbox, gcs_bbox_radians)
+            })
+        })
 }
 
 /// Extract bounds from a cardinal-offset directory name, e.g. `N18E000`.

@@ -78,13 +78,13 @@ rstar = "0.12.2"
 bevy_vello = { path = "./vendor/bevy_vello" }
 
 [profile.release]
-#opt-level = 3
-#lto = "fat"
-
 opt-level = 3
-debug = 2
-split-debuginfo = "packed"
-lto = "thin"
+lto = "fat"
+
+#opt-level = 3
+#debug = 2
+#split-debuginfo = "packed"
+#lto = "thin"
 
 [profile.dev]
 opt-level = 0

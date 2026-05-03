@@ -57,6 +57,21 @@ services:
       - "traefik.http.routers.omt_tileserver_gl.entrypoints=web"
       - "traefik.http.services.omt_tileserver_gl.loadbalancer.server.port=8080"
 
+  raster_tile_json_server:
+    image: nginx:alpine
+
+    restart: unless-stopped
+
+    volumes:
+      - ${SAT_RASTER_TILE_JSON_DIR}:/usr/share/nginx/html/raster/sen2:ro
+      - ./raster_tile_json_server/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.raster_tile_json_server.rule=Host(`raster.jlh_maps.localhost`)"
+      - "traefik.http.routers.raster_tile_json_server.entrypoints=web"
+      - "traefik.http.services.raster_tile_json_server.loadbalancer.server.port=80"
+
   core_service:
     build:
       context: ../../

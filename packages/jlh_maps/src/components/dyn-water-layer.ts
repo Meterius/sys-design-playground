@@ -35,6 +35,22 @@ interface TileMesh {
   vertexCount: number
 }
 
+interface DynTerrainData {
+  u_terrain_dim: number
+  u_terrain_matrix: unknown
+  u_terrain_unpack: number[]
+  u_terrain_exaggeration: number
+  texture: WebGLTexture
+}
+
+interface TerrainLike {
+  getTerrainData(tileID: OverscaledTileID): DynTerrainData
+}
+
+type TerrainAwareMap = {
+  terrain?: TerrainLike | null
+}
+
 interface TileEntry {
   mesh: TileMesh
   tileId: OverscaledTileID
@@ -65,6 +81,12 @@ export class DynWaterLayer implements CustomLayerInterface {
   private uResolution!: WebGLUniformLocation
   private uTime!: WebGLUniformLocation
   private uEdgeDistanceTexture!: WebGLUniformLocation
+  private uHasTerrain!: WebGLUniformLocation
+  private uTerrainTexture!: WebGLUniformLocation
+  private uTerrainDim!: WebGLUniformLocation
+  private uTerrainMatrix!: WebGLUniformLocation
+  private uTerrainUnpack!: WebGLUniformLocation
+  private uTerrainExaggeration!: WebGLUniformLocation
 
   private targetLayer: StyleLayer
 
@@ -106,6 +128,12 @@ export class DynWaterLayer implements CustomLayerInterface {
     this.uResolution = gl.getUniformLocation(program, 'u_resolution')!
     this.uTime = gl.getUniformLocation(program, 'u_time')!
     this.uEdgeDistanceTexture = gl.getUniformLocation(program, 'u_edge_distance_texture')!
+    this.uHasTerrain = gl.getUniformLocation(program, 'u_has_terrain')!
+    this.uTerrainTexture = gl.getUniformLocation(program, 'u_terrain')!
+    this.uTerrainDim = gl.getUniformLocation(program, 'u_terrain_dim')!
+    this.uTerrainMatrix = gl.getUniformLocation(program, 'u_terrain_matrix')!
+    this.uTerrainUnpack = gl.getUniformLocation(program, 'u_terrain_unpack')!
+    this.uTerrainExaggeration = gl.getUniformLocation(program, 'u_terrain_exaggeration')!
 
     this.configureEdgeDistanceTextureFormat(gl)
     this.edgeDistanceTextureFilter = gl.getExtension('OES_texture_float_linear')
@@ -132,9 +160,12 @@ export class DynWaterLayer implements CustomLayerInterface {
     gl.uniform1f(this.uTime, performance.now() / 1000)
     gl.uniform2f(this.uResolution, gl.canvas.width, gl.canvas.height)
     gl.uniform1i(this.uEdgeDistanceTexture, 0)
+    gl.uniform1i(this.uTerrainTexture, 1)
 
     gl.enable(gl.BLEND)
     gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+
+    const terrain = (this.map as unknown as TerrainAwareMap).terrain
 
     for (const { mesh, tileId, edgeDistanceTexture, inactive } of this.tileCache.values()) {
       if (inactive) continue
@@ -145,6 +176,7 @@ export class DynWaterLayer implements CustomLayerInterface {
 
       gl.uniformMatrix4fv(this.uProjectionMatrix, false, proj.mainMatrix)
       gl.uniform4fv(this.uMercatorCoords, proj.tileMercatorCoords)
+      this.bindTerrainData(terrain?.getTerrainData(tileId))
 
       gl.activeTexture(gl.TEXTURE0)
       gl.bindTexture(gl.TEXTURE_2D, edgeDistanceTexture)
@@ -160,6 +192,29 @@ export class DynWaterLayer implements CustomLayerInterface {
     this.map.triggerRepaint()
 
     return true
+  }
+
+  private bindTerrainData(terrainData: DynTerrainData | undefined) {
+    const gl = this.gl
+
+    if (!terrainData) {
+      gl.uniform1i(this.uHasTerrain, 0)
+      return
+    }
+
+    gl.uniform1i(this.uHasTerrain, 1)
+    gl.uniform1f(this.uTerrainDim, terrainData.u_terrain_dim)
+    gl.uniformMatrix4fv(this.uTerrainMatrix, false, terrainData.u_terrain_matrix as Float32List)
+    gl.uniform4f(
+      this.uTerrainUnpack,
+      terrainData.u_terrain_unpack[0] ?? 0,
+      terrainData.u_terrain_unpack[1] ?? 0,
+      terrainData.u_terrain_unpack[2] ?? 0,
+      terrainData.u_terrain_unpack[3] ?? 0,
+    )
+    gl.uniform1f(this.uTerrainExaggeration, terrainData.u_terrain_exaggeration)
+    gl.activeTexture(gl.TEXTURE1)
+    gl.bindTexture(gl.TEXTURE_2D, terrainData.texture)
   }
 
   private buildMeshes = () => {

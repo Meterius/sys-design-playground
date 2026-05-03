@@ -4,8 +4,35 @@
 
     <mgl-map :map-style="tilejsonUrl" :center="[13.35203105083487, 52.499757263332086]" :zoom="14">
       <mgl-custom-control position="top-right">
-        <button @click="slideoverOpen = SlideoverTab.Settings">
-          <span class="maplibregl-ctrl-icon"></span>
+        <button
+          class="map-custom-control"
+          type="button"
+          title="Map settings"
+          aria-label="Map settings"
+          @click="slideoverOpen = SlideoverTab.Settings"
+        >
+          <UIcon
+            name="material-symbols:settings-outline-rounded"
+            class="size-6"
+            style="margin: auto"
+          />
+        </button>
+      </mgl-custom-control>
+
+      <mgl-custom-control position="top-right">
+        <button
+          class="map-custom-control"
+          type="button"
+          title="Toggle terrain"
+          aria-label="Toggle terrain"
+          :aria-pressed="terrainEnabled"
+          @click="terrainEnabled = !terrainEnabled"
+        >
+          <UIcon
+            name="material-symbols:elevation-outline-rounded"
+            :class="['size-6', ...[terrainEnabled ? ['text-secondary'] : []]]"
+            style="margin: auto"
+          />
         </button>
       </mgl-custom-control>
     </mgl-map>
@@ -38,19 +65,22 @@
 </template>
 
 <script setup lang="ts">
-import { MglMap, useMap } from '@indoorequal/vue-maplibre-gl'
-import { computed, ref, watchEffect } from 'vue'
+import { MglMap } from '@indoorequal/vue-maplibre-gl'
+import { computed, onWatcherCleanup, ref, watch, watchEffect } from 'vue'
 import { GeoJSONSource, GeolocateControl, GlobeControl, NavigationControl } from 'maplibre-gl'
 import { center } from '@turf/turf'
 import type { FeatureCollection } from 'geojson'
-import { TILESERVER_OMT_DEFAULT_STYLE_TILEJSON_URL } from '@/external/endpoints.ts'
+import {
+  TILESERVER_OMT_DEFAULT_STYLE_TILEJSON_URL,
+  TILESERVER_RASTER_SEN2_TILEJSON_URL,
+} from '@/external/endpoints.ts'
 import MapDetails from '@/components/MapDetails.vue'
 import MapSettings from '@/components/MapSettings.vue'
 import { DynWaterLayer } from '@/components/dyn-water-layer.ts'
-import { useMapSelection } from '@/composables/maplibre.ts'
+import { useMapExtended, useMapSelection } from '@/composables/maplibre.ts'
 import { watchDefinedOnce } from '@/composables/helper.ts'
 
-const mapInstance = useMap()
+const { mapInstance, loaded, zoom, pitch } = useMapExtended()
 
 const tilejsonUrl = TILESERVER_OMT_DEFAULT_STYLE_TILEJSON_URL.toString()
 console.debug('Using TileJson URL: ', tilejsonUrl)
@@ -96,112 +126,306 @@ const highlightGeoJsonData = computed(
   }),
 )
 
+const terrainEnabled = ref(true)
+
+const useRasterOnly = false
+const useRaster = false
+
 watchDefinedOnce(
   () => mapInstance.map,
   (map) => {
     map.addControl(new GlobeControl())
     map.addControl(new NavigationControl())
     map.addControl(new GeolocateControl({}))
+  },
+)
 
-    const onLoaded = () => {
-      // 3D Buildings Layer
+watchDefinedOnce(
+  () => (loaded.value ? mapInstance.map : undefined),
+  (map) => {
+    const onCleanupCallbacks: (() => void)[] = []
+
+    if (useRaster) {
+      map.addSource('raster-sen2', {
+        type: 'raster',
+        url: TILESERVER_RASTER_SEN2_TILEJSON_URL.toString(),
+      })
 
       map.addLayer(
         {
-          id: '3d-buildings',
-          source: 'openmaptiles',
-          'source-layer': 'building',
-          type: 'fill-extrusion',
-          minzoom: 15,
-          filter: ['!=', ['get', 'hide_3d'], true],
-          layout: {
-            visibility: 'none',
-          },
+          id: 'raster-sen2-layer',
+          type: 'raster',
+          source: 'raster-sen2',
           paint: {
-            'fill-extrusion-color': [
-              'interpolate',
-              ['linear'],
-              ['get', 'render_height'],
-              0,
-              'hsl(26, 12%, 82%)',
-              400,
-              'hsl(26, 15%, 82%)',
-            ],
-            'fill-extrusion-height': [
+            'raster-brightness-min': 0.1,
+            'raster-contrast': 0.2,
+          },
+        },
+        'Residential',
+      )
+
+      map.getLayersOrder().forEach((layerId) => {
+        if (layerId === 'raster-sen2-layer') return
+
+        const layer = map.getLayer(layerId)!
+
+        if (useRasterOnly) {
+          layer.setLayoutProperty('visibility', 'none')
+          return
+        }
+
+        switch (layer.type) {
+          case 'symbol':
+            map.setPaintProperty(layerId, 'icon-opacity', [
               'interpolate',
               ['linear'],
               ['zoom'],
-              15,
+              13,
+              0.0,
+              16,
+              0.75,
+            ])
+            map.setPaintProperty(layerId, 'text-opacity', [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              13,
+              0.0,
+              16,
+              0.75,
+            ])
+            break
+
+          case 'fill':
+            map.setPaintProperty(
+              layerId,
+              'fill-outline-color',
+              layer.getPaintProperty('fill-color'),
+            )
+            map.setPaintProperty(layerId, 'fill-color', 'transparent')
+            map.setPaintProperty(layerId, 'fill-opacity', [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              14,
               0,
               16,
-              ['get', 'render_height'],
-            ],
-            'fill-extrusion-base': [
-              'case',
-              ['>=', ['get', 'zoom'], 16],
-              ['get', 'render_min_height'],
-              0,
-            ],
-          },
+              0.25,
+            ])
+            break
+
+          case 'line':
+            map.setPaintProperty(layerId, 'line-opacity', 0.05)
+            break
+
+          default:
+            map.setLayoutProperty(layerId, 'visibility', 'none')
+            break
+        }
+      })
+    }
+
+    // Sky / Terrain / Hillshade
+
+    map.addSource('terrain', {
+      type: 'raster-dem',
+      url: 'https://tiles.mapterhorn.com/tilejson.json',
+      maxzoom: 16,
+    })
+
+    map.addSource('hillshade', {
+      type: 'raster-dem',
+      url: 'https://tiles.mapterhorn.com/tilejson.json',
+      maxzoom: 16,
+    })
+
+    onCleanupCallbacks.push(
+      watch(
+        terrainEnabled,
+        (enabled) => {
+          if (enabled) {
+            map.setTerrain({
+              source: 'terrain',
+              exaggeration: 1.0,
+            })
+          } else {
+            map.setTerrain(null)
+          }
         },
-        'Water labels',
-      )
+        { immediate: true },
+      ).stop,
+    )
 
-      map.on('pitch', () => {
-        const visible = map.getPitch() > 20
+    map.setSky({
+      'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 2, 0],
+    })
+
+    map.addLayer({
+      id: 'hills',
+      type: 'hillshade',
+      source: 'hillshade',
+      paint: {
+        'hillshade-exaggeration': useRaster ? 0.4 : 0.5,
+        'hillshade-shadow-color': useRaster ? 'rgb(0 0 0 / 0.8)' : 'rgb(71 59 36 / 0.84)',
+        'hillshade-highlight-color': useRaster
+          ? 'rgb(255 255 255 / 0.29)'
+          : 'rgb(255 255 255 / 0.84)',
+        'hillshade-method': useRaster ? 'igor' : 'combined',
+      },
+    })
+
+    onCleanupCallbacks.push(
+      watch(
+        terrainEnabled,
+        (enabled) => {
+          if (enabled) {
+            map.setLayoutProperty('hills', 'visibility', 'visible')
+          } else {
+            map.setLayoutProperty('hills', 'visibility', 'none')
+          }
+        },
+        { immediate: true },
+      ).stop,
+    )
+
+    // 3D Buildings Layer
+
+    map.addLayer(
+      {
+        id: '3d-buildings',
+        source: 'openmaptiles',
+        'source-layer': 'building',
+        type: 'fill-extrusion',
+        minzoom: 15,
+        filter: ['!=', ['get', 'hide_3d'], true],
+        layout: {
+          visibility: 'none',
+        },
+        paint: {
+          'fill-extrusion-color': [
+            'interpolate',
+            ['linear'],
+            ['get', 'render_height'],
+            0,
+            'hsl(26, 12%, 82%)',
+            400,
+            'hsl(26, 15%, 82%)',
+          ],
+          'fill-extrusion-height': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            15,
+            0,
+            16,
+            ['get', 'render_height'],
+          ],
+          'fill-extrusion-base': [
+            'case',
+            ['>=', ['get', 'zoom'], 16],
+            ['get', 'render_min_height'],
+            0,
+          ],
+        },
+      },
+      'Water labels',
+    )
+
+    onCleanupCallbacks.push(
+      watch(pitch, (value) => {
+        const visible = value > 20 && !useRaster
         map.setLayoutProperty('3d-buildings', 'visibility', visible ? 'visible' : 'none')
-      })
+      }).stop,
+    )
 
-      // Dyn Water Layer
+    // Dyn Water Layer
 
-      const dynWaterLayer = new DynWaterLayer(map.getLayer('Water')!)
-      map.addLayer(dynWaterLayer, 'Landcover patterns')
-      map.setLayoutProperty(dynWaterLayer.id, 'visibility', 'visible')
+    const dynWaterLayer = new DynWaterLayer(map.getLayer('Water')!)
+    map.addLayer(dynWaterLayer, 'Landcover patterns')
+    map.setLayoutProperty(dynWaterLayer.id, 'visibility', useRaster ? 'none' : 'visible')
 
-      map.on('zoom', () => {
-        const visible = map.getZoom() >= 14
+    onCleanupCallbacks.push(
+      watch(zoom, (value) => {
+        const visible = value >= 14 && !useRaster
         map.setLayoutProperty(dynWaterLayer.id, 'visibility', visible ? 'visible' : 'none')
-      })
+      }).stop,
+    )
 
-      // Highlight Layer
+    // Highlight Layer
 
-      map.addSource('highlight', {
-        type: 'geojson',
-        data: highlightGeoJsonData.value,
-      })
+    map.addSource('highlight', {
+      type: 'geojson',
+      data: highlightGeoJsonData.value,
+    })
 
+    onCleanupCallbacks.push(
       watchEffect(() => {
         map.getSource<GeoJSONSource>('highlight')?.setData(highlightGeoJsonData.value)
-      })
+      }).stop,
+    )
 
-      map.addLayer({
-        id: 'highlight',
-        source: 'highlight',
-        type: 'circle',
-        paint: {
-          'circle-radius': 25,
-          'circle-color': 'transparent',
-          'circle-stroke-color': '#1d87bf',
-          'circle-stroke-opacity': 0.75,
-          'circle-stroke-width': 3,
-        },
-      })
+    map.addLayer({
+      id: 'highlight',
+      source: 'highlight',
+      type: 'circle',
+      paint: {
+        'circle-radius': 25,
+        'circle-color': 'transparent',
+        'circle-stroke-color': '#1d87bf',
+        'circle-stroke-opacity': 0.75,
+        'circle-stroke-width': 3,
+      },
+    })
 
-      //
+    //
 
-      selectableLayers.value = map.getLayersOrder()
-      //.filter((layer) => map.getLayer(layer)?.type === 'symbol')
-    }
+    selectableLayers.value = map
+      .getLayersOrder()
+      .filter((layer) => map.getLayer(layer)?.type === 'symbol')
 
-    if (map.loaded()) {
-      onLoaded()
-    } else {
-      map.on('load', onLoaded)
-    }
+    // Clean-Up
+
+    onWatcherCleanup(() => {
+      onCleanupCallbacks.forEach((cleanup) => cleanup())
+    })
   },
 )
 </script>
 
 <style lang="css">
 @import 'maplibre-gl/dist/maplibre-gl.css';
+
+.map-custom-control {
+  width: 29px;
+  height: 29px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  padding: 0;
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+}
+
+.map-custom-control:hover {
+  background: #f2f2f2;
+}
+
+.map-custom-control:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}
+
+.map-custom-control.is-active {
+  background: #e0f2fe;
+  color: #0369a1;
+  box-shadow: inset 0 0 0 2px #0284c7;
+}
+
+.map-custom-control-icon {
+  width: 17px;
+  height: 17px;
+  display: block;
+}
 </style>

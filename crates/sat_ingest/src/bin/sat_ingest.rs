@@ -1,13 +1,17 @@
 use anyhow::{Context, anyhow, bail};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use glam::{DVec2, USizeVec2, dvec2, uvec2};
 use image::codecs::png::{CompressionType, FilterType, PngEncoder};
 use image::{EncodableLayout, ImageEncoder};
 use itertools::Itertools;
 use rayon::prelude::*;
-use sat_ingest::sen2::{UserData, convert_sen2_img_to_epsg4326};
+use sat_ingest::sen2::{
+    UserData, convert_sen2_img_to_epsg4326, load_dist_img_web_mercator_tile, web_mercator_max_lat,
+};
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
+use std::io::ErrorKind;
 use std::io::{BufWriter, Cursor};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -16,6 +20,7 @@ use std::time::Instant;
 use utilities::distributed_mapped_image::{DistributedMappedImage, TileMeta};
 use utilities::glam_ext::bounding::{AxisAlignedBoundingBox2D, DAabb2};
 use utilities::glam_ext::sub_division::{SubDivision2d, tile_key_str};
+use utilities::queued_reading::QueuedReader;
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
@@ -59,6 +64,52 @@ enum Commands {
         #[arg(long)]
         resolution: u32,
     },
+    /// Ingest a `DistributedMappedImage::from_directory` and process it into TileJSON-compatible Web Mercator XYZ tiles.
+    #[command(name = "process_dist_img_into_tile_json")]
+    ProcessDistImgIntoTileJson {
+        /// Root directory containing a distributed image
+        #[arg(long)]
+        input: PathBuf,
+        /// Output directory for TileJSON and XYZ tile files
+        #[arg(long)]
+        output: PathBuf,
+        /// Maximum output zoom level
+        #[arg(long)]
+        depth: u32,
+        /// Resume processing from a given depth
+        #[arg(long)]
+        resume_depth: Option<u32>,
+        /// Resolution of each output tile
+        #[arg(long)]
+        resolution: u32,
+        /// Resize filter used when stitching lower zoom tiles from child tiles
+        #[arg(long, value_enum, default_value_t = StitchFilter::Triangle)]
+        stitch_filter: StitchFilter,
+        #[arg(long, default_value = "/")]
+        tile_dir_url: String,
+
+    },
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum StitchFilter {
+    Nearest,
+    Triangle,
+    CatmullRom,
+    Gaussian,
+    Lanczos3,
+}
+
+impl StitchFilter {
+    fn to_image_filter(self) -> image::imageops::FilterType {
+        match self {
+            StitchFilter::Nearest => image::imageops::FilterType::Nearest,
+            StitchFilter::Triangle => image::imageops::FilterType::Triangle,
+            StitchFilter::CatmullRom => image::imageops::FilterType::CatmullRom,
+            StitchFilter::Gaussian => image::imageops::FilterType::Gaussian,
+            StitchFilter::Lanczos3 => image::imageops::FilterType::Lanczos3,
+        }
+    }
 }
 
 // ── Mode detection ────────────────────────────────────────────────────────────
@@ -517,6 +568,11 @@ fn process_dist_img_into_hierarchical_tiles(
                 .with_context(|| format!("opening distributed image at {input:?}"))?
         };
 
+        if dist_tile_img.bounds().is_none() {
+            eprintln!("Skipping depth {idx}: no source images available");
+            continue;
+        }
+
         let tiles = SubDivision2d::sub_div_keys(idx as usize)
             .map(|key| (key.clone(), sub_div.tile_bbox(&key)))
             .collect_vec();
@@ -556,6 +612,271 @@ fn process_dist_img_into_hierarchical_tiles(
     Ok(())
 }
 
+#[derive(Serialize)]
+struct TileJson {
+    tilejson: &'static str,
+    name: &'static str,
+    tiles: Vec<String>,
+    bounds: [f64; 4],
+    scheme: &'static str,
+    minzoom: u32,
+    maxzoom: u32,
+    #[serde(rename = "tileSize")]
+    tile_size: u32,
+}
+
+fn xyz_tile_range_for_bounds(bounds_degrees: DAabb2, z: u32) -> (u32, u32, u32, u32) {
+    let max_lat = web_mercator_max_lat().to_degrees();
+    let gcs_bounds_radians = DAabb2::new(
+        dvec2(
+            bounds_degrees.min().x.clamp(-180.0, 180.0).to_radians(),
+            bounds_degrees.min().y.clamp(-max_lat, max_lat).to_radians(),
+        ),
+        dvec2(
+            bounds_degrees.max().x.clamp(-180.0, 180.0).to_radians(),
+            bounds_degrees.max().y.clamp(-max_lat, max_lat).to_radians(),
+        ),
+    );
+    let mercator_y = |lat: f64| (std::f64::consts::FRAC_PI_4 + lat / 2.0).tan().ln();
+    let mercator_bounds = DAabb2::new(
+        dvec2(
+            gcs_bounds_radians.min().x,
+            mercator_y(gcs_bounds_radians.min().y),
+        ),
+        dvec2(
+            gcs_bounds_radians.max().x,
+            mercator_y(gcs_bounds_radians.max().y),
+        ),
+    );
+
+    let n = 2_u32.pow(z);
+    let n_f = n as f64;
+    let tile_size = 2.0 * std::f64::consts::PI / n_f;
+
+    let x_min = ((mercator_bounds.min().x + std::f64::consts::PI) / tile_size)
+        .floor()
+        .clamp(0.0, n_f - 1.0) as u32;
+    let x_max = (((mercator_bounds.max().x + std::f64::consts::PI) / tile_size).ceil() - 1.0)
+        .clamp(0.0, n_f - 1.0) as u32;
+    let y_min = ((std::f64::consts::PI - mercator_bounds.max().y) / tile_size)
+        .floor()
+        .clamp(0.0, n_f - 1.0) as u32;
+    let y_max = (((std::f64::consts::PI - mercator_bounds.min().y) / tile_size).ceil() - 1.0)
+        .clamp(0.0, n_f - 1.0) as u32;
+
+    (x_min, x_max, y_min, y_max)
+}
+
+fn xyz_tile_path(output: &Path, z: u32, x: u32, y: u32) -> PathBuf {
+    output.join(format!("{z}/{x}/{y}.png"))
+}
+
+fn stitch_xyz_parent_tile(
+    queued_reader: &QueuedReader,
+    output: &Path,
+    z: u32,
+    x: u32,
+    y: u32,
+    resolution: u32,
+    filter: image::imageops::FilterType,
+) -> anyhow::Result<Option<image::RgbaImage>> {
+    let mut out = image::RgbaImage::new(resolution, resolution);
+    let child_resolution = resolution / 2;
+    let mut has_child = false;
+
+    for child_y_offset in 0..2 {
+        for child_x_offset in 0..2 {
+            let child_path = xyz_tile_path(
+                output,
+                z + 1,
+                x * 2 + child_x_offset,
+                y * 2 + child_y_offset,
+            );
+
+            let child_bytes = match queued_reader.blocking_read(child_path.clone()) {
+                Ok(bytes) => bytes,
+                Err(err) if err.kind() == ErrorKind::NotFound => continue,
+                Err(err) => {
+                    return Err(err).with_context(|| format!("reading child tile {child_path:?}"));
+                }
+            };
+
+            has_child = true;
+            let child = image::load_from_memory(&child_bytes)
+                .with_context(|| format!("decoding child tile {child_path:?}"))?
+                .to_rgba8();
+            let child = image::imageops::resize(&child, child_resolution, child_resolution, filter);
+
+            image::imageops::overlay(
+                &mut out,
+                &child,
+                (child_x_offset * child_resolution) as i64,
+                (child_y_offset * child_resolution) as i64,
+            );
+        }
+    }
+
+    Ok(has_child.then_some(out))
+}
+
+fn process_dist_img_into_tile_json(
+    input: &Path,
+    output: &Path,
+    resolution: u32,
+    depth: u32,
+    stitch_filter: StitchFilter,
+    resume_depth: Option<u32>,
+    tile_dir_url: String,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        depth <= 30,
+        "depth {depth} is too high for u32 XYZ tile indexing"
+    );
+    anyhow::ensure!(
+        resolution.is_multiple_of(2),
+        "resolution {resolution} must be even so parent tiles can be stitched from four children"
+    );
+
+    if let Some(resume_depth) = resume_depth {
+        eprintln!("Resuming at depth {}...", resume_depth);
+    }
+
+    let resume_depth = resume_depth.unwrap_or(depth);
+
+    std::fs::create_dir_all(output)
+        .with_context(|| format!("creating output directory {output:?}"))?;
+
+    let dist_img = DistributedMappedImage::from_directory(input, true)
+        .with_context(|| format!("opening distributed image at {input:?}"))?;
+    let source_bounds = dist_img
+        .bounds()
+        .ok_or_else(|| anyhow!("No source tiles found in distributed image at {input:?}"))?;
+    let max_lat = web_mercator_max_lat().to_degrees();
+    let tilejson = TileJson {
+        tilejson: "3.0.0",
+        name: "satellite",
+        tiles: vec![format!("{tile_dir_url}/{{z}}/{{x}}/{{y}}.png")],
+        bounds: [
+            source_bounds.min().x.clamp(-180.0, 180.0),
+            source_bounds.min().y.clamp(-max_lat, max_lat),
+            source_bounds.max().x.clamp(-180.0, 180.0),
+            source_bounds.max().y.clamp(-max_lat, max_lat),
+        ],
+        scheme: "xyz",
+        minzoom: 0,
+        maxzoom: depth,
+        tile_size: resolution,
+    };
+
+    let tilejson_path = output.join("tilejson.json");
+    serde_json::to_writer_pretty(
+        File::create(&tilejson_path).with_context(|| format!("creating {tilejson_path:?}"))?,
+        &tilejson,
+    )
+    .with_context(|| format!("writing {tilejson_path:?}"))?;
+
+    // Base Tiles
+
+    if resume_depth >= depth {
+        let (x_min, x_max, y_min, y_max) = xyz_tile_range_for_bounds(source_bounds, depth);
+        let base_tiles = (x_min..=x_max)
+            .flat_map(|x| (y_min..=y_max).map(move |y| (x, y)))
+            .collect_vec();
+
+        with_progress(
+            &format!("make tilejson xyz base tiles at zoom {depth}"),
+            base_tiles.len(),
+            base_tiles.into_par_iter(),
+            |(x, y)| {
+                let tile_path = xyz_tile_path(output, depth, x, y);
+                if std::fs::exists(&tile_path).unwrap_or(false) {
+                    return;
+                }
+
+                if let Some(parent) = tile_path.parent()
+                    && let Err(err) = std::fs::create_dir_all(parent)
+                {
+                    eprintln!("Error creating tile directory {parent:?}: {err:#}");
+                    return;
+                }
+
+                let tile = match load_dist_img_web_mercator_tile(&dist_img, depth, x, y, resolution)
+                    .with_context(|| format!("making tile z={depth} x={x} y={y}"))
+                    .inspect_err(|err| eprintln!("Error making tile z={depth} x={x} y={y}: {err:#}"))
+                {
+                    Ok(Some(tile)) => tile,
+                    Ok(None) => return,
+                    Err(_) => return,
+                };
+
+                if let Err(err) = save_png(&tile_path, &tile)
+                    .with_context(|| format!("saving tile z={depth} x={x} y={y} to {tile_path:?}"))
+                {
+                    eprintln!("Error saving tile z={depth} x={x} y={y}: {err:#}");
+                }
+            },
+        );
+    }
+
+    // Merge Tiles
+
+    let tile_reader = Arc::new(QueuedReader::new());
+
+    for z in (0..=resume_depth.min(depth.saturating_sub(1))).rev() {
+        let (x_min, x_max, y_min, y_max) = xyz_tile_range_for_bounds(source_bounds, z);
+        let parent_tiles = (x_min..=x_max)
+            .flat_map(|x| (y_min..=y_max).map(move |y| (x, y)))
+            .collect_vec();
+        let tile_reader = Arc::clone(&tile_reader);
+
+        with_progress(
+            &format!("stitch tilejson xyz tiles at zoom {z}"),
+            parent_tiles.len(),
+            parent_tiles.into_par_iter(),
+            move |(x, y)| {
+                let tile_path = xyz_tile_path(output, z, x, y);
+                if std::fs::exists(&tile_path).unwrap_or(false) {
+                    return;
+                }
+
+                if let Some(parent) = tile_path.parent()
+                    && let Err(err) = std::fs::create_dir_all(parent)
+                {
+                    eprintln!("Error creating tile directory {parent:?}: {err:#}");
+                    return;
+                }
+
+                let tile = match stitch_xyz_parent_tile(
+                    tile_reader.as_ref(),
+                    output,
+                    z,
+                    x,
+                    y,
+                    resolution,
+                    stitch_filter.to_image_filter(),
+                )
+                .with_context(|| format!("stitching tile z={z} x={x} y={y}"))
+                {
+                    Ok(Some(tile)) => tile,
+                    Ok(None) => return,
+                    Err(err) => {
+                        eprintln!("Error stitching tile z={z} x={x} y={y}: {err:#}");
+                        return;
+                    }
+                };
+
+                if let Err(err) = save_png(&tile_path, &tile)
+                    .with_context(|| format!("saving tile z={z} x={x} y={y} to {tile_path:?}"))
+                {
+                    eprintln!("Error saving tile z={z} x={x} y={y}: {err:#}");
+                }
+            },
+        );
+    }
+
+    Ok(())
+}
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 fn main() -> anyhow::Result<()> {
@@ -572,5 +893,14 @@ fn main() -> anyhow::Result<()> {
             resolution,
             depth,
         } => process_dist_img_into_hierarchical_tiles(&input, &output, resolution, depth),
+        Commands::ProcessDistImgIntoTileJson {
+            input,
+            output,
+            resolution,
+            depth,
+            stitch_filter,
+            resume_depth,
+            tile_dir_url,
+        } => process_dist_img_into_tile_json(&input, &output, resolution, depth, stitch_filter, resume_depth, tile_dir_url),
     }
 }

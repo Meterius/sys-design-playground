@@ -2,7 +2,13 @@
   <div style="position: absolute; left: 0; right: 0; top: 0; bottom: 0">
     <canvas class="hidden" id="water-render" style="position: absolute; inset: 0"></canvas>
 
-    <mgl-map :map-key="mapKey" :map-style="tilejsonUrl" :center="[13.35203105083487, 52.499757263332086]" :zoom="14">
+    <mgl-map
+      :map-key="mapKey"
+      :map-style="tilejsonUrl"
+      :center="[13.35203105083487, 52.499757263332086]"
+      :zoom="14"
+      :canvas-context-attributes="{ antialias: true }"
+    >
       <mgl-custom-control position="top-right">
         <button
           class="map-custom-control"
@@ -67,7 +73,12 @@
 <script setup lang="ts">
 import { MglMap } from '@indoorequal/vue-maplibre-gl'
 import { computed, onWatcherCleanup, ref, watch, watchEffect } from 'vue'
-import { GeoJSONSource, GeolocateControl, GlobeControl, NavigationControl } from 'maplibre-gl'
+import {
+  GeoJSONSource,
+  GeolocateControl,
+  GlobeControl,
+  NavigationControl,
+} from 'maplibre-gl'
 import { center } from '@turf/turf'
 import type { FeatureCollection } from 'geojson'
 import {
@@ -80,7 +91,7 @@ import { DynWaterLayer } from '@/components/dyn-water-layer.ts'
 import { makeUniqueMapKey, useMapExtended, useMapSelection } from '@/composables/maplibre.ts'
 import { watchDefinedOnce } from '@/composables/helper.ts'
 
-const mapKey = makeUniqueMapKey();
+const mapKey = makeUniqueMapKey()
 
 const { mapInstance, loaded, zoom, pitch } = useMapExtended(mapKey)
 
@@ -248,8 +259,8 @@ watchDefinedOnce(
       'sky-horizon-blend': 0.7,
       'horizon-color': 'rgb(236 248 251)',
       'horizon-fog-blend': 0.9,
-      'fog-color': 'rgb(165 209 223 / 0.8)',
-      'fog-ground-blend': 0.7,
+      'fog-color': 'rgb(165 209 223 / 0.5)',
+      'fog-ground-blend': 0.8,
       'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 0.45, 7, 0.25, 10, 0],
     })
 
@@ -329,7 +340,6 @@ watchDefinedOnce(
         'source-layer': 'building',
         type: 'fill-extrusion',
         minzoom: 15,
-        filter: ['!=', ['get', 'hide_3d'], true],
         layout: {
           visibility: 'none',
         },
@@ -343,29 +353,23 @@ watchDefinedOnce(
             400,
             'hsl(26, 15%, 82%)',
           ],
-          'fill-extrusion-height': [
-            'interpolate',
-            ['linear'],
-            ['zoom'],
-            15,
-            0,
-            16,
-            ['get', 'render_height'],
-          ],
-          'fill-extrusion-base': [
-            'case',
-            ['>=', ['get', 'zoom'], 16],
-            ['get', 'render_min_height'],
-            0,
-          ],
+          'fill-extrusion-height': ['get', 'render_height'],
+          'fill-extrusion-base': ['get', 'render_min_height'],
+          'fill-extrusion-vertical-gradient': true,
         },
       },
       'Water labels',
-    )
+    );
+
+    ['Oneway path', 'Oneway', 'Oneway opposite'].forEach((layerId) => {
+      const layer = map.getStyle().layers.find((l) => l.id === layerId)!
+      map.removeLayer(layerId)
+      map.addLayer(layer, '3d-buildings')
+    })
 
     onCleanupCallbacks.push(
-      watch(pitch, (value) => {
-        const visible = value > 20 && !useRaster
+      watchEffect(() => {
+        const visible = (pitch.value > 20 || terrainEnabled.value) && !useRaster
         map.setLayoutProperty('3d-buildings', 'visibility', visible ? 'visible' : 'none')
       }).stop,
     )

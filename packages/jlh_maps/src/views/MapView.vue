@@ -2,7 +2,7 @@
   <div style="position: absolute; left: 0; right: 0; top: 0; bottom: 0">
     <canvas class="hidden" id="water-render" style="position: absolute; inset: 0"></canvas>
 
-    <mgl-map :map-style="tilejsonUrl" :center="[13.35203105083487, 52.499757263332086]" :zoom="14">
+    <mgl-map :map-key="mapKey" :map-style="tilejsonUrl" :center="[13.35203105083487, 52.499757263332086]" :zoom="14">
       <mgl-custom-control position="top-right">
         <button
           class="map-custom-control"
@@ -77,10 +77,12 @@ import {
 import MapDetails from '@/components/MapDetails.vue'
 import MapSettings from '@/components/MapSettings.vue'
 import { DynWaterLayer } from '@/components/dyn-water-layer.ts'
-import { useMapExtended, useMapSelection } from '@/composables/maplibre.ts'
+import { makeUniqueMapKey, useMapExtended, useMapSelection } from '@/composables/maplibre.ts'
 import { watchDefinedOnce } from '@/composables/helper.ts'
 
-const { mapInstance, loaded, zoom, pitch } = useMapExtended()
+const mapKey = makeUniqueMapKey();
+
+const { mapInstance, loaded, zoom, pitch } = useMapExtended(mapKey)
 
 const tilejsonUrl = TILESERVER_OMT_DEFAULT_STYLE_TILEJSON_URL.toString()
 console.debug('Using TileJson URL: ', tilejsonUrl)

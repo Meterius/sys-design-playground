@@ -19,6 +19,13 @@ export interface SelectionItem {
   feature: GeoJSONFeature
 }
 
+let mapKeyCounter = 0;
+
+export function makeUniqueMapKey() {
+  mapKeyCounter += 1;
+  return `uniq-map-${mapKeyCounter}`;
+}
+
 export function useMapSelection(options: {
   key?: symbol | string
   targetLayers: WatchSource<string[]>

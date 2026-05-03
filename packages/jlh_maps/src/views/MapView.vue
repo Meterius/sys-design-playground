@@ -137,6 +137,8 @@ watchDefinedOnce(
     map.addControl(new GlobeControl())
     map.addControl(new NavigationControl())
     map.addControl(new GeolocateControl({}))
+
+    map.setMaxPitch(85)
   },
 )
 
@@ -239,6 +241,38 @@ watchDefinedOnce(
       maxzoom: 16,
     })
 
+    map.setSky({
+      'sky-color': '#199EF3',
+      'sky-horizon-blend': 0.7,
+      'horizon-color': 'rgb(236 248 251)',
+      'horizon-fog-blend': 0.9,
+      'fog-color': 'rgb(165 209 223 / 0.8)',
+      'fog-ground-blend': 0.7,
+      'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 0.45, 7, 0.25, 10, 0],
+    })
+
+    onCleanupCallbacks.push(
+      watch(
+        zoom,
+        (value) => {
+          if (value < 10) {
+            map.setLight({
+              anchor: 'map',
+              position: [1.5, 90, 80],
+              intensity: 0.25,
+            })
+          } else {
+            map.setLight({
+              anchor: 'viewport',
+              position: [1.15, 210, 30],
+              intensity: 0.5,
+            })
+          }
+        },
+        { immediate: true },
+      ).stop,
+    )
+
     onCleanupCallbacks.push(
       watch(
         terrainEnabled,
@@ -255,10 +289,6 @@ watchDefinedOnce(
         { immediate: true },
       ).stop,
     )
-
-    map.setSky({
-      'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 2, 0],
-    })
 
     map.addLayer({
       id: 'hills',
@@ -394,6 +424,10 @@ watchDefinedOnce(
 
 <style lang="css">
 @import 'maplibre-gl/dist/maplibre-gl.css';
+
+.maplibregl-canvas {
+  background: #131d25;
+}
 
 .map-custom-control {
   width: 29px;

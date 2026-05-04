@@ -1,4 +1,3 @@
-#![feature(portable_simd)]
 #![feature(oneshot_channel)]
 
 pub mod distributed_mapped_image;

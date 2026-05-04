@@ -1,0 +1,3 @@
+/cache/
+/datasets/osm/*.osm.pbf
+/images/equirectangular_world_projection_high_res.png

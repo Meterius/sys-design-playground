@@ -1,6 +1,6 @@
 use glam::U8Vec3;
 use image::imageops::FilterType;
-use image::{Pixel, Rgb, Rgba};
+use image::{Pixel, Rgba};
 use sat_ingest::sen2::{UserData, convert_sen2_img_to_epsg4326};
 use std::fs::File;
 use std::path::PathBuf;

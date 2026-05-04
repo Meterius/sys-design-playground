@@ -1,11 +1,9 @@
 .git
 .idea
 target
-crates/*/target
 .cursor
-assets
 venv
 notebooks
-datasets
+crates/*/target
 crates/*/assets
 crates/*/test-data

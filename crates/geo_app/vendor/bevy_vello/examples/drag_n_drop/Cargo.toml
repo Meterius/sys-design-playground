@@ -1,0 +1,15 @@
+[package]
+name = "drag_n_drop"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+publish = false
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dependencies]
+bevy_vello = { path = "../../", features = ["svg", "lottie"] }
+bevy = { workspace = true, features = ["default_font", "pan_camera"] }
+bevy_async_task = "0.12.0"
+rfd = "0.17.2"
+tracing = "0.1.43"

@@ -1,13 +1,9 @@
 /target
 /pkg
-/assets/cache/
-/assets/datasets/osm/*.osm.pbf
-/assets/images/equirectangular_world_projection_high_res.png
 /secrets
 .env
 .cursor
 .codex
-/datasets/sat/
 /crates/utilities/test-data/
 /crates/*/target
 node_modules

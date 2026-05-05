@@ -1,48 +1,73 @@
+use bevy::camera::visibility::RenderLayers;
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
 use bevy::render::{
-    settings::{Backends, WgpuSettings, WgpuSettingsPriority},
+    settings::{RenderCreation, WgpuFeatures, WgpuSettings},
     RenderPlugin,
 };
-use bevy::window::{ExitCondition, Window, WindowResolution};
-use bevy_winit::{EventLoopProxy, EventLoopProxyWrapper, WinitUserEvent};
+use bevy::window::{
+    ExitCondition, PresentMode, PrimaryWindow, Window, WindowPlugin, WindowResolution,
+};
+use bevy_inspector_egui::bevy_egui::EguiPlugin;
 use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, VecDeque};
-use bevy::render::settings::{RenderCreation, WgpuFeatures};
+use std::collections::VecDeque;
 use wasm_bindgen::prelude::wasm_bindgen;
+
+use crate::app::common::settings::SettingsPlugin;
+use crate::app::editor::EditorPlugin;
+use crate::app::map::core::{
+    spawn_map_view_camera, spawn_map_view_tile_manager, MapView, MapViewCamera,
+    MapViewTileManager,
+};
+use crate::app::map::integration::MapViewIntegrationId;
+use crate::app::map::MapViewPlugin;
 
 thread_local! {
     static RUNTIME_STARTED: Cell<bool> = const { Cell::new(false) };
-    static EVENT_LOOP_PROXY: RefCell<Option<EventLoopProxy<WinitUserEvent>>> = const { RefCell::new(None) };
-    static PENDING_COMMANDS: RefCell<VecDeque<MapViewCommand>> = const { RefCell::new(VecDeque::new()) };
-}
-
-enum MapViewCommand {
-    Mount { canvas_selector: String },
-    Unmount { canvas_selector: String },
+    static PENDING_RUNTIME_COMMANDS: RefCell<VecDeque<MapViewRuntimeCommand>> = const { RefCell::new(VecDeque::new()) };
 }
 
 #[derive(Resource, Default)]
-struct MapViewWindows {
-    by_canvas_selector: HashMap<String, Entity>,
+struct MapViewRuntime {
+    next_render_layer: usize,
+    initial_canvas_selector: Option<String>,
+}
+
+#[derive(Debug)]
+enum MapViewRuntimeCommand {
+    Mount {
+        canvas_selector: String,
+    },
+    Unmount {
+        canvas_selector: String,
+    },
 }
 
 #[wasm_bindgen]
-pub fn initialize(canvas_selector: String) {
+pub fn initialize() {
     console_error_panic_hook::set_once();
+}
 
-    if RUNTIME_STARTED.with(|started| started.replace(true)) {
-        enqueue_command(MapViewCommand::Mount { canvas_selector });
-        wake_event_loop();
+#[wasm_bindgen]
+pub fn mount(canvas_selector: String) {
+    if runtime_started() {
+        enqueue_runtime_command(MapViewRuntimeCommand::Mount { canvas_selector });
         return;
     }
 
+    set_runtime_started();
+
     let mut app = App::new();
 
-    app.add_plugins(
+    app.insert_resource(MapViewRuntime {
+        next_render_layer: 0,
+        initial_canvas_selector: Some(canvas_selector.clone()),
+    });
+
+    app.add_plugins((
         DefaultPlugins
             .set(WindowPlugin {
-                primary_window: Some(map_view_window(canvas_selector)),
+                primary_window: Some(map_view_window(canvas_selector.clone())),
                 exit_condition: ExitCondition::DontExit,
                 ..default()
             })
@@ -57,88 +82,146 @@ pub fn initialize(canvas_selector: String) {
                 }),
                 ..default()
             }),
-    );
+        EguiPlugin::default(),
+        SettingsPlugin {},
+        EditorPlugin {},
+        MapViewPlugin,
+    ));
 
-    app.init_resource::<MapViewWindows>()
-        .add_systems(
-            Update,
-            (
-                cache_event_loop_proxy,
-                register_map_view_windows,
-                drain_map_view_commands,
-            ),
-        );
+    app.add_systems(Startup, mount_initial_map_view)
+        .add_systems(PreUpdate, drain_map_view_runtime_commands);
 
     app.run();
 }
 
 #[wasm_bindgen]
 pub fn unmount(canvas_selector: String) {
-    enqueue_command(MapViewCommand::Unmount { canvas_selector });
-    wake_event_loop();
+    enqueue_runtime_command(MapViewRuntimeCommand::Unmount { canvas_selector });
 }
 
-fn enqueue_command(command: MapViewCommand) {
-    PENDING_COMMANDS.with_borrow_mut(|commands| commands.push_back(command));
+fn runtime_started() -> bool {
+    RUNTIME_STARTED.with(|started| started.get())
 }
 
-fn wake_event_loop() {
-    EVENT_LOOP_PROXY.with_borrow(|proxy| {
-        if let Some(proxy) = proxy {
-            let _ = proxy.send_event(WinitUserEvent::WakeUp);
-        }
-    });
+fn set_runtime_started() {
+    RUNTIME_STARTED.with(|started| started.set(true));
 }
 
-fn cache_event_loop_proxy(proxy: Res<EventLoopProxyWrapper>) {
-    EVENT_LOOP_PROXY.with_borrow_mut(|stored_proxy| {
-        if stored_proxy.is_none() {
-            *stored_proxy = Some(proxy.clone());
-        }
-    });
+fn enqueue_runtime_command(command: MapViewRuntimeCommand) {
+    PENDING_RUNTIME_COMMANDS.with_borrow_mut(|commands| commands.push_back(command));
 }
 
-fn register_map_view_windows(
-    mut windows: ResMut<MapViewWindows>,
-    query: Query<(Entity, &Window), Added<Window>>,
+fn mount_initial_map_view(
+    mut commands: Commands,
+    mut runtime: ResMut<MapViewRuntime>,
+    primary_window: Single<Entity, With<PrimaryWindow>>,
 ) {
-    for (entity, window) in &query {
-        if let Some(canvas_selector) = &window.canvas {
-            windows
-                .by_canvas_selector
-                .insert(canvas_selector.clone(), entity);
-        }
-    }
+    let Some(canvas_selector) = runtime.initial_canvas_selector.take() else {
+        return;
+    };
+
+    configure_map_view(&mut commands, &mut runtime, *primary_window, canvas_selector);
 }
 
-fn drain_map_view_commands(mut commands: Commands, mut windows: ResMut<MapViewWindows>) {
+fn drain_map_view_runtime_commands(
+    mut commands: Commands,
+    mut runtime: ResMut<MapViewRuntime>,
+    map_views: Query<(Entity, &MapViewIntegrationId), With<MapView>>,
+    cameras: Query<(Entity, &MapViewCamera)>,
+    tile_managers: Query<(Entity, &MapViewTileManager)>,
+) {
     let queued_commands =
-        PENDING_COMMANDS.with_borrow_mut(|pending| pending.drain(..).collect::<Vec<_>>());
+        PENDING_RUNTIME_COMMANDS.with_borrow_mut(|pending| pending.drain(..).collect::<Vec<_>>());
 
     for command in queued_commands {
         match command {
-            MapViewCommand::Mount { canvas_selector } => {
-                if windows.by_canvas_selector.contains_key(&canvas_selector) {
+            MapViewRuntimeCommand::Mount { canvas_selector } => {
+                if find_map_view(&map_views, &canvas_selector).is_some() {
                     continue;
                 }
 
-                let entity = commands
-                    .spawn(map_view_window(canvas_selector.clone()))
-                    .id();
-
-                windows.by_canvas_selector.insert(canvas_selector, entity);
+                spawn_map_view(&mut commands, &mut runtime, canvas_selector);
             }
-            MapViewCommand::Unmount { canvas_selector } => {
-                if let Some(entity) = windows.by_canvas_selector.remove(&canvas_selector) {
-                    commands.entity(entity).despawn();
-                }
+            MapViewRuntimeCommand::Unmount { canvas_selector } => {
+                let Some(map_view) = find_map_view(&map_views, &canvas_selector) else {
+                    continue;
+                };
+
+                despawn_map_view(&mut commands, map_view, &cameras, &tile_managers);
             }
         }
     }
+}
+
+fn spawn_map_view(
+    commands: &mut Commands,
+    runtime: &mut MapViewRuntime,
+    canvas_selector: String,
+) -> Entity {
+    let map_view = commands.spawn(map_view_window(canvas_selector.clone())).id();
+    configure_map_view(commands, runtime, map_view, canvas_selector);
+
+    map_view
+}
+
+fn configure_map_view(
+    commands: &mut Commands,
+    runtime: &mut MapViewRuntime,
+    map_view: Entity,
+    canvas_selector: String,
+) {
+    let render_layer = runtime.next_render_layer % 32;
+    runtime.next_render_layer += 1;
+
+    commands.entity(map_view).insert((
+        MapView { render_layer },
+        MapViewIntegrationId { canvas_selector },
+        RenderLayers::layer(render_layer),
+    ));
+
+    spawn_map_view_camera(commands, map_view, render_layer);
+    spawn_map_view_tile_manager(commands, map_view);
+}
+
+fn despawn_map_view(
+    commands: &mut Commands,
+    map_view: Entity,
+    cameras: &Query<(Entity, &MapViewCamera)>,
+    tile_managers: &Query<(Entity, &MapViewTileManager)>,
+) {
+    for (camera_entity, camera) in cameras {
+        if camera.map_view == Some(map_view) {
+            commands.entity(camera_entity).despawn();
+        }
+    }
+
+    for (tile_manager_entity, tile_manager) in tile_managers {
+        if tile_manager.map_view != Some(map_view) {
+            continue;
+        }
+
+        for tile in tile_manager.tiles.values() {
+            commands.entity(tile.entity).despawn();
+        }
+        commands.entity(tile_manager_entity).despawn();
+    }
+
+    commands.entity(map_view).despawn();
+}
+
+fn find_map_view(
+    query: &Query<(Entity, &MapViewIntegrationId), With<MapView>>,
+    canvas_selector: &str,
+) -> Option<Entity> {
+    query
+        .iter()
+        .find(|(_, integration_id)| integration_id.canvas_selector == canvas_selector)
+        .map(|(entity, _)| entity)
 }
 
 fn map_view_window(canvas_selector: String) -> Window {
     Window {
+        present_mode: PresentMode::AutoVsync,
         canvas: Some(canvas_selector),
         fit_canvas_to_parent: true,
         prevent_default_event_handling: false,

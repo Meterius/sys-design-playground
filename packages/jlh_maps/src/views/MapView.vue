@@ -1,50 +1,56 @@
 <template>
   <div style="position: absolute; left: 0; right: 0; top: 0; bottom: 0">
-    <canvas
-      :id="mapAppCanvasId"
-      style="position: absolute; inset: 0; height: 100%; width: 100%"
-    ></canvas>
+    <div style="position: absolute; width: 100%; height: 50%; top: 0">
+      <mgl-map
+        :map-key="mapKey"
+        :map-style="tilejsonUrl"
+        :center="[13.35203105083487, 52.499757263332086]"
+        :zoom="14"
+        :canvas-context-attributes="{ antialias: true }"
+      >
+        <mgl-custom-control position="top-right">
+          <button
+            class="map-custom-control"
+            type="button"
+            title="Map settings"
+            aria-label="Map settings"
+            @click="slideoverOpen = SlideoverTab.Settings"
+          >
+            <UIcon
+              name="material-symbols:settings-outline-rounded"
+              class="size-6"
+              style="margin: auto"
+            />
+          </button>
+        </mgl-custom-control>
 
-    <mgl-map
-      :map-key="mapKey"
-      :map-style="tilejsonUrl"
-      :center="[13.35203105083487, 52.499757263332086]"
-      :zoom="14"
-      :canvas-context-attributes="{ antialias: true }"
-    >
-      <mgl-custom-control position="top-right">
-        <button
-          class="map-custom-control"
-          type="button"
-          title="Map settings"
-          aria-label="Map settings"
-          @click="slideoverOpen = SlideoverTab.Settings"
-        >
-          <UIcon
-            name="material-symbols:settings-outline-rounded"
-            class="size-6"
-            style="margin: auto"
-          />
-        </button>
-      </mgl-custom-control>
+        <mgl-custom-control position="top-right">
+          <button
+            class="map-custom-control"
+            type="button"
+            title="Toggle terrain"
+            aria-label="Toggle terrain"
+            :aria-pressed="terrainEnabled"
+            @click="terrainEnabled = !terrainEnabled"
+          >
+            <UIcon
+              name="material-symbols:elevation-outline-rounded"
+              :class="['size-6', ...[terrainEnabled ? ['text-secondary'] : []]]"
+              style="margin: auto"
+            />
+          </button>
+        </mgl-custom-control>
+      </mgl-map>
+    </div>
 
-      <mgl-custom-control position="top-right">
-        <button
-          class="map-custom-control"
-          type="button"
-          title="Toggle terrain"
-          aria-label="Toggle terrain"
-          :aria-pressed="terrainEnabled"
-          @click="terrainEnabled = !terrainEnabled"
-        >
-          <UIcon
-            name="material-symbols:elevation-outline-rounded"
-            :class="['size-6', ...[terrainEnabled ? ['text-secondary'] : []]]"
-            style="margin: auto"
-          />
-        </button>
-      </mgl-custom-control>
-    </mgl-map>
+    <div style="position: absolute; width: 100%; height: 50%; bottom: 0">
+      <canvas
+        :id="mapAppCanvasId"
+        tabindex="0"
+        style="position: absolute; inset: 0; height: 100%; width: 100%"
+        @pointerdown="focusMapAppCanvas"
+      ></canvas>
+    </div>
 
     <USlideover
       side="left"
@@ -75,7 +81,15 @@
 
 <script setup lang="ts">
 import { MglMap } from '@indoorequal/vue-maplibre-gl'
-import { computed, onBeforeUnmount, onMounted, onWatcherCleanup, ref, watch, watchEffect } from 'vue'
+import {
+  computed,
+  onBeforeUnmount,
+  onMounted,
+  onWatcherCleanup,
+  ref,
+  watch,
+  watchEffect,
+} from 'vue'
 import { GeoJSONSource, GeolocateControl, GlobeControl, NavigationControl } from 'maplibre-gl'
 import { center } from '@turf/turf'
 import type { FeatureCollection } from 'geojson'
@@ -90,14 +104,19 @@ import { TreeMeshLayer } from '@/components/tree-mesh-layer.ts'
 import { makeUniqueMapKey, useMapExtended, useMapSelection } from '@/composables/maplibre.ts'
 import { watchDefinedOnce } from '@/composables/helper.ts'
 import { AppLayer } from '@/components/app-layer.ts'
-import { initialize, unmount } from 'jlh_maps_app'
+import { mount, unmount } from 'jlh_maps_app'
 
 const mapKey = makeUniqueMapKey()
 
 const mapAppCanvasId = computed(() => `map-app-${mapKey}`)
 
+const focusMapAppCanvas = () => {
+  document.getElementById(mapAppCanvasId.value)?.focus()
+}
+
 onMounted(() => {
-  initialize(`#${mapAppCanvasId.value}`)
+  mount(`#${mapAppCanvasId.value}`)
+  focusMapAppCanvas()
 })
 
 onBeforeUnmount(() => {
@@ -113,7 +132,6 @@ enum SlideoverTab {
   Details,
   Settings,
 }
-
 
 const slideoverOpen = ref<SlideoverTab | null>(null)
 
@@ -152,7 +170,7 @@ const highlightGeoJsonData = computed(
   }),
 )
 
-const terrainEnabled = ref(true)
+const terrainEnabled = ref(false)
 
 const useRasterOnly = false
 const useRaster = false
@@ -444,7 +462,7 @@ watchDefinedOnce(
 
     // App Layer
 
-    map.addLayer(new AppLayer())
+    map.addLayer(new AppLayer(`#${mapAppCanvasId.value}`))
 
     //
 

@@ -288,7 +288,7 @@ export class DynWaterLayer implements CustomLayerInterface {
         gl.deleteBuffer(existing.mesh.buffer)
       }
 
-      console.log(key, features, tileId)
+      // console.log(key, features, tileId)
 
       const vertices: number[] = []
       const edges: Edge[] = []

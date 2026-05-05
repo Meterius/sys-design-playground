@@ -1,6 +1,9 @@
 <template>
   <div style="position: absolute; left: 0; right: 0; top: 0; bottom: 0">
-    <canvas class="hidden" id="water-render" style="position: absolute; inset: 0"></canvas>
+    <canvas
+      :id="mapAppCanvasId"
+      style="position: absolute; inset: 0; height: 100%; width: 100%"
+    ></canvas>
 
     <mgl-map
       :map-key="mapKey"
@@ -72,13 +75,8 @@
 
 <script setup lang="ts">
 import { MglMap } from '@indoorequal/vue-maplibre-gl'
-import { computed, onWatcherCleanup, ref, watch, watchEffect } from 'vue'
-import {
-  GeoJSONSource,
-  GeolocateControl,
-  GlobeControl,
-  NavigationControl,
-} from 'maplibre-gl'
+import { computed, onBeforeUnmount, onMounted, onWatcherCleanup, ref, watch, watchEffect } from 'vue'
+import { GeoJSONSource, GeolocateControl, GlobeControl, NavigationControl } from 'maplibre-gl'
 import { center } from '@turf/turf'
 import type { FeatureCollection } from 'geojson'
 import {
@@ -91,8 +89,20 @@ import { DynWaterLayer } from '@/components/dyn-water-layer.ts'
 import { TreeMeshLayer } from '@/components/tree-mesh-layer.ts'
 import { makeUniqueMapKey, useMapExtended, useMapSelection } from '@/composables/maplibre.ts'
 import { watchDefinedOnce } from '@/composables/helper.ts'
+import { AppLayer } from '@/components/app-layer.ts'
+import { initialize, unmount } from 'jlh_maps_app'
 
 const mapKey = makeUniqueMapKey()
+
+const mapAppCanvasId = computed(() => `map-app-${mapKey}`)
+
+onMounted(() => {
+  initialize(`#${mapAppCanvasId.value}`)
+})
+
+onBeforeUnmount(() => {
+  unmount(`#${mapAppCanvasId.value}`)
+})
 
 const { mapInstance, loaded, zoom, pitch } = useMapExtended(mapKey)
 
@@ -103,6 +113,7 @@ enum SlideoverTab {
   Details,
   Settings,
 }
+
 
 const slideoverOpen = ref<SlideoverTab | null>(null)
 
@@ -361,9 +372,8 @@ watchDefinedOnce(
         },
       },
       'Water labels',
-    );
-
-    ['Oneway path', 'Oneway', 'Oneway opposite'].forEach((layerId) => {
+    )
+    ;['Oneway path', 'Oneway', 'Oneway opposite'].forEach((layerId) => {
       const layer = map.getStyle().layers.find((l) => l.id === layerId)!
       map.removeLayer(layerId)
       map.addLayer(layer, '3d-buildings')
@@ -383,10 +393,14 @@ watchDefinedOnce(
     map.addLayer(treeMeshLayer, 'Water labels')
 
     onCleanupCallbacks.push(
-      watch(zoom, (value) => {
-        const visible = value >= 14 && !useRaster
-        map.setLayoutProperty(treeMeshLayer.id, 'visibility', visible ? 'visible' : 'none')
-      }, { immediate: true }).stop,
+      watch(
+        zoom,
+        (value) => {
+          const visible = value >= 14 && !useRaster
+          map.setLayoutProperty(treeMeshLayer.id, 'visibility', visible ? 'visible' : 'none')
+        },
+        { immediate: true },
+      ).stop,
     )
 
     // Dyn Water Layer
@@ -427,6 +441,10 @@ watchDefinedOnce(
         'circle-stroke-width': 3,
       },
     })
+
+    // App Layer
+
+    map.addLayer(new AppLayer())
 
     //
 

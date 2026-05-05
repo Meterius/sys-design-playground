@@ -161,7 +161,7 @@ export class TreeMeshLayer implements CustomLayerInterface {
     source.traverse((object) => {
       if (!(object instanceof THREE.Mesh)) return
 
-      console.log(object)
+      // console.log(object)
 
       const mesh = object.clone()
       mesh.material = new THREE.MeshLambertMaterial({
@@ -296,7 +296,7 @@ export class TreeMeshLayer implements CustomLayerInterface {
       if (tree) group.add(tree)
     }
 
-    console.log(tileId, group)
+    // console.log(tileId, group)
 
     return group
   }

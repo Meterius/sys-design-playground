@@ -11,19 +11,13 @@ import wasm from "vite-plugin-wasm"
 export default defineConfig({
   server: {
     fs: {
-      allow: ['./', '../../crates/jlh_maps_frontend/pkg',]
-    }
+      allow: ['./', '../../crates/jlh_maps_frontend/pkg', '../../crates/jlh_maps_app/pkg'],
+    },
   },
-  plugins: [
-    wasm(),
-    vue(),
-    ui(),
-    vueJsx(),
-    vueDevTools(),
-  ],
+  plugins: [wasm(), vue(), ui(), vueJsx(), vueDevTools()],
   resolve: {
     alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url))
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
 })

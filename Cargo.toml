@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/jlh_maps_core_service", "crates/jlh_maps_frontend", "crates/sat_ingest", "crates/utilities"]
+members = ["crates/jlh_maps_app","crates/jlh_maps_core_service", "crates/jlh_maps_frontend", "crates/sat_ingest", "crates/utilities"]
 
 [profile.release]
 opt-level = 3

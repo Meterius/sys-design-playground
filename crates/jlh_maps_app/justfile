@@ -1,0 +1,12 @@
+build-dev:
+    wasm-pack build --mode no-install --dev --target web -- --target wasm32-unknown-unknown
+
+build-dev-watch:
+    cargo watch --why -s "just build-dev"
+
+build-release:
+    wasm-pack build --release --target web -- --target wasm32-unknown-unknown
+
+clean:
+    cargo clean -p jlh_maps_app
+    if exist pkg rmdir /s /q pkg

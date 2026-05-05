@@ -16,6 +16,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/geo_app/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/geo_app/vendor/bevy_vello/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/geo_app/vendor/bevy_vello/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/jlh_maps_app/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/crates/backend/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/datasets/sat" />

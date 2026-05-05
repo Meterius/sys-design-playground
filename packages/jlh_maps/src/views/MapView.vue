@@ -88,6 +88,7 @@ import {
 import MapDetails from '@/components/MapDetails.vue'
 import MapSettings from '@/components/MapSettings.vue'
 import { DynWaterLayer } from '@/components/dyn-water-layer.ts'
+import { TreeMeshLayer } from '@/components/tree-mesh-layer.ts'
 import { makeUniqueMapKey, useMapExtended, useMapSelection } from '@/composables/maplibre.ts'
 import { watchDefinedOnce } from '@/composables/helper.ts'
 
@@ -121,6 +122,7 @@ const onSlideoverClose = () => {
 const selectableLayers = ref<string[]>([])
 
 const { selection } = useMapSelection({
+  key: mapKey,
   targetLayers: selectableLayers,
 })
 
@@ -372,6 +374,19 @@ watchDefinedOnce(
         const visible = (pitch.value > 20 || terrainEnabled.value) && !useRaster
         map.setLayoutProperty('3d-buildings', 'visibility', visible ? 'visible' : 'none')
       }).stop,
+    )
+
+    // // Tree Mesh Layer
+
+    const forestLayer = map.getLayer('Wood')!
+    const treeMeshLayer = new TreeMeshLayer(forestLayer)
+    map.addLayer(treeMeshLayer, 'Water labels')
+
+    onCleanupCallbacks.push(
+      watch(zoom, (value) => {
+        const visible = value >= 14 && !useRaster
+        map.setLayoutProperty(treeMeshLayer.id, 'visibility', visible ? 'visible' : 'none')
+      }, { immediate: true }).stop,
     )
 
     // Dyn Water Layer

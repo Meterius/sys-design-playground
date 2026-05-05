@@ -17,6 +17,7 @@
     "format": "prettier --write --experimental-cli src/"
   },
   "dependencies": {
+    "@dvt3d/maplibre-three-plugin": "^1.6.0",
     "@indoorequal/vue-maplibre-gl": "^8.4.2",
     "@nuxt/ui": "^4.7.1",
     "@primeuix/themes": "^2.0.3",
@@ -34,6 +35,7 @@
     "primevue": "^4.5.5",
     "sortablejs": "^1.15.7",
     "tailwindcss": "^4.2.4",
+    "three": "^0.178.0",
     "vite-plugin-wasm": "^3.6.0",
     "vue": "^3.5.32",
     "vue-router": "^5.0.4",
@@ -46,6 +48,7 @@
     "@types/jsdom": "^28.0.1",
     "@types/lodash": "^4.17.24",
     "@types/node": "^24.12.2",
+    "@types/three": "^0.178.1",
     "@vitejs/plugin-vue": "^6.0.6",
     "@vitejs/plugin-vue-jsx": "^5.1.5",
     "@vitest/eslint-plugin": "^1.6.16",

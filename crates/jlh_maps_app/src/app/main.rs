@@ -5,10 +5,14 @@ use bevy::render::{
     RenderPlugin,
     settings::{RenderCreation, WgpuFeatures, WgpuSettings},
 };
+use bevy::transform::TransformPlugin;
 use bevy::window::{
     ExitCondition, PresentMode, PrimaryWindow, Window, WindowPlugin, WindowResolution,
 };
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
+use bevy_winit::WinitSettings;
+use big_space::bundles::BigSpaceRootBundle;
+use big_space::prelude::BigSpaceDefaultPlugins;
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -76,12 +80,16 @@ pub fn mount(canvas_selector: String) {
                     ..default()
                 }),
                 ..default()
-            }),
+            })
+            .disable::<TransformPlugin>(),
+        BigSpaceDefaultPlugins,
         EguiPlugin::default(),
         SettingsPlugin {},
         EditorPlugin {},
         MapViewPlugin,
     ));
+
+    app.insert_resource(WinitSettings::continuous());
 
     app.add_systems(Startup, mount_initial_map_view)
         .add_systems(PreUpdate, drain_map_view_runtime_commands);
@@ -126,7 +134,7 @@ fn mount_initial_map_view(
 fn drain_map_view_runtime_commands(
     mut commands: Commands,
     mut runtime: ResMut<MapViewRuntime>,
-    map_views: Query<(Entity, &MapViewIntegrationId), With<MapView>>,
+    map_views: Query<(Entity, &MapViewIntegrationId, &MapView)>,
     cameras: Query<(Entity, &MapViewCamera)>,
     tile_managers: Query<(Entity, &MapViewTileManager)>,
 ) {
@@ -143,11 +151,11 @@ fn drain_map_view_runtime_commands(
                 spawn_map_view(&mut commands, &mut runtime, canvas_selector);
             }
             MapViewRuntimeCommand::Unmount { canvas_selector } => {
-                let Some(map_view) = find_map_view(&map_views, &canvas_selector) else {
+                let Some(map_view_id) = find_map_view(&map_views, &canvas_selector) else {
                     continue;
                 };
 
-                despawn_map_view(&mut commands, map_view, &cameras, &tile_managers);
+                despawn_map_view(&mut commands, map_view_id, &cameras, &tile_managers);
             }
         }
     }
@@ -176,7 +184,9 @@ fn configure_map_view(
     runtime.next_render_layer += 1;
 
     commands.entity(map_view).insert((
+        Name::new(format!("Map View ({canvas_selector})")),
         MapView { render_layer },
+        BigSpaceRootBundle::default(),
         MapViewIntegrationId { canvas_selector },
         RenderLayers::layer(render_layer),
     ));
@@ -201,10 +211,6 @@ fn despawn_map_view(
         if tile_manager.map_view != Some(map_view) {
             continue;
         }
-
-        for tile in tile_manager.tiles.values() {
-            commands.entity(tile.entity).despawn();
-        }
         commands.entity(tile_manager_entity).despawn();
     }
 
@@ -212,13 +218,13 @@ fn despawn_map_view(
 }
 
 fn find_map_view(
-    query: &Query<(Entity, &MapViewIntegrationId), With<MapView>>,
+    query: &Query<(Entity, &MapViewIntegrationId, &MapView)>,
     canvas_selector: &str,
 ) -> Option<Entity> {
     query
         .iter()
-        .find(|(_, integration_id)| integration_id.canvas_selector == canvas_selector)
-        .map(|(entity, _)| entity)
+        .find(|(_, integration_id, _)| integration_id.canvas_selector == canvas_selector)
+        .map(|(entity, _, _)| entity)
 }
 
 fn map_view_window(canvas_selector: String) -> Window {

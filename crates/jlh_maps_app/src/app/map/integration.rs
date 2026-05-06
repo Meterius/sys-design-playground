@@ -1,10 +1,13 @@
 use bevy::prelude::*;
+use bevy::math::DVec2;
+use serde::Deserialize;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::app::map::core::{
-    MapView, MapViewCamera, MapViewCameraState, MapViewTileManager, TileKey,
+    MapView, MapViewCamera, MapViewCameraState, MapViewTileManager, MapViewTileTexture, Tile,
+    TileKey,
 };
 
 thread_local! {
@@ -28,31 +31,38 @@ pub struct MapViewIntegrationId {
 enum MapViewSyncCommand {
     SyncView {
         canvas_selector: String,
-        width: f32,
-        height: f32,
-        zoom: f32,
-        pitch: f32,
-        bearing: f32,
-        center_lng: f32,
-        center_lat: f32,
-        main_matrix: Vec<f32>,
+        width: f64,
+        height: f64,
+        zoom: f64,
+        pitch: f64,
+        bearing: f64,
+        center_lng: f64,
+        center_lat: f64,
+        main_matrix: Vec<f64>,
     },
     SyncTiles {
         canvas_selector: String,
         encoded_tiles: String,
+    },
+    SyncTileTexture {
+        canvas_selector: String,
+        tile_key: String,
+        width: u32,
+        height: u32,
+        rgba: Vec<u8>,
     },
 }
 
 #[wasm_bindgen]
 pub fn sync_view(
     canvas_selector: String,
-    width: f32,
-    height: f32,
-    zoom: f32,
-    pitch: f32,
-    bearing: f32,
-    center_lng: f32,
-    center_lat: f32,
+    width: f64,
+    height: f64,
+    zoom: f64,
+    pitch: f64,
+    bearing: f64,
+    center_lng: f64,
+    center_lat: f64,
     main_matrix_json: String,
 ) {
     let main_matrix = serde_json::from_str(&main_matrix_json).unwrap_or_default();
@@ -75,6 +85,23 @@ pub fn sync_tiles(canvas_selector: String, encoded_tiles: String) {
     enqueue_sync_command(MapViewSyncCommand::SyncTiles {
         canvas_selector,
         encoded_tiles,
+    });
+}
+
+#[wasm_bindgen]
+pub fn sync_tile_texture(
+    canvas_selector: String,
+    tile_key: String,
+    width: u32,
+    height: u32,
+    rgba: Vec<u8>,
+) {
+    enqueue_sync_command(MapViewSyncCommand::SyncTileTexture {
+        canvas_selector,
+        tile_key,
+        width,
+        height,
+        rgba,
     });
 }
 
@@ -132,14 +159,43 @@ fn drain_map_view_sync_commands(
                     continue;
                 };
 
-                let active_tile_keys = parse_tiles(&encoded_tiles);
+                let active_tiles = parse_tiles(&encoded_tiles);
 
                 for mut tile_manager in &mut tile_managers {
                     if tile_manager.map_view != Some(map_view_entity) {
                         continue;
                     }
 
-                    tile_manager.active_tile_keys = active_tile_keys.clone();
+                    tile_manager.active_tiles = active_tiles.clone();
+                }
+            }
+            MapViewSyncCommand::SyncTileTexture {
+                canvas_selector,
+                tile_key,
+                width,
+                height,
+                rgba,
+            } => {
+                let Some(map_view_entity) = find_map_view(&map_views, &canvas_selector) else {
+                    continue;
+                };
+                let Some(tile_key) = parse_tile_key(&tile_key) else {
+                    continue;
+                };
+
+                for mut tile_manager in &mut tile_managers {
+                    if tile_manager.map_view != Some(map_view_entity) {
+                        continue;
+                    }
+
+                    tile_manager.pending_textures.insert(
+                        tile_key,
+                        MapViewTileTexture {
+                            width,
+                            height,
+                            rgba: rgba.clone(),
+                        },
+                    );
                 }
             }
         }
@@ -156,16 +212,31 @@ fn find_map_view(
         .map(|(entity, _)| entity)
 }
 
-fn parse_tiles(encoded_tiles: &str) -> Vec<TileKey> {
-    encoded_tiles
-        .split(';')
-        .filter_map(|tile| {
-            let mut parts = tile.split('/');
-            let z = parts.next()?.parse().ok()?;
-            let x = parts.next()?.parse().ok()?;
-            let y = parts.next()?.parse().ok()?;
+#[derive(Deserialize)]
+struct EncodedTile {
+    key: TileKey,
+    bounds_lnglat: ([f64; 2], [f64; 2]),
+}
 
-            Some(TileKey { z, x, y })
+fn parse_tiles(encoded_tiles: &str) -> Vec<Tile> {
+    serde_json::from_str::<Vec<EncodedTile>>(encoded_tiles)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|tile| Tile {
+            key: tile.key,
+            bounds_lnglat: (
+                DVec2::new(tile.bounds_lnglat.0[0], tile.bounds_lnglat.0[1]),
+                DVec2::new(tile.bounds_lnglat.1[0], tile.bounds_lnglat.1[1]),
+            ),
         })
         .collect()
+}
+
+fn parse_tile_key(tile: &str) -> Option<TileKey> {
+    let mut parts = tile.split('/');
+    let z = parts.next()?.parse().ok()?;
+    let x = parts.next()?.parse().ok()?;
+    let y = parts.next()?.parse().ok()?;
+
+    Some(TileKey { z, x, y })
 }

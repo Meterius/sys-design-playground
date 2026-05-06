@@ -6,6 +6,26 @@
     <div class="row">
       <USeparator />
       <div class="row p-4">
+        <h5 class="pb-2">Debug</h5>
+        <div class="grid gap-2">
+          <label class="debug-toggle">
+            <input v-model="showTileBoundaries" type="checkbox" />
+            <span>Tile boundaries</span>
+          </label>
+          <label class="debug-toggle">
+            <input v-model="showCollisionBoxes" type="checkbox" />
+            <span>Collision boxes</span>
+          </label>
+          <label class="debug-toggle">
+            <input v-model="showPadding" type="checkbox" />
+            <span>Padding</span>
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="row">
+      <USeparator />
+      <div class="row p-4">
         <h5 class="pb-2">Layers</h5>
         <UTree
           ref="layerTree"
@@ -22,13 +42,34 @@
 
 <script setup lang="ts">
 import { MapLibreMap } from 'maplibre-gl'
-import { shallowRef, useTemplateRef, watch } from 'vue'
+import { computed, shallowRef, useTemplateRef, watch } from 'vue'
 import type { TreeItem } from '@nuxt/ui'
 import { useSortable } from '@vueuse/integrations/useSortable'
 
 const props = defineProps<{
   map: MapLibreMap
 }>()
+
+const showTileBoundaries = computed({
+  get: () => props.map.showTileBoundaries,
+  set: (value: boolean) => {
+    props.map.showTileBoundaries = value
+  },
+})
+
+const showCollisionBoxes = computed({
+  get: () => props.map.showCollisionBoxes,
+  set: (value: boolean) => {
+    props.map.showCollisionBoxes = value
+  },
+})
+
+const showPadding = computed({
+  get: () => props.map.showPadding,
+  set: (value: boolean) => {
+    props.map.showPadding = value
+  },
+})
 
 const layerItems = shallowRef<TreeItem[]>(
   props.map.getLayersOrder().map((layer) => ({
@@ -52,4 +93,16 @@ useSortable(layerTree, layerItems, {
 })
 </script>
 
-<style scoped></style>
+<style scoped>
+.debug-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: fit-content;
+  cursor: pointer;
+}
+
+.debug-toggle input {
+  cursor: pointer;
+}
+</style>

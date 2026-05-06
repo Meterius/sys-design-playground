@@ -2,8 +2,8 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
 use bevy::render::{
-    settings::{RenderCreation, WgpuFeatures, WgpuSettings},
     RenderPlugin,
+    settings::{RenderCreation, WgpuFeatures, WgpuSettings},
 };
 use bevy::window::{
     ExitCondition, PresentMode, PrimaryWindow, Window, WindowPlugin, WindowResolution,
@@ -15,12 +15,11 @@ use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::app::common::settings::SettingsPlugin;
 use crate::app::editor::EditorPlugin;
+use crate::app::map::MapViewPlugin;
 use crate::app::map::core::{
-    spawn_map_view_camera, spawn_map_view_tile_manager, MapView, MapViewCamera,
-    MapViewTileManager,
+    MapView, MapViewCamera, MapViewTileManager, spawn_map_view_camera, spawn_map_view_tile_manager,
 };
 use crate::app::map::integration::MapViewIntegrationId;
-use crate::app::map::MapViewPlugin;
 
 thread_local! {
     static RUNTIME_STARTED: Cell<bool> = const { Cell::new(false) };
@@ -35,12 +34,8 @@ struct MapViewRuntime {
 
 #[derive(Debug)]
 enum MapViewRuntimeCommand {
-    Mount {
-        canvas_selector: String,
-    },
-    Unmount {
-        canvas_selector: String,
-    },
+    Mount { canvas_selector: String },
+    Unmount { canvas_selector: String },
 }
 
 #[wasm_bindgen]
@@ -120,7 +115,12 @@ fn mount_initial_map_view(
         return;
     };
 
-    configure_map_view(&mut commands, &mut runtime, *primary_window, canvas_selector);
+    configure_map_view(
+        &mut commands,
+        &mut runtime,
+        *primary_window,
+        canvas_selector,
+    );
 }
 
 fn drain_map_view_runtime_commands(
@@ -158,7 +158,9 @@ fn spawn_map_view(
     runtime: &mut MapViewRuntime,
     canvas_selector: String,
 ) -> Entity {
-    let map_view = commands.spawn(map_view_window(canvas_selector.clone())).id();
+    let map_view = commands
+        .spawn(map_view_window(canvas_selector.clone()))
+        .id();
     configure_map_view(commands, runtime, map_view, canvas_selector);
 
     map_view

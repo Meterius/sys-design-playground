@@ -1,0 +1,5 @@
+- TODO: Add services section
+  - Each service has a one-line short-description, the domain it is mapped to (if it has one)
+  - Each service has a short-description about the setup requirements / non-repository file dependencies
+- TODO: Add jobs section
+  - Each job has a short-description about how/what files it prepares and for what service

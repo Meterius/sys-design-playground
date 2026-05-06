@@ -1,5 +1,5 @@
-use bevy::prelude::*;
 use bevy::math::DVec2;
+use bevy::prelude::*;
 use serde::Deserialize;
 use std::cell::RefCell;
 use std::collections::VecDeque;

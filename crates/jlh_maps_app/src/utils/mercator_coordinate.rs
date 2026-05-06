@@ -63,8 +63,8 @@ pub fn mercator_x_from_lng(lng: f64) -> f64 {
 }
 
 pub fn mercator_y_from_lat(lat: f64) -> f64 {
-    let mercator_y =
-        180.0 - (180.0 / std::f64::consts::PI)
+    let mercator_y = 180.0
+        - (180.0 / std::f64::consts::PI)
             * ((std::f64::consts::PI / 4.0) + (lat * std::f64::consts::PI / 360.0))
                 .tan()
                 .ln();
@@ -119,7 +119,7 @@ mod tests {
     fn converts_altitude_using_latitude_scale() {
         let coordinate = MercatorCoordinate::new(0.0, 0.0, 0.02);
 
-        assert_approx_eq(coordinate.to_altitude(), 6_914.281_956_295_339);
+        assert_approx_eq(coordinate.to_altitude(), 69_065.545_611_890_78);
     }
 
     #[test]

@@ -87,7 +87,7 @@ export class AppLayer implements CustomLayerInterface {
       this.canvasSelector,
       canvas.width,
       canvas.height,
-      this.map.getZoom(),
+      this.map.transform.zoom,
       this.map.getPitch(),
       this.map.getBearing(),
       center.lng,

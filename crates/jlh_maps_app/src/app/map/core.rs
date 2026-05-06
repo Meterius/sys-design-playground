@@ -1,25 +1,29 @@
 use bevy::asset::RenderAssetUsages;
-use bevy::camera::{RenderTarget, ScalingMode, visibility::RenderLayers};
-use bevy::math::DVec2;
+use bevy::camera::{
+    CameraProjection, RenderTarget,
+    visibility::{NoFrustumCulling, RenderLayers},
+};
+use bevy::math::{DVec2, DVec3, dvec3, DMat4, DVec4};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::ui::UiTargetCamera;
 use bevy::window::WindowRef;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
-use bevy::math::{dvec3, DVec3};
+
 use crate::app::common::settings::Settings;
 use crate::utils::mercator_coordinate::{LngLat, MercatorCoordinate};
 
 pub const MERCATOR_WORLD_SIZE: f64 = 100_000.0;
-const MAPLIBRE_TILE_SIZE: f64 = 512.0;
-const TOP_DOWN_CAMERA_Z: f32 = 10_000.0;
-const TILE_DEBUG_Z: f32 = 2.0;
+const TILE_DEBUG_BORDER_Z: f32 = 0.05;
+const TILE_DEBUG_LABEL_INSET: f32 = 4.0;
 
 pub struct MapViewCorePlugin;
 
 impl Plugin for MapViewCorePlugin {
     fn build(&self, app: &mut App) {
+        app.add_systems(Startup, configure_map_view_debug_gizmos);
+
         app.add_systems(
             Update,
             (
@@ -31,6 +35,15 @@ impl Plugin for MapViewCorePlugin {
                 .chain(),
         );
     }
+}
+
+fn configure_map_view_debug_gizmos(mut gizmo_config_store: ResMut<GizmoConfigStore>) {
+    let (config, _) = gizmo_config_store.config_mut::<DefaultGizmoConfigGroup>();
+    config.depth_bias = -1.0;
+    config.line.width = 2.0;
+    config.line.perspective = false;
+    config.render_layers =
+        RenderLayers::from_layers(&(0..32).collect::<Vec<_>>());
 }
 
 #[derive(Component)]
@@ -103,20 +116,25 @@ pub struct Tile {
 
 fn sync_map_view_cameras(mut query: Query<(&MapViewCamera, &mut Transform, &mut Projection)>) {
     for (camera, mut transform, mut projection) in &mut query {
-        let center = MercatorCoordinate::from_lng_lat(LngLat::new(camera.state.center_lng, camera.state.center_lat), 0.0);
-        let center_world = mercator_to_world(center).as_vec3();
-        
-        *transform = top_down_camera_transform(center_world);
+        *transform = Transform::IDENTITY;
 
-        if let Projection::Orthographic(orthographic) = projection.as_mut() {
-            let zoom_scale = MAPLIBRE_TILE_SIZE * 2.0_f64.powf(camera.state.zoom.max(0.0));
-            let viewport_height = if camera.state.height > 0.0 && zoom_scale > 0.0 {
-                (camera.state.height / zoom_scale) * MERCATOR_WORLD_SIZE 
-            } else {
-                MERCATOR_WORLD_SIZE 
-            } as f32;
+        let Some(maplibre_projection) =
+            MapLibreMercatorProjection::from_main_matrix(&camera.state.main_matrix)
+        else {
+            continue;
+        };
 
-            orthographic.scaling_mode = ScalingMode::FixedVertical { viewport_height };
+        match projection.as_mut() {
+            Projection::Custom(custom) => {
+                if let Some(existing) = custom.get_mut::<MapLibreMercatorProjection>() {
+                    *existing = maplibre_projection;
+                } else {
+                    *projection = Projection::custom(maplibre_projection);
+                }
+            }
+            _ => {
+                *projection = Projection::custom(maplibre_projection);
+            }
         }
     }
 }
@@ -168,9 +186,7 @@ fn sync_map_view_tile_managers(
                 continue;
             }
 
-            let entity = commands
-                .spawn(Name::new(format!("Tile {key:?}")))
-                .id();
+            let entity = commands.spawn(Name::new(format!("Tile {key:?}"))).id();
             let material = materials.add(StandardMaterial {
                 base_color: tile_color(key).with_alpha(0.25),
                 unlit: true,
@@ -185,23 +201,22 @@ fn sync_map_view_tile_managers(
                 texture: None,
                 debug_label: None,
             };
-            let (center, size) = tile_transform(&synced_tile);
+            let (center, size) = tile_transform(&synced_tile, 0.);
 
             commands.entity(entity).insert((
                 Mesh3d(meshes.add(Rectangle::new(1.0, 1.0))),
                 MeshMaterial3d(material),
-                Transform::from_translation(center).with_scale(Vec3::splat(size)),
+                Transform::from_translation(center).with_scale(size.extend(1.0)),
                 RenderLayers::layer(map_view.render_layer),
+                NoFrustumCulling,
                 tile.clone(),
             ));
 
             let debug_label = spawn_tile_debug_label(
                 &mut commands,
-                cameras
-                    .iter()
-                    .find_map(|(camera_entity, camera)| {
-                        (camera.map_view == Some(map_view_entity)).then_some(camera_entity)
-                    }),
+                cameras.iter().find_map(|(camera_entity, camera)| {
+                    (camera.map_view == Some(map_view_entity)).then_some(camera_entity)
+                }),
                 map_view_entity,
                 synced_tile.clone(),
                 debug_visibility,
@@ -267,10 +282,10 @@ fn draw_map_view_tile_debug_gizmos(
 
     for manager in &managers {
         for tile in manager.tiles.values() {
-            let (center, size) = tile_transform(&tile.tile);
+            let (center, size) = tile_transform(&tile.tile, 0.0);
             gizmos.rect(
-                Isometry3d::from_translation(center.with_z(TILE_DEBUG_Z)),
-                Vec2::splat(size),
+                Isometry3d::from_translation(center.with_z(TILE_DEBUG_BORDER_Z)),
+                size,
                 Color::srgb(1.0, 0.0, 0.0),
             );
         }
@@ -291,17 +306,16 @@ fn sync_map_view_tile_debug_labels(
             continue;
         }
 
-        let Some((camera_entity, camera, camera_transform, _)) =
-            cameras
-                .iter()
-                .find(|(_, _, _, camera)| camera.map_view == Some(label.map_view))
+        let Some((camera_entity, camera, camera_transform, _)) = cameras
+            .iter()
+            .find(|(_, _, _, camera)| camera.map_view == Some(label.map_view))
         else {
             *visibility = Visibility::Hidden;
             continue;
         };
 
-        let (center, size) = tile_transform(&label.tile);
-        let top_left = Vec3::new(center.x, center.y, TILE_DEBUG_Z);
+        let (center, size) = tile_transform(&label.tile, 0.);
+        let top_left = Vec3::new(center.x - size.x * 0.5, center.y + size.y * 0.5, center.z);
         let Ok(viewport_position) = camera.world_to_viewport(camera_transform, top_left) else {
             *visibility = Visibility::Hidden;
             continue;
@@ -310,8 +324,8 @@ fn sync_map_view_tile_debug_labels(
         commands
             .entity(label_entity)
             .insert(UiTargetCamera(camera_entity));
-        node.left = Val::Px(viewport_position.x);
-        node.top = Val::Px(viewport_position.y);
+        node.left = Val::Px(viewport_position.x + TILE_DEBUG_LABEL_INSET);
+        node.top = Val::Px(viewport_position.y + TILE_DEBUG_LABEL_INSET);
         *visibility = Visibility::Visible;
     }
 }
@@ -330,7 +344,7 @@ fn spawn_tile_debug_label(
         Text::new(format!("{}/{}/{}", key.z, key.x, key.y)),
         TextFont::from_font_size(12.0),
         TextColor(Color::WHITE),
-        TextLayout::new_with_justify(Justify::Center),
+        TextLayout::new_with_justify(Justify::Left),
         Node {
             position_type: PositionType::Absolute,
             left: Val::Px(0.0),
@@ -358,15 +372,8 @@ pub fn spawn_map_view_camera(
     commands
         .spawn((
             Camera3d::default(),
-            Projection::from(OrthographicProjection {
-                scaling_mode: ScalingMode::FixedVertical {
-                    viewport_height: MERCATOR_WORLD_SIZE as f32,
-                },
-                near: 0.0,
-                far: TOP_DOWN_CAMERA_Z * 2.0,
-                ..OrthographicProjection::default_3d()
-            }),
-            top_down_camera_transform(Vec3::ZERO),
+            Projection::custom(MapLibreMercatorProjection::default()),
+            Transform::IDENTITY,
             RenderTarget::Window(WindowRef::Entity(map_view)),
             RenderLayers::layer(render_layer),
             MapViewCamera {
@@ -388,27 +395,100 @@ pub fn spawn_map_view_tile_manager(commands: &mut Commands, map_view: Entity) ->
         .id()
 }
 
-fn tile_transform(tile: &Tile) -> (Vec3, f32) {
-    let lower = MercatorCoordinate::from_lng_lat(LngLat::new(tile.bounds_lnglat.0.x, tile.bounds_lnglat.0.y), 0.0);
-    let upper = MercatorCoordinate::from_lng_lat(LngLat::new(tile.bounds_lnglat.1.x, tile.bounds_lnglat.1.y), 0.0);
+fn tile_transform(tile: &Tile, alt: f64) -> (Vec3, Vec2) {
+    let south_west = lng_lat_to_world(tile.bounds_lnglat.0.x, tile.bounds_lnglat.0.y, alt);
+    let north_east = lng_lat_to_world(tile.bounds_lnglat.1.x, tile.bounds_lnglat.1.y, alt);
 
-    let world_lower = mercator_to_world(lower).as_vec3();
-    let world_upper = mercator_to_world(upper).as_vec3();
+    let min = south_west.min(north_east);
+    let max = south_west.max(north_east);
+    let size = max - min;
 
-    let size = (world_upper - world_lower).length();
-    (world_lower, size)
+    ((min + max) * 0.5, size.xy())
 }
 
-fn top_down_camera_transform(center: Vec3) -> Transform {
-    Transform::from_translation(center + Vec3::Z * TOP_DOWN_CAMERA_Z)
-        .looking_to(Vec3::NEG_Z, Vec3::Y)
+fn lng_lat_to_world(lng: f64, lat: f64, alt: f64) -> Vec3 {
+    mercator_to_world(MercatorCoordinate::from_lng_lat(LngLat::new(lng, lat), alt)).as_vec3()
 }
 
 fn mercator_to_world(coords: MercatorCoordinate) -> DVec3 {
-    let MercatorCoordinate { x, y, .. } = coords;
-    dvec3(x, -y, 0.0) * MERCATOR_WORLD_SIZE
+    let MercatorCoordinate { x, y, z } = coords;
+    dvec3(x, -y, z) * MERCATOR_WORLD_SIZE
 }
-    
+
+#[derive(Clone, Debug)]
+struct MapLibreMercatorProjection {
+    clip_from_view: Mat4,
+}
+
+impl Default for MapLibreMercatorProjection {
+    fn default() -> Self {
+        Self {
+            clip_from_view: Mat4::IDENTITY,
+        }
+    }
+}
+
+impl MapLibreMercatorProjection {
+    fn from_main_matrix(main_matrix: &[f64]) -> Option<Self> {
+        let main_matrix = main_matrix.try_into().ok()?;
+
+        let maplibre_clip_from_mercator = DMat4::from_cols_array(main_matrix);
+        let mercator_from_world = DMat4::from_cols(
+            DVec4::new(1.0 / MERCATOR_WORLD_SIZE, 0.0, 0.0, 0.0),
+            DVec4::new(0.0, -1.0 / MERCATOR_WORLD_SIZE, 0.0, 0.0),
+            DVec4::new(0.0, 0.0, 1.0 / MERCATOR_WORLD_SIZE, 0.0),
+            DVec4::W,
+        );
+
+        Some(Self {
+            clip_from_view: (
+                opengl_to_wgpu_clip_matrix()
+                * maplibre_clip_from_mercator
+                * mercator_from_world
+            ).as_mat4(),
+        })
+    }
+}
+
+impl CameraProjection for MapLibreMercatorProjection {
+    fn get_clip_from_view(&self) -> Mat4 {
+        self.clip_from_view
+    }
+
+    fn get_clip_from_view_for_sub(&self, _sub_view: &bevy::camera::SubCameraView) -> Mat4 {
+        self.clip_from_view
+    }
+
+    fn update(&mut self, _width: f32, _height: f32) {}
+
+    fn far(&self) -> f32 {
+        f32::MAX
+    }
+
+    fn get_frustum_corners(&self, _z_near: f32, _z_far: f32) -> [Vec3A; 8] {
+        let extent = MERCATOR_WORLD_SIZE as f32;
+        [
+            Vec3A::new(extent, -extent, 0.0),
+            Vec3A::new(extent, extent, 0.0),
+            Vec3A::new(-extent, extent, 0.0),
+            Vec3A::new(-extent, -extent, 0.0),
+            Vec3A::new(extent, -extent, extent),
+            Vec3A::new(extent, extent, extent),
+            Vec3A::new(-extent, extent, extent),
+            Vec3A::new(-extent, -extent, extent),
+        ]
+    }
+}
+
+fn opengl_to_wgpu_clip_matrix() -> DMat4 {
+    DMat4::from_cols(
+        DVec4::X,
+        DVec4::Y,
+        DVec4::new(0.0, 0.0, 0.5, 0.0),
+        DVec4::new(0.0, 0.0, 0.5, 1.0),
+    )
+}
+
 fn tile_color(key: TileKey) -> Color {
     let hash = key
         .z

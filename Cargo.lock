@@ -1402,6 +1402,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_heightmap"
+version = "0.7.0"
+source = "git+https://github.com/Sofianel5/bevy_heightmap?rev=d7a7824d960a44b84a7e3ac8393dce1570d2c050#d7a7824d960a44b84a7e3ac8393dce1570d2c050"
+dependencies = [
+ "bevy",
+ "bytemuck",
+ "image",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "bevy_image"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4759,6 +4770,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy-inspector-egui",
+ "bevy_heightmap",
  "bevy_rich_text3d",
  "bevy_winit",
  "big_space",
@@ -4766,8 +4778,10 @@ dependencies = [
  "egui",
  "egui_dock",
  "serde",
+ "serde-wasm-bindgen",
  "serde_json",
  "smallvec",
+ "tracing",
  "wasm-bindgen",
 ]
 
@@ -7068,6 +7082,17 @@ checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
  "serde_derive",
+]
+
+[[package]]
+name = "serde-wasm-bindgen"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
+dependencies = [
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
 ]
 
 [[package]]

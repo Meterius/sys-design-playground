@@ -91,7 +91,7 @@ pub fn mount(canvas_selector: String) {
 
     app.insert_resource(WinitSettings::continuous());
 
-    app.add_systems(Startup, mount_initial_map_view)
+    app.add_systems(Startup, (mount_initial_map_view, init_scene))
         .add_systems(PreUpdate, drain_map_view_runtime_commands);
 
     app.run();
@@ -112,6 +112,17 @@ fn set_runtime_started() {
 
 fn enqueue_runtime_command(command: MapViewRuntimeCommand) {
     PENDING_RUNTIME_COMMANDS.with_borrow_mut(|commands| commands.push_back(command));
+}
+
+fn init_scene(mut commands: Commands) {
+    commands.spawn((
+        DirectionalLight {
+            color: Color::srgb(0.98, 0.95, 0.82),
+            shadows_enabled: true,
+            ..default()
+        },
+        Transform::from_xyz(0.0, 0.0, 0.0).looking_at(Vec3::new(-0.15, -0.05, -0.25), Vec3::Z),
+    ));
 }
 
 fn mount_initial_map_view(

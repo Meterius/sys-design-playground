@@ -1,11 +1,14 @@
 import {
   type CustomLayerInterface,
   type CustomRenderMethodInput,
-  type GeoJSONFeature,
+  EXTENT,
   type Map as MapLibreMap,
+  type Subscription,
 } from 'maplibre-gl'
 import { tileIdToLngLatBounds } from 'maplibre-gl/src/tile/tile_id_to_lng_lat_bounds.ts'
-import { sync_tile_texture, sync_tiles, sync_view } from 'jlh_maps_app'
+import { sync_terrain_data, sync_tiles, sync_view } from 'jlh_maps_app'
+import type { Map as MapInternal, Tile } from 'maplibre-gl/src/index.ts'
+import type { DEMData } from 'maplibre-gl/src/data/dem_data.ts'
 
 type TileKey = string
 type GL = WebGLRenderingContext | WebGL2RenderingContext
@@ -21,61 +24,22 @@ interface SyncedTile {
   bounds_lnglat: [[number, number], [number, number]]
 }
 
-interface MapLibreTexture {
-  texture?: WebGLTexture
-  size?: [number, number]
-  width?: number
-  height?: number
-}
-
-interface MapLibreRttTile {
-  tileID?: {
-    canonical?: TileCoord
-  }
-  rtt?: Array<{
-    id?: string | number
-    stamp?: string | number
-  }>
-  rttFingerprint?: Record<string, string>
-}
-
-interface MapLibreTerrain {
-  qualityFactor?: number
-  tileManager?: {
-    tileSize?: number
-    getRenderableTiles?: () => MapLibreRttTile[]
-  }
-}
-
-interface MapLibrePainter {
-  renderToTexture?: {
-    getTexture?: (tile: MapLibreRttTile) => MapLibreTexture | undefined
-  }
-  terrain?: MapLibreTerrain
-}
-
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-expect-error
-interface MapLibrePrivateMap extends MapLibreMap {
-  painter?: MapLibrePainter
-  terrain?: MapLibreTerrain
-}
-
 export class AppLayer implements CustomLayerInterface {
   id = 'app-layer'
   type = 'custom' as const
   renderingMode = '3d' as const
 
-  private readonly maxTextureCopiesPerFrame = 4
-  private readonly textureStamps = new Map<TileKey, string>()
-  private map!: MapLibreMap
+  private readonly terrainDataStamps = new Map<TileKey, string>()
+  private map!: MapInternal
   private readFramebuffer: WebGLFramebuffer | null = null
+
+  private subscriptions: Subscription[] = []
 
   constructor(private readonly canvasSelector: string) {
   }
 
   onAdd(map: MapLibreMap, gl: WebGLRenderingContext | WebGL2RenderingContext): void {
-    this.map = map
+    this.map = map as unknown as MapInternal
     this.readFramebuffer = gl.createFramebuffer()
   }
 
@@ -97,7 +61,8 @@ export class AppLayer implements CustomLayerInterface {
 
     const visibleTiles = this.getVisibleTiles()
     sync_tiles(this.canvasSelector, JSON.stringify(visibleTiles))
-    //this.syncTerrainRenderTextures(gl)
+    // this.syncTerrainRenderTextures(gl)
+    this.syncTerrainData()
   }
 
   onRemove(_map: MapLibreMap, gl: WebGLRenderingContext | WebGL2RenderingContext): void {
@@ -105,16 +70,34 @@ export class AppLayer implements CustomLayerInterface {
       gl.deleteFramebuffer(this.readFramebuffer)
       this.readFramebuffer = null
     }
-    this.textureStamps.clear()
+    this.terrainDataStamps.clear()
+    this.subscriptions.splice(0).forEach(subscription => subscription.unsubscribe())
   }
 
   private getVisibleTiles() {
     const tiles = new Map<TileKey, SyncedTile>()
 
-    const tileManager = this.map.style.tileManagers['openmaptiles']!
+    const tileManagers = [this.map.style.tileManagers['terrain']!];// Object.values(this.map.style.tileManagers);
+    //
+    // tileManagers.forEach((tileManager) => {
+    //   tileManager.getRenderableIds().map((id) => {
+    //     const tile = tileManager.getTileByID(id)!;
+    //     const key = tile.tileID.canonical
+    //     const bounds = tileIdToLngLatBounds(key)
+    //     tiles.set(`${key.z}/${key.x}/${key.y}`, {
+    //       key: { z: key.z, x: key.x, y: key.y },
+    //       bounds_lnglat: [
+    //         [bounds.getWest(), bounds.getSouth()],
+    //         [bounds.getEast(), bounds.getNorth()],
+    //       ],
+    //     })
+    //   })
+    // })
+    //
 
-    tileManager.getRenderableIds().map((id) => {
-      const key = tileManager.getTileByID(id)!.tileID.canonical
+    this.map.terrain?.tileManager?.getRenderableTiles?.().forEach((tile: Tile) => {
+      const key = tile.tileID?.canonical
+      if (!key) return
       const bounds = tileIdToLngLatBounds(key)
       tiles.set(`${key.z}/${key.x}/${key.y}`, {
         key: { z: key.z, x: key.x, y: key.y },
@@ -125,122 +108,77 @@ export class AppLayer implements CustomLayerInterface {
       })
     })
 
-    // (this.map as unknown as MapLibrePrivateMap).terrain?.tileManager?.getRenderableTiles?.().forEach((tile) => {
-    //   const key = tile.tileID?.canonical
-    //   if (!key) return
-    //   const bounds = tileIdToLngLatBounds(key)
-    //   tiles.set(`${key.z}/${key.x}/${key.y}`, {
-    //     key: { z: key.z, x: key.x, y: key.y },
-    //     bounds_lnglat: [
-    //       [bounds.getWest(), bounds.getSouth()],
-    //       [bounds.getEast(), bounds.getNorth()],
-    //     ],
-    //   })
-    // })
-
     return [...tiles.values()]
   }
 
-  private getTileCoord(feature: GeoJSONFeature): TileCoord | undefined {
-    const maybeFeature = feature as GeoJSONFeature & {
-      _z?: number
-      _x?: number
-      _y?: number
-    }
-
-    if (
-      typeof maybeFeature._z !== 'number' ||
-      typeof maybeFeature._x !== 'number' ||
-      typeof maybeFeature._y !== 'number'
-    ) {
-      return undefined
-    }
-
-    return {
-      z: maybeFeature._z,
-      x: maybeFeature._x,
-      y: maybeFeature._y,
-    }
-  }
-
-  private lngLatToTile(lng: number, lat: number, zoom: number) {
-    const scale = 2 ** zoom
-    const clampedLat = Math.max(-85.051129, Math.min(85.051129, lat))
-    const latRad = (clampedLat * Math.PI) / 180
-
-    return {
-      x: Math.floor(((lng + 180) / 360) * scale),
-      y: Math.floor(
-        ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * scale,
-      ),
-    }
-  }
-
-  private syncTerrainRenderTextures(gl: GL) {
-    if (!this.readFramebuffer) return
-
-    const privateMap = this.map as unknown as MapLibrePrivateMap
-    const painter = privateMap.painter
-    const terrain = privateMap.terrain ?? painter?.terrain
-    const renderToTexture = painter?.renderToTexture
+  private syncTerrainData() {
+    const terrain = this.map.terrain
     const tiles = terrain?.tileManager?.getRenderableTiles?.() ?? []
 
-    if (!renderToTexture?.getTexture || tiles.length === 0) return
-
-    let copied = 0
     for (const tile of tiles) {
-      if (copied >= this.maxTextureCopiesPerFrame) break
-
       const key = this.getRttTileKey(tile)
       if (!key) continue
 
-      const contentStamp = this.getRttContentStamp(tile)
-      if (!contentStamp || this.textureStamps.get(key) === contentStamp) continue
+      const terrainData = terrain.getTerrainData(tile.tileID)
+      const dem = terrainData.tile?.dem as DEMData | undefined
+      if (!dem) continue
+      const contentStamp = this.getTerrainDataContentStamp(tile, terrainData.tile, dem)
+      if (this.terrainDataStamps.get(key) === contentStamp) continue
 
-      console.log(key, tile, contentStamp);
-
-      const texture = this.getRttTexture(renderToTexture, tile)
-      const webGlTexture = texture?.texture
-      if (!webGlTexture) continue
-
-      const [width, height] = this.getRttTextureSize(texture, terrain)
-      if (width <= 0 || height <= 0) continue
-
-      const pixels = this.readTexturePixels(gl, webGlTexture, width, height)
-      if (!pixels) continue
-
-      sync_tile_texture(this.canvasSelector, key, width, height, pixels)
-      this.textureStamps.set(key, contentStamp)
-      copied += 1
+      sync_terrain_data(
+        this.canvasSelector,
+        key,
+        dem.stride,
+        dem.dim,
+        dem.min,
+        dem.max,
+        dem.redFactor,
+        dem.greenFactor,
+        dem.blueFactor,
+        dem.baseShift,
+        JSON.stringify(Array.from(terrainData.u_terrain_matrix)),
+        new Uint32Array(dem.data),
+      )
+      this.terrainDataStamps.set(key, contentStamp)
     }
 
-    const tileKeys = new Set(tiles.map((tile) => this.getRttTileKey(tile)));
-    for (const key of this.textureStamps.keys()) {
-      if (!tileKeys.has(key)) {
-        this.textureStamps.delete(key);
-      }
-    }
+    // const tileKeys = new Set(tiles.map((tile) => this.getRttTileKey(tile)))
+    // for (const key of this.terrainDataStamps.keys()) {
+    //   if (!tileKeys.has(key)) {
+    //     this.terrainDataStamps.delete(key)
+    //   }
+    // }
   }
 
-  private getRttTexture(
-    renderToTexture: NonNullable<MapLibrePainter['renderToTexture']>,
-    tile: MapLibreRttTile,
-  ) {
-    try {
-      return renderToTexture.getTexture?.(tile)
-    } catch {
-      return undefined
-    }
+  private getTerrainDataContentStamp(tile: Tile, sourceTile: Tile | null | undefined, dem: DEMData) {
+    const sourceTileID = sourceTile?.tileID?.key ?? sourceTile?.tileID?.toString?.() ?? 'none'
+    const renderTileID = tile.tileID?.key ?? tile.tileID?.toString?.() ?? 'none'
+    const rttStamp = this.getRttContentStamp(tile) ?? 'none'
+
+    return [
+      renderTileID,
+      sourceTileID,
+      dem.uid,
+      dem.stride,
+      dem.dim,
+      dem.min,
+      dem.max,
+      dem.redFactor,
+      dem.greenFactor,
+      dem.blueFactor,
+      dem.baseShift,
+      rttStamp,
+    ].join('|')
   }
 
-  private getRttTileKey(tile: MapLibreRttTile): TileKey | undefined {
+  private getRttTileKey(tile: Tile): TileKey | undefined {
     const canonical = tile.tileID?.canonical
     if (!canonical) return undefined
 
     return `${canonical.z}/${canonical.x}/${canonical.y}`
   }
 
-  private getRttContentStamp(tile: MapLibreRttTile) {
+  private getRttContentStamp(tile: Tile) {
     if (!tile.rtt?.length) return undefined
 
     const fingerprints = tile.rttFingerprint ? Object.entries(tile.rttFingerprint) : []
@@ -250,60 +188,5 @@ export class AppLayer implements CustomLayerInterface {
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([source, fingerprint]) => `${source}:${fingerprint}`)
       .join('|')
-  }
-
-  private getRttTextureSize(texture: MapLibreTexture, terrain?: MapLibreTerrain) {
-    if (Array.isArray(texture.size) && texture.size.length >= 2) {
-      return [texture.size[0], texture.size[1]] as const
-    }
-
-    if (typeof texture.width === 'number' && typeof texture.height === 'number') {
-      return [texture.width, texture.height] as const
-    }
-
-    const tileSize = terrain?.tileManager?.tileSize
-    const qualityFactor = terrain?.qualityFactor ?? 1
-    const fallbackSize = tileSize ? Math.round(tileSize * qualityFactor) : 512
-
-    return [fallbackSize, fallbackSize] as const
-  }
-
-  private readTexturePixels(gl: GL, texture: WebGLTexture, width: number, height: number) {
-    const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null
-    const previousTexture = gl.getParameter(gl.TEXTURE_BINDING_2D) as WebGLTexture | null
-    const previousPackAlignment = gl.getParameter(gl.PACK_ALIGNMENT) as number
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.readFramebuffer)
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0)
-
-    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER)
-    if (status !== gl.FRAMEBUFFER_COMPLETE) {
-      gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer)
-      gl.bindTexture(gl.TEXTURE_2D, previousTexture)
-      return undefined
-    }
-
-    const pixels = new Uint8Array(width * height * 4)
-    gl.pixelStorei(gl.PACK_ALIGNMENT, 1)
-    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
-    gl.pixelStorei(gl.PACK_ALIGNMENT, previousPackAlignment)
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer)
-    gl.bindTexture(gl.TEXTURE_2D, previousTexture)
-
-    return this.flipRgbaRows(pixels, width, height)
-  }
-
-  private flipRgbaRows(pixels: Uint8Array, width: number, height: number) {
-    const rowSize = width * 4
-    const flipped = new Uint8Array(pixels.length)
-
-    for (let y = 0; y < height; y++) {
-      const sourceOffset = y * rowSize
-      const targetOffset = (height - y - 1) * rowSize
-      flipped.set(pixels.subarray(sourceOffset, sourceOffset + rowSize), targetOffset)
-    }
-
-    return flipped
   }
 }

@@ -46,6 +46,7 @@
     <div style="position: absolute; width: 100%; height: 50%; bottom: 0">
       <canvas
         :id="mapAppCanvasId"
+        ref="mapAppCanvas"
         tabindex="0"
         style="position: absolute; inset: 0; height: 100%; width: 100%"
         @pointerdown="focusMapAppCanvas"
@@ -110,6 +111,8 @@ const mapKey = makeUniqueMapKey()
 
 const mapAppCanvasId = computed(() => `map-app-${mapKey}`)
 
+const mapAppCanvas = ref<HTMLCanvasElement | undefined>()
+
 const focusMapAppCanvas = () => {
   document.getElementById(mapAppCanvasId.value)?.focus()
 }
@@ -170,7 +173,7 @@ const highlightGeoJsonData = computed(
   }),
 )
 
-const terrainEnabled = ref(false)
+const terrainEnabled = ref(true)
 
 const useRasterOnly = false
 const useRaster = false
@@ -187,8 +190,15 @@ watchDefinedOnce(
 )
 
 watchDefinedOnce(
-  () => (loaded.value ? mapInstance.map : undefined),
-  (map) => {
+  () => {
+    if (!loaded.value) return undefined;
+
+    return mapInstance.map !== undefined && mapAppCanvas.value !== undefined ? {
+      map: mapInstance.map,
+      appCanvas: mapAppCanvas.value,
+    } : undefined;
+  },
+  ({ map }) => {
     const onCleanupCallbacks: (() => void)[] = []
 
     if (useRaster) {

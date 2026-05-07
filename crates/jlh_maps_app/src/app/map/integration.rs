@@ -1,4 +1,4 @@
-use bevy::math::DVec2;
+use bevy::math::{DMat4, DVec2};
 use bevy::prelude::*;
 use serde::Deserialize;
 use std::cell::RefCell;
@@ -6,9 +6,11 @@ use std::collections::VecDeque;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::app::map::core::{
-    MapView, MapViewCamera, MapViewCameraState, MapViewTileManager, MapViewTileTexture, Tile,
+    MapView, MapViewCamera, MapViewCameraState, MapViewTileManager, MapViewTileTerrainData, Tile,
     TileKey,
 };
+use crate::utils::dem_data::DEMData;
+use crate::utils::terrain::TerrainData;
 
 thread_local! {
     static PENDING_SYNC_COMMANDS: RefCell<VecDeque<MapViewSyncCommand>> = const { RefCell::new(VecDeque::new()) };
@@ -29,7 +31,7 @@ pub struct MapViewIntegrationId {
 
 #[derive(Debug)]
 enum MapViewSyncCommand {
-    SyncView {
+    View {
         canvas_selector: String,
         width: f64,
         height: f64,
@@ -40,19 +42,27 @@ enum MapViewSyncCommand {
         center_lat: f64,
         main_matrix: Vec<f64>,
     },
-    SyncTiles {
+    Tiles {
         canvas_selector: String,
         encoded_tiles: String,
     },
-    SyncTileTexture {
+    TerrainData {
         canvas_selector: String,
         tile_key: String,
-        width: u32,
-        height: u32,
-        rgba: Vec<u8>,
+        stride: u32,
+        dim: u32,
+        min: f64,
+        max: f64,
+        red_factor: f64,
+        green_factor: f64,
+        blue_factor: f64,
+        base_shift: f64,
+        terrain_matrix: DMat4,
+        data: Vec<u32>,
     },
 }
 
+#[allow(clippy::too_many_arguments)]
 #[wasm_bindgen]
 pub fn sync_view(
     canvas_selector: String,
@@ -67,7 +77,7 @@ pub fn sync_view(
 ) {
     let main_matrix = serde_json::from_str(&main_matrix_json).unwrap_or_default();
 
-    enqueue_sync_command(MapViewSyncCommand::SyncView {
+    enqueue_sync_command(MapViewSyncCommand::View {
         canvas_selector,
         width,
         height,
@@ -82,26 +92,44 @@ pub fn sync_view(
 
 #[wasm_bindgen]
 pub fn sync_tiles(canvas_selector: String, encoded_tiles: String) {
-    enqueue_sync_command(MapViewSyncCommand::SyncTiles {
+    enqueue_sync_command(MapViewSyncCommand::Tiles {
         canvas_selector,
         encoded_tiles,
     });
 }
 
 #[wasm_bindgen]
-pub fn sync_tile_texture(
+#[allow(clippy::too_many_arguments)]
+pub fn sync_terrain_data(
     canvas_selector: String,
     tile_key: String,
-    width: u32,
-    height: u32,
-    rgba: Vec<u8>,
+    stride: u32,
+    dim: u32,
+    min: f64,
+    max: f64,
+    red_factor: f64,
+    green_factor: f64,
+    blue_factor: f64,
+    base_shift: f64,
+    terrain_matrix_json: String,
+    data: Vec<u32>,
 ) {
-    enqueue_sync_command(MapViewSyncCommand::SyncTileTexture {
+    let terrain_matrix = serde_json::from_str::<Vec<f64>>(&terrain_matrix_json).unwrap_or_default();
+    let terrain_matrix = DMat4::from_cols_array(terrain_matrix.as_slice().try_into().unwrap());
+
+    enqueue_sync_command(MapViewSyncCommand::TerrainData {
         canvas_selector,
         tile_key,
-        width,
-        height,
-        rgba,
+        stride,
+        dim,
+        min,
+        max,
+        red_factor,
+        green_factor,
+        blue_factor,
+        base_shift,
+        terrain_matrix,
+        data,
     });
 }
 
@@ -119,7 +147,7 @@ fn drain_map_view_sync_commands(
 
     for command in queued_commands {
         match command {
-            MapViewSyncCommand::SyncView {
+            MapViewSyncCommand::View {
                 canvas_selector,
                 width,
                 height,
@@ -151,7 +179,7 @@ fn drain_map_view_sync_commands(
                     };
                 }
             }
-            MapViewSyncCommand::SyncTiles {
+            MapViewSyncCommand::Tiles {
                 canvas_selector,
                 encoded_tiles,
             } => {
@@ -169,12 +197,19 @@ fn drain_map_view_sync_commands(
                     tile_manager.active_tiles = active_tiles.clone();
                 }
             }
-            MapViewSyncCommand::SyncTileTexture {
+            MapViewSyncCommand::TerrainData {
                 canvas_selector,
                 tile_key,
-                width,
-                height,
-                rgba,
+                stride,
+                dim,
+                min,
+                max,
+                red_factor,
+                green_factor,
+                blue_factor,
+                base_shift,
+                terrain_matrix,
+                data,
             } => {
                 let Some(map_view_entity) = find_map_view(&map_views, &canvas_selector) else {
                     continue;
@@ -188,14 +223,27 @@ fn drain_map_view_sync_commands(
                         continue;
                     }
 
-                    tile_manager.pending_textures.insert(
+                    tile_manager.terrain_data.insert(
                         tile_key,
-                        MapViewTileTexture {
-                            width,
-                            height,
-                            rgba: rgba.clone(),
+                        MapViewTileTerrainData {
+                            terrain_data: TerrainData {
+                                dem_data: DEMData {
+                                    data: data.clone(),
+                                    stride,
+                                    dim,
+                                    min,
+                                    max,
+                                    red_factor,
+                                    green_factor,
+                                    blue_factor,
+                                    base_shift,
+                                },
+                                terrain_matrix,
+                            },
                         },
                     );
+
+                    tile_manager.terrain_data_dirty.insert(tile_key);
                 }
             }
         }

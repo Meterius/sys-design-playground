@@ -1,11 +1,14 @@
 use crate::app::common::settings::Settings;
-use crate::utils::mercator_coordinate::{LngLat, MercatorCoordinate};
+use crate::utils::debug::SoftExpect;
+use crate::utils::mercator_coordinate::{EARTH_CIRCUMFERENCE, LngLat, MercatorCoordinate};
+use crate::utils::terrain::{TerrainData, get_dem_elevation};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::{
     CameraProjection, RenderTarget,
     visibility::{NoFrustumCulling, RenderLayers},
 };
 use bevy::math::{DMat4, DQuat, DVec2, DVec3, DVec4, dvec3};
+use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::window::WindowRef;
@@ -16,6 +19,8 @@ use std::collections::{HashMap, HashSet};
 pub const MERCATOR_WORLD_SIZE: f64 = 100_000.0;
 const MAPLIBRE_DEFAULT_FOV_RADIANS: f64 = 0.643_501_108_793_284_4;
 const TILE_DEBUG_BORDER_Z: f32 = 0.05;
+const TILE_TERRAIN_MESH_RESOLUTION: u32 = 128;
+const TILE_TERRAIN_TEXTURE_SIZE: u32 = 128;
 
 pub struct MapViewCorePlugin;
 
@@ -28,6 +33,7 @@ impl Plugin for MapViewCorePlugin {
             (
                 sync_map_view_cameras,
                 sync_map_view_tile_managers,
+                sync_map_view_tiles,
                 draw_map_view_tile_debug_gizmos.run_if(Settings::in_debug_mode),
             )
                 .chain(),
@@ -72,22 +78,30 @@ pub struct MapViewTileManager {
     pub map_view: Option<Entity>,
     pub active_tiles: Vec<Tile>,
     pub tiles: HashMap<TileKey, (Entity, MapViewTile)>,
-    pub pending_textures: HashMap<TileKey, MapViewTileTexture>,
+    pub terrain_data: HashMap<TileKey, MapViewTileTerrainData>,
+    pub terrain_data_dirty: HashSet<TileKey>,
 }
 
 #[derive(Clone, Component)]
 pub struct MapViewTile {
-    pub map_view: Entity,
+    pub map_view_id: Entity,
     pub key: TileKey,
     pub material: Handle<StandardMaterial>,
     pub texture: Option<Handle<Image>>,
     pub tile: Tile,
+    pub manager_id: Entity,
+    pub use_elevation_as_texture: bool,
 }
 
 pub struct MapViewTileTexture {
     pub width: u32,
     pub height: u32,
     pub rgba: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+pub struct MapViewTileTerrainData {
+    pub terrain_data: TerrainData,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq)]
@@ -150,20 +164,346 @@ fn sync_map_view_cameras(
     }
 }
 
-fn sync_map_view_tile_managers(
-    mut commands: Commands,
+fn sync_map_view_tiles(
+    map_views: Query<(&Grid, &MapView)>,
+    mut managers: Query<&mut MapViewTileManager>,
+    mut tiles: Query<(
+        &mut MapViewTile,
+        &mut Transform,
+        &mut CellCoord,
+        &mut Mesh3d,
+    )>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    _settings: Option<Res<Settings>>,
-    map_views: Query<(&Grid, &MapView)>,
-    mut managers: Query<&mut MapViewTileManager>,
 ) {
-    for mut manager in &mut managers {
+    for (mut tile, mut tile_transform, mut tile_cell, mut tile_mesh) in tiles.iter_mut() {
+        if let Some(mut manager) = managers.get_mut(tile.manager_id).ok().soft_expect("")
+            && let Some((view_grid, _)) = map_views.get(tile.map_view_id).ok().soft_expect("")
+        {
+            let (tile_pos, tile_size) = tile_transform_d(&tile.tile, 0.);
+            let (new_tile_cell, new_tile_cell_pos) = view_grid.translation_to_grid(tile_pos);
+            let new_tile_cell_transform = Transform::from_translation(new_tile_cell_pos)
+                .with_scale(tile_size.as_vec2().extend(1.0));
+
+            *tile_transform = new_tile_cell_transform;
+            *tile_cell = new_tile_cell;
+
+            if manager.terrain_data_dirty.remove(&tile.key)
+                && let Some(terrain_data) = manager.terrain_data.get(&tile.key)
+            {
+                let get_elevation = |p: Vec2| {
+                    let p = p * vec2(1.0, -1.0);
+
+                    let rel = p.as_dvec2() + DVec2::splat(0.5);
+                    let lnglat = tile.tile.bounds_lnglat.0
+                        + (tile.tile.bounds_lnglat.1 - tile.tile.bounds_lnglat.0) * rel;
+
+                    let dem_elev =
+                        get_dem_elevation(&terrain_data.terrain_data, p + Vec2::splat(0.5))
+                            .unwrap_or(0.0) as f64;
+
+                    (MercatorCoordinate::from_lng_lat(LngLat::new(lnglat.x, lnglat.y), dem_elev).z
+                        * MERCATOR_WORLD_SIZE) as f32
+                };
+
+                info!("{:?}", terrain_skirt_delta(&tile.tile));
+
+                let mesh_handle = meshes.add(build_terrain_mesh_with_skirts(
+                    &get_elevation,
+                    TILE_TERRAIN_MESH_RESOLUTION,
+                    terrain_skirt_delta(&tile.tile),
+                ));
+                *tile_mesh = Mesh3d(mesh_handle);
+
+                if tile.use_elevation_as_texture {
+                    let texture = build_luminosity_height_texture(
+                        &get_elevation,
+                        TILE_TERRAIN_TEXTURE_SIZE,
+                        TILE_TERRAIN_TEXTURE_SIZE,
+                        Some((0.0, 1.0)),
+                    );
+                    let texture_handle = images.add(texture);
+
+                    if let Some(material) = materials.get_mut(&tile.material) {
+                        material.base_color = Color::WHITE;
+                        material.base_color_texture = Some(texture_handle.clone());
+                        material.unlit = true;
+                    }
+
+                    tile.texture = Some(texture_handle);
+                }
+            }
+        }
+    }
+}
+
+fn build_luminosity_height_texture(
+    get_elevation: &impl Fn(Vec2) -> f32,
+    width: u32,
+    height: u32,
+    value_range: Option<(f32, f32)>,
+) -> Image {
+    let mut elevations = Vec::with_capacity((width * height) as usize);
+
+    let mut min = value_range.map(|r| r.0).unwrap_or(f32::INFINITY);
+    let mut max = value_range.map(|r| r.1).unwrap_or(f32::NEG_INFINITY);
+
+    for y in 0..height {
+        for x in 0..width {
+            let uv = Vec2::new(
+                x as f32 / (width.saturating_sub(1).max(1)) as f32,
+                y as f32 / (height.saturating_sub(1).max(1)) as f32,
+            );
+            let elevation = get_elevation(uv - Vec2::splat(0.5));
+
+            if value_range.is_none() {
+                min = min.min(elevation);
+                max = max.max(elevation);
+            }
+
+            elevations.push(elevation);
+        }
+    }
+
+    let range_length = (max - min).max(f32::EPSILON);
+    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+    for elevation in elevations {
+        let luminosity = (((elevation - min) / range_length).clamp(0.0, 1.0) * 255.0).round() as u8;
+        rgba.extend_from_slice(&[luminosity, luminosity, luminosity, 255]);
+    }
+
+    Image::new(
+        Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        rgba,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::default(),
+    )
+}
+
+fn build_terrain_mesh_with_skirts(
+    get_elevation: &impl Fn(Vec2) -> f32,
+    resolution: u32,
+    skirt_delta: f32,
+) -> Mesh {
+    let resolution = resolution.max(1);
+    let vertices_per_side = resolution + 1;
+    let top_vertex_count = vertices_per_side * vertices_per_side;
+
+    let mut positions = Vec::with_capacity((top_vertex_count + vertices_per_side * 4) as usize);
+    let mut uvs = Vec::with_capacity(positions.capacity());
+    let mut indices =
+        Vec::with_capacity((resolution * resolution * 6 + resolution * 4 * 6) as usize);
+    let mut top_indices = Vec::with_capacity((resolution * resolution * 6) as usize);
+    let mut skirt_indices = Vec::with_capacity((resolution * 4 * 6) as usize);
+
+    let top_index = |x: u32, y: u32| -> u32 { y * vertices_per_side + x };
+
+    for y in 0..=resolution {
+        for x in 0..=resolution {
+            let uv = Vec2::new(x as f32 / resolution as f32, y as f32 / resolution as f32);
+            let local_xy = uv - Vec2::splat(0.5);
+            positions.push([local_xy.x, local_xy.y, get_elevation(local_xy)]);
+            uvs.push([uv.x, uv.y]);
+        }
+    }
+
+    for y in 0..resolution {
+        for x in 0..resolution {
+            let a = top_index(x, y);
+            let b = top_index(x + 1, y);
+            let c = top_index(x + 1, y + 1);
+            let d = top_index(x, y + 1);
+            top_indices.extend_from_slice(&[a, b, c, a, c, d]);
+        }
+    }
+
+    let mut push_skirt_vertices = |top: u32| -> (u32, u32) {
+        let [x, y, z] = positions[top as usize];
+        let uv = uvs[top as usize];
+        let top_index = positions.len() as u32;
+        positions.push([x, y, z]);
+        uvs.push(uv);
+        let bottom_index = positions.len() as u32;
+        positions.push([x, y, z - skirt_delta]);
+        uvs.push(uv);
+        (top_index, bottom_index)
+    };
+
+    let bottom = (0..=resolution)
+        .map(|x| push_skirt_vertices(top_index(x, 0)))
+        .collect::<Vec<_>>();
+    let right = (0..=resolution)
+        .map(|y| push_skirt_vertices(top_index(resolution, y)))
+        .collect::<Vec<_>>();
+    let top = (0..=resolution)
+        .map(|x| push_skirt_vertices(top_index(x, resolution)))
+        .collect::<Vec<_>>();
+    let left = (0..=resolution)
+        .map(|y| push_skirt_vertices(top_index(0, y)))
+        .collect::<Vec<_>>();
+
+    for i in 0..resolution as usize {
+        add_skirt_quad(
+            &mut skirt_indices,
+            bottom[i].0,
+            bottom[i + 1].0,
+            bottom[i].1,
+            bottom[i + 1].1,
+        );
+        add_skirt_quad(
+            &mut skirt_indices,
+            right[i].0,
+            right[i + 1].0,
+            right[i].1,
+            right[i + 1].1,
+        );
+        add_skirt_quad(
+            &mut skirt_indices,
+            top[i + 1].0,
+            top[i].0,
+            top[i + 1].1,
+            top[i].1,
+        );
+        add_skirt_quad(
+            &mut skirt_indices,
+            left[i + 1].0,
+            left[i].0,
+            left[i + 1].1,
+            left[i].1,
+        );
+    }
+
+    let mut normals = build_terrain_and_skirt_normals(
+        &positions,
+        &top_indices,
+        &skirt_indices,
+        top_vertex_count as usize,
+    );
+    set_skirt_extension_normals(
+        &mut normals,
+        &bottom,
+        (0..=resolution).map(|x| top_index(x, 0)),
+    );
+    set_skirt_extension_normals(
+        &mut normals,
+        &right,
+        (0..=resolution).map(|y| top_index(resolution, y)),
+    );
+    set_skirt_extension_normals(
+        &mut normals,
+        &top,
+        (0..=resolution).map(|x| top_index(x, resolution)),
+    );
+    set_skirt_extension_normals(
+        &mut normals,
+        &left,
+        (0..=resolution).map(|y| top_index(0, y)),
+    );
+
+    indices.extend_from_slice(&top_indices);
+    indices.extend_from_slice(&skirt_indices);
+
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Indices::U32(indices));
+    mesh
+}
+
+fn add_skirt_quad(indices: &mut Vec<u32>, top_a: u32, top_b: u32, skirt_a: u32, skirt_b: u32) {
+    indices.extend_from_slice(&[top_a, skirt_a, skirt_b, top_a, skirt_b, top_b]);
+}
+
+fn set_skirt_extension_normals(
+    normals: &mut [[f32; 3]],
+    side: &[(u32, u32)],
+    source_indices: impl Iterator<Item = u32>,
+) {
+    for (&(top, bottom), source) in side.iter().zip(source_indices) {
+        let normal = normals[source as usize];
+        normals[top as usize] = normal;
+        normals[bottom as usize] = normal;
+    }
+}
+
+fn build_terrain_and_skirt_normals(
+    positions: &[[f32; 3]],
+    top_indices: &[u32],
+    skirt_indices: &[u32],
+    top_vertex_count: usize,
+) -> Vec<[f32; 3]> {
+    let mut normals = vec![Vec3::ZERO; positions.len()];
+
+    accumulate_normals(positions, top_indices, &mut normals);
+    for normal in normals.iter_mut().take(top_vertex_count) {
+        *normal = normal.normalize_or(Vec3::Z);
+        if normal.z < 0.0 {
+            *normal = -*normal;
+        }
+    }
+
+    for normal in normals.iter_mut().skip(top_vertex_count) {
+        *normal = Vec3::ZERO;
+    }
+    accumulate_normals(positions, skirt_indices, &mut normals);
+    for normal in normals.iter_mut().skip(top_vertex_count) {
+        *normal = normal.normalize_or(Vec3::Z);
+    }
+
+    normals
+        .into_iter()
+        .map(|normal| [normal.x, normal.y, normal.z])
+        .collect()
+}
+
+fn accumulate_normals(positions: &[[f32; 3]], indices: &[u32], normals: &mut [Vec3]) {
+    for triangle in indices.chunks_exact(3) {
+        let a_index = triangle[0] as usize;
+        let b_index = triangle[1] as usize;
+        let c_index = triangle[2] as usize;
+
+        let a = Vec3::from_array(positions[a_index]);
+        let b = Vec3::from_array(positions[b_index]);
+        let c = Vec3::from_array(positions[c_index]);
+        let normal = (b - a).cross(c - a);
+
+        normals[a_index] += normal;
+        normals[b_index] += normal;
+        normals[c_index] += normal;
+    }
+}
+
+fn terrain_skirt_delta(tile: &Tile) -> f32 {
+    let center = (tile.bounds_lnglat.0 + tile.bounds_lnglat.1) * 0.5;
+    let frame_delta_meters = EARTH_CIRCUMFERENCE / 2.0_f64.powi(tile.key.z as i32) / 5.0;
+
+    (MercatorCoordinate::from_lng_lat(LngLat::new(center.x, center.y), frame_delta_meters).z
+        * MERCATOR_WORLD_SIZE) as f32
+}
+
+fn sync_map_view_tile_managers(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    _settings: Option<Res<Settings>>,
+    map_views: Query<&MapView>,
+    mut managers: Query<(Entity, &mut MapViewTileManager)>,
+) {
+    for (manager_id, mut manager) in &mut managers {
         let Some(map_view_id) = manager.map_view else {
             continue;
         };
-        let Ok((map_view_grid, map_view)) = map_views.get(map_view_id) else {
+        let Ok(map_view) = map_views.get(map_view_id) else {
             continue;
         };
 
@@ -184,37 +524,31 @@ fn sync_map_view_tile_managers(
         for synced_tile in manager.active_tiles.clone() {
             let key = synced_tile.key;
 
-            let (tile_pos, tile_size) = tile_transform_d(&synced_tile, 0.);
-            let (tile_cell, tile_cell_pos) = map_view_grid.translation_to_grid(tile_pos);
-
-            if let Some((tile_id, tile)) = manager.tiles.get_mut(&key) {
-                tile.tile = synced_tile.clone();
-                commands
-                    .entity(*tile_id)
-                    .insert((tile_cell, Transform::from_translation(tile_cell_pos)));
+            if manager.tiles.contains_key(&key) {
                 continue;
             }
 
             let material = materials.add(StandardMaterial {
-                base_color: tile_color(key).with_alpha(0.25),
-                unlit: true,
+                base_color: tile_color(key),
                 ..default()
             });
 
             let tile = MapViewTile {
-                map_view: map_view_id,
+                manager_id,
+                map_view_id,
                 key,
                 tile: synced_tile.clone(),
                 material: material.clone(),
                 texture: None,
+                use_elevation_as_texture: false,
             };
 
             let tile_id = commands
                 .spawn((
+                    Transform::default(),
+                    CellCoord::default(),
                     Name::new(format!("Tile {key:?}")),
-                    tile_cell,
-                    Transform::from_translation(tile_cell_pos),
-                    Mesh3d(meshes.add(Rectangle::new(tile_size.x as f32, tile_size.y as f32))),
+                    Mesh3d(meshes.add(Rectangle::new(1., 1.))),
                     MeshMaterial3d(material),
                     RenderLayers::layer(map_view.render_layer),
                     NoFrustumCulling,
@@ -225,42 +559,7 @@ fn sync_map_view_tile_managers(
             commands.entity(map_view_id).add_child(tile_id);
 
             manager.tiles.insert(key, (tile_id, tile));
-        }
-
-        let pending_textures = manager.pending_textures.drain().collect::<Vec<_>>();
-        for (key, texture) in pending_textures {
-            info!("Receiving tile texture for {key:?}");
-            let Some((tile_id, tile)) = manager.tiles.get_mut(&key) else {
-                continue;
-            };
-
-            if texture.width == 0
-                || texture.height == 0
-                || texture.rgba.len() != (texture.width as usize * texture.height as usize * 4)
-            {
-                continue;
-            }
-
-            let image = Image::new(
-                Extent3d {
-                    width: texture.width,
-                    height: texture.height,
-                    depth_or_array_layers: 1,
-                },
-                TextureDimension::D2,
-                texture.rgba,
-                TextureFormat::Rgba8UnormSrgb,
-                RenderAssetUsages::default(),
-            );
-            let image_handle = images.add(image);
-
-            if let Some(material) = materials.get_mut(&tile.material) {
-                material.base_color = Color::WHITE;
-                material.base_color_texture = Some(image_handle.clone());
-            }
-
-            tile.texture = Some(image_handle.clone());
-            commands.entity(*tile_id).insert(tile.clone());
+            manager.terrain_data_dirty.insert(key);
         }
     }
 }
@@ -314,7 +613,8 @@ pub fn spawn_map_view_tile_manager(commands: &mut Commands, map_view: Entity) ->
             map_view: Some(map_view),
             active_tiles: Vec::new(),
             tiles: HashMap::new(),
-            pending_textures: HashMap::new(),
+            terrain_data: HashMap::new(),
+            terrain_data_dirty: HashSet::new(),
         })
         .id()
 }
@@ -441,7 +741,7 @@ fn opengl_to_wgpu_clip_matrix() -> DMat4 {
     DMat4::from_cols(
         DVec4::X,
         DVec4::Y,
-        DVec4::new(0.0, 0.0, 0.5, 0.0),
+        DVec4::new(0.0, 0.0, -0.5, 0.0),
         DVec4::new(0.0, 0.0, 0.5, 1.0),
     )
 }

@@ -2,13 +2,13 @@ use crate::app::common::settings::Settings;
 use crate::utils::debug::SoftExpect;
 use crate::utils::mercator_coordinate::{EARTH_CIRCUMFERENCE, LngLat, MercatorCoordinate};
 use crate::utils::terrain::{TerrainData, get_dem_elevation};
+use crate::utils::terrain_mesh::build_terrain_mesh_with_skirts;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::{
     CameraProjection, RenderTarget,
     visibility::{NoFrustumCulling, RenderLayers},
 };
 use bevy::math::{DMat4, DQuat, DVec2, DVec3, DVec4, dvec3};
-use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::window::WindowRef;
@@ -207,11 +207,10 @@ fn sync_map_view_tiles(
                         * MERCATOR_WORLD_SIZE) as f32
                 };
 
-                info!("{:?}", terrain_skirt_delta(&tile.tile));
-
                 let mesh_handle = meshes.add(build_terrain_mesh_with_skirts(
                     &get_elevation,
                     TILE_TERRAIN_MESH_RESOLUTION,
+                    terrain_data.terrain_data.dem_data.dim.max(1),
                     terrain_skirt_delta(&tile.tile),
                 ));
                 *tile_mesh = Mesh3d(mesh_handle);
@@ -284,203 +283,6 @@ fn build_luminosity_height_texture(
         TextureFormat::Rgba8UnormSrgb,
         RenderAssetUsages::default(),
     )
-}
-
-fn build_terrain_mesh_with_skirts(
-    get_elevation: &impl Fn(Vec2) -> f32,
-    resolution: u32,
-    skirt_delta: f32,
-) -> Mesh {
-    let resolution = resolution.max(1);
-    let vertices_per_side = resolution + 1;
-    let top_vertex_count = vertices_per_side * vertices_per_side;
-
-    let mut positions = Vec::with_capacity((top_vertex_count + vertices_per_side * 4) as usize);
-    let mut uvs = Vec::with_capacity(positions.capacity());
-    let mut indices =
-        Vec::with_capacity((resolution * resolution * 6 + resolution * 4 * 6) as usize);
-    let mut top_indices = Vec::with_capacity((resolution * resolution * 6) as usize);
-    let mut skirt_indices = Vec::with_capacity((resolution * 4 * 6) as usize);
-
-    let top_index = |x: u32, y: u32| -> u32 { y * vertices_per_side + x };
-
-    for y in 0..=resolution {
-        for x in 0..=resolution {
-            let uv = Vec2::new(x as f32 / resolution as f32, y as f32 / resolution as f32);
-            let local_xy = uv - Vec2::splat(0.5);
-            positions.push([local_xy.x, local_xy.y, get_elevation(local_xy)]);
-            uvs.push([uv.x, uv.y]);
-        }
-    }
-
-    for y in 0..resolution {
-        for x in 0..resolution {
-            let a = top_index(x, y);
-            let b = top_index(x + 1, y);
-            let c = top_index(x + 1, y + 1);
-            let d = top_index(x, y + 1);
-            top_indices.extend_from_slice(&[a, b, c, a, c, d]);
-        }
-    }
-
-    let mut push_skirt_vertices = |top: u32| -> (u32, u32) {
-        let [x, y, z] = positions[top as usize];
-        let uv = uvs[top as usize];
-        let top_index = positions.len() as u32;
-        positions.push([x, y, z]);
-        uvs.push(uv);
-        let bottom_index = positions.len() as u32;
-        positions.push([x, y, z - skirt_delta]);
-        uvs.push(uv);
-        (top_index, bottom_index)
-    };
-
-    let bottom = (0..=resolution)
-        .map(|x| push_skirt_vertices(top_index(x, 0)))
-        .collect::<Vec<_>>();
-    let right = (0..=resolution)
-        .map(|y| push_skirt_vertices(top_index(resolution, y)))
-        .collect::<Vec<_>>();
-    let top = (0..=resolution)
-        .map(|x| push_skirt_vertices(top_index(x, resolution)))
-        .collect::<Vec<_>>();
-    let left = (0..=resolution)
-        .map(|y| push_skirt_vertices(top_index(0, y)))
-        .collect::<Vec<_>>();
-
-    for i in 0..resolution as usize {
-        add_skirt_quad(
-            &mut skirt_indices,
-            bottom[i].0,
-            bottom[i + 1].0,
-            bottom[i].1,
-            bottom[i + 1].1,
-        );
-        add_skirt_quad(
-            &mut skirt_indices,
-            right[i].0,
-            right[i + 1].0,
-            right[i].1,
-            right[i + 1].1,
-        );
-        add_skirt_quad(
-            &mut skirt_indices,
-            top[i + 1].0,
-            top[i].0,
-            top[i + 1].1,
-            top[i].1,
-        );
-        add_skirt_quad(
-            &mut skirt_indices,
-            left[i + 1].0,
-            left[i].0,
-            left[i + 1].1,
-            left[i].1,
-        );
-    }
-
-    let mut normals = build_terrain_and_skirt_normals(
-        &positions,
-        &top_indices,
-        &skirt_indices,
-        top_vertex_count as usize,
-    );
-    set_skirt_extension_normals(
-        &mut normals,
-        &bottom,
-        (0..=resolution).map(|x| top_index(x, 0)),
-    );
-    set_skirt_extension_normals(
-        &mut normals,
-        &right,
-        (0..=resolution).map(|y| top_index(resolution, y)),
-    );
-    set_skirt_extension_normals(
-        &mut normals,
-        &top,
-        (0..=resolution).map(|x| top_index(x, resolution)),
-    );
-    set_skirt_extension_normals(
-        &mut normals,
-        &left,
-        (0..=resolution).map(|y| top_index(0, y)),
-    );
-
-    indices.extend_from_slice(&top_indices);
-    indices.extend_from_slice(&skirt_indices);
-
-    let mut mesh = Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::default(),
-    );
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
-    mesh.insert_indices(Indices::U32(indices));
-    mesh
-}
-
-fn add_skirt_quad(indices: &mut Vec<u32>, top_a: u32, top_b: u32, skirt_a: u32, skirt_b: u32) {
-    indices.extend_from_slice(&[top_a, skirt_a, skirt_b, top_a, skirt_b, top_b]);
-}
-
-fn set_skirt_extension_normals(
-    normals: &mut [[f32; 3]],
-    side: &[(u32, u32)],
-    source_indices: impl Iterator<Item = u32>,
-) {
-    for (&(top, bottom), source) in side.iter().zip(source_indices) {
-        let normal = normals[source as usize];
-        normals[top as usize] = normal;
-        normals[bottom as usize] = normal;
-    }
-}
-
-fn build_terrain_and_skirt_normals(
-    positions: &[[f32; 3]],
-    top_indices: &[u32],
-    skirt_indices: &[u32],
-    top_vertex_count: usize,
-) -> Vec<[f32; 3]> {
-    let mut normals = vec![Vec3::ZERO; positions.len()];
-
-    accumulate_normals(positions, top_indices, &mut normals);
-    for normal in normals.iter_mut().take(top_vertex_count) {
-        *normal = normal.normalize_or(Vec3::Z);
-        if normal.z < 0.0 {
-            *normal = -*normal;
-        }
-    }
-
-    for normal in normals.iter_mut().skip(top_vertex_count) {
-        *normal = Vec3::ZERO;
-    }
-    accumulate_normals(positions, skirt_indices, &mut normals);
-    for normal in normals.iter_mut().skip(top_vertex_count) {
-        *normal = normal.normalize_or(Vec3::Z);
-    }
-
-    normals
-        .into_iter()
-        .map(|normal| [normal.x, normal.y, normal.z])
-        .collect()
-}
-
-fn accumulate_normals(positions: &[[f32; 3]], indices: &[u32], normals: &mut [Vec3]) {
-    for triangle in indices.chunks_exact(3) {
-        let a_index = triangle[0] as usize;
-        let b_index = triangle[1] as usize;
-        let c_index = triangle[2] as usize;
-
-        let a = Vec3::from_array(positions[a_index]);
-        let b = Vec3::from_array(positions[b_index]);
-        let c = Vec3::from_array(positions[c_index]);
-        let normal = (b - a).cross(c - a);
-
-        normals[a_index] += normal;
-        normals[b_index] += normal;
-        normals[c_index] += normal;
-    }
 }
 
 fn terrain_skirt_delta(tile: &Tile) -> f32 {

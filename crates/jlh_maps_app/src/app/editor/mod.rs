@@ -132,7 +132,7 @@ impl UiState {
             selection: InspectorSelection::Entities,
             viewport_rect: egui::Rect::NOTHING,
             pointer_in_viewport: true,
-            editor_active: true,
+            editor_active: false,
         }
     }
 

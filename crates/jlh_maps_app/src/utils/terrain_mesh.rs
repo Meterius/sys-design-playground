@@ -5,7 +5,6 @@ use bevy::mesh::{Indices, Mesh, PrimitiveTopology};
 pub fn build_terrain_mesh_with_skirts(
     get_elevation: &impl Fn(Vec2) -> f32,
     grid_resolution: u32,
-    terrain_sample_resolution: u32,
     skirt_delta: f32,
 ) -> Mesh {
     let grid_resolution = grid_resolution.max(1);
@@ -29,7 +28,7 @@ pub fn build_terrain_mesh_with_skirts(
                 y as f32 / grid_resolution as f32,
             );
             let local_xy = uv - Vec2::splat(0.5);
-            positions.push([local_xy.x, local_xy.y, get_elevation(local_xy)]);
+            positions.push([local_xy.x, local_xy.y, get_elevation(uv)]);
             uvs.push([uv.x, uv.y]);
         }
     }
@@ -100,7 +99,7 @@ pub fn build_terrain_mesh_with_skirts(
         );
     }
 
-    let sample_step = (1.0 / terrain_sample_resolution.max(1) as f32).max(f32::EPSILON);
+    let sample_step = (0.25 / grid_resolution.max(1) as f32).max(f32::EPSILON);
 
     let mut normals = vec![[0.0, 0.0, 1.0]; positions.len()];
 
@@ -172,12 +171,10 @@ fn make_terrain_gradient_normal(
     uv: Vec2,
     sample_step: f32,
 ) -> Vec3 {
-    let p = uv - Vec2::splat(0.5);
-
-    let left = vec2((p.x - sample_step).max(-0.5), p.y);
-    let right = vec2((p.x + sample_step).min(0.5), p.y);
-    let bottom = vec2(p.x, (p.y - sample_step).max(-0.5));
-    let top = vec2(p.x, (p.y + sample_step).min(0.5));
+    let left = vec2((uv.x - sample_step).max(0.0), uv.y);
+    let right = vec2((uv.x + sample_step).min(1.0), uv.y);
+    let bottom = vec2(uv.x, (uv.y - sample_step).max(0.0));
+    let top = vec2(uv.x, (uv.y + sample_step).min(1.0));
 
     let dx = (right.x - left.x).max(f32::EPSILON);
     let dy = (top.y - bottom.y).max(f32::EPSILON);

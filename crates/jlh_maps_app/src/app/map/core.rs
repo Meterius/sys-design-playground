@@ -192,16 +192,14 @@ fn sync_map_view_tiles(
             if manager.terrain_data_dirty.remove(&tile.key)
                 && let Some(terrain_data) = manager.terrain_data.get(&tile.key)
             {
-                let get_elevation = |p: Vec2| {
-                    let p = p * vec2(1.0, -1.0);
+                let get_elevation = |uv: Vec2| {
+                    let uv = vec2(0.0, 1.0) + vec2(1.0, -1.0) * uv;
 
-                    let rel = p.as_dvec2() + DVec2::splat(0.5);
                     let lnglat = tile.tile.bounds_lnglat.0
-                        + (tile.tile.bounds_lnglat.1 - tile.tile.bounds_lnglat.0) * rel;
+                        + (tile.tile.bounds_lnglat.1 - tile.tile.bounds_lnglat.0) * uv.as_dvec2();
 
                     let dem_elev =
-                        get_dem_elevation(&terrain_data.terrain_data, p + Vec2::splat(0.5))
-                            .unwrap_or(0.0) as f64;
+                        get_dem_elevation(&terrain_data.terrain_data, uv).unwrap_or(0.0) as f64;
 
                     (MercatorCoordinate::from_lng_lat(LngLat::new(lnglat.x, lnglat.y), dem_elev).z
                         * MERCATOR_WORLD_SIZE) as f32
@@ -210,7 +208,6 @@ fn sync_map_view_tiles(
                 let mesh_handle = meshes.add(build_terrain_mesh_with_skirts(
                     &get_elevation,
                     TILE_TERRAIN_MESH_RESOLUTION,
-                    terrain_data.terrain_data.dem_data.dim.max(1),
                     terrain_skirt_delta(&tile.tile),
                 ));
                 *tile_mesh = Mesh3d(mesh_handle);

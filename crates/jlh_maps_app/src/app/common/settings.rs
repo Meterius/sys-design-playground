@@ -9,7 +9,7 @@ pub struct SettingsPlugin {}
 impl Plugin for SettingsPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<Settings>()
-            .insert_resource(Settings { debug_mode: true });
+            .insert_resource(Settings { debug_mode: false });
 
         app.add_systems(Update, handle_keyboard_input);
     }

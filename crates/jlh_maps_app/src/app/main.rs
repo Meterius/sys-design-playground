@@ -15,15 +15,15 @@ use big_space::bundles::BigSpaceRootBundle;
 use big_space::prelude::BigSpaceDefaultPlugins;
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
+use bevy::light::CascadeShadowConfigBuilder;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::app::common::settings::SettingsPlugin;
 use crate::app::editor::EditorPlugin;
 use crate::app::map::MapViewPlugin;
-use crate::app::map::core::{
-    MapView, MapViewCamera, MapViewTileManager, spawn_map_view_camera, spawn_map_view_tile_manager,
-};
+use crate::app::map::core::{MapView, MapViewCamera, MapViewFeatureManager, MapViewTileManager, spawn_map_view_camera, spawn_map_view_feature_manager, spawn_map_view_tile_manager, MERCATOR_WORLD_SIZE};
 use crate::app::map::integration::MapViewIntegrationId;
+use crate::utils::mercator_coordinate::{LngLat, MercatorCoordinate};
 
 thread_local! {
     static RUNTIME_STARTED: Cell<bool> = const { Cell::new(false) };
@@ -115,13 +115,23 @@ fn enqueue_runtime_command(command: MapViewRuntimeCommand) {
 }
 
 fn init_scene(mut commands: Commands) {
+    let world_per_meter = MERCATOR_WORLD_SIZE * MercatorCoordinate::from_lng_lat(
+        LngLat::new(13.0, 52.0), 0.0
+    ).meter_in_mercator_coordinate_units();
+
     commands.spawn((
         DirectionalLight {
             color: Color::srgb(0.98, 0.95, 0.82),
             shadows_enabled: true,
             ..default()
         },
-        Transform::from_xyz(0.0, 0.0, 0.0).looking_at(Vec3::new(-0.15, -0.05, -0.25), Vec3::Z),
+        CascadeShadowConfigBuilder {
+            first_cascade_far_bound: (world_per_meter * 1000.0) as f32,
+            maximum_distance: (world_per_meter * 1000.0) as f32,
+            ..default()
+        }
+        .build(),
+        Transform::from_xyz(0.0, 0.0, 0.0).looking_at(Vec3::new(-0.15, -0.05, -0.15), Vec3::Z),
     ));
 }
 
@@ -148,6 +158,7 @@ fn drain_map_view_runtime_commands(
     map_views: Query<(Entity, &MapViewIntegrationId, &MapView)>,
     cameras: Query<(Entity, &MapViewCamera)>,
     tile_managers: Query<(Entity, &MapViewTileManager)>,
+    feature_managers: Query<(Entity, &MapViewFeatureManager)>,
 ) {
     let queued_commands =
         PENDING_RUNTIME_COMMANDS.with_borrow_mut(|pending| pending.drain(..).collect::<Vec<_>>());
@@ -166,7 +177,13 @@ fn drain_map_view_runtime_commands(
                     continue;
                 };
 
-                despawn_map_view(&mut commands, map_view_id, &cameras, &tile_managers);
+                despawn_map_view(
+                    &mut commands,
+                    map_view_id,
+                    &cameras,
+                    &tile_managers,
+                    &feature_managers,
+                );
             }
         }
     }
@@ -203,7 +220,8 @@ fn configure_map_view(
     ));
 
     spawn_map_view_camera(commands, map_view, render_layer);
-    spawn_map_view_tile_manager(commands, map_view);
+    let tile_manager_id = spawn_map_view_tile_manager(commands, map_view);
+    spawn_map_view_feature_manager(commands, map_view, tile_manager_id);
 }
 
 fn despawn_map_view(
@@ -211,6 +229,7 @@ fn despawn_map_view(
     map_view: Entity,
     cameras: &Query<(Entity, &MapViewCamera)>,
     tile_managers: &Query<(Entity, &MapViewTileManager)>,
+    feature_managers: &Query<(Entity, &MapViewFeatureManager)>,
 ) {
     for (camera_entity, camera) in cameras {
         if camera.map_view == Some(map_view) {
@@ -219,10 +238,17 @@ fn despawn_map_view(
     }
 
     for (tile_manager_entity, tile_manager) in tile_managers {
-        if tile_manager.map_view != Some(map_view) {
+        if tile_manager.map_view_id != map_view {
             continue;
         }
         commands.entity(tile_manager_entity).despawn();
+    }
+
+    for (feature_manager_entity, feature_manager) in feature_managers {
+        if feature_manager.map_view_id != map_view {
+            continue;
+        }
+        commands.entity(feature_manager_entity).despawn();
     }
 
     commands.entity(map_view).despawn();

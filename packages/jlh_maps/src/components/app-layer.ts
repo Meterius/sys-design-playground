@@ -6,9 +6,10 @@ import {
   type Subscription,
 } from 'maplibre-gl'
 import { tileIdToLngLatBounds } from 'maplibre-gl/src/tile/tile_id_to_lng_lat_bounds.ts'
-import { sync_terrain_data, sync_tiles, sync_view } from 'jlh_maps_app'
+import { sync_features, sync_terrain_data, sync_tiles, sync_view } from 'jlh_maps_app'
 import type { Map as MapInternal, Tile } from 'maplibre-gl/src/index.ts'
 import type { DEMData } from 'maplibre-gl/src/data/dem_data.ts'
+import type { GeoJsonProperties, Geometry } from 'geojson'
 
 type TileKey = string
 type GL = WebGLRenderingContext | WebGL2RenderingContext
@@ -24,6 +25,15 @@ interface SyncedTile {
   bounds_lnglat: [[number, number], [number, number]]
 }
 
+interface SyncedFeature {
+  key: string
+  layer_id: string
+  tile_key: TileCoord,
+  id?: string
+  geometry: Geometry
+  properties: GeoJsonProperties
+}
+
 export class AppLayer implements CustomLayerInterface {
   id = 'app-layer'
   type = 'custom' as const
@@ -35,12 +45,16 @@ export class AppLayer implements CustomLayerInterface {
 
   private subscriptions: Subscription[] = []
 
-  constructor(private readonly canvasSelector: string) {
+  constructor(
+    private readonly canvasSelector: string,
+    private readonly featureLayers: string[] = [],
+  ) {
   }
 
   onAdd(map: MapLibreMap, gl: WebGLRenderingContext | WebGL2RenderingContext): void {
     this.map = map as unknown as MapInternal
     this.readFramebuffer = gl.createFramebuffer()
+    console.log(this.map)
   }
 
   render(gl: WebGLRenderingContext | WebGL2RenderingContext, options: CustomRenderMethodInput): void {
@@ -61,7 +75,7 @@ export class AppLayer implements CustomLayerInterface {
 
     const visibleTiles = this.getVisibleTiles()
     sync_tiles(this.canvasSelector, JSON.stringify(visibleTiles))
-    // this.syncTerrainRenderTextures(gl)
+    this.syncFeatures()
     this.syncTerrainData()
   }
 
@@ -111,9 +125,47 @@ export class AppLayer implements CustomLayerInterface {
     return [...tiles.values()]
   }
 
+  private syncFeatures() {
+    if (this.featureLayers.length === 0) {
+      sync_features(this.canvasSelector, '[]')
+      return
+    }
+
+    const features = this.map.queryRenderedFeatures({
+      layers: this.featureLayers,
+    })
+
+    const syncedFeatures: SyncedFeature[] = features
+      .flatMap((feature, index) => {
+        const geojson = feature.toJSON()
+        const layerId = feature.layer?.id ?? geojson.layer?.id
+        const geometry = geojson.geometry
+        if (!layerId || !geometry) return []
+
+        const id = geojson.id == null ? undefined : String(geojson.id)
+        const key = id ?? `${layerId}/${index}/${JSON.stringify(geometry)}`
+
+        return [{
+          key,
+          tile_key: { x: feature._x, y: feature._y, z: feature._z },
+          layer_id: layerId,
+          ...(id == null ? {} : { id }),
+          geometry,
+          properties: geojson.properties ?? null,
+        }]
+      })
+
+    sync_features(this.canvasSelector, JSON.stringify(syncedFeatures))
+  }
+
   private syncTerrainData() {
     const terrain = this.map.terrain
     const tiles = terrain?.tileManager?.getRenderableTiles?.() ?? []
+
+    tiles.push(...Object.values(this.map.style.tileManagers).flatMap((manager) => manager.getRenderableIds().flatMap((tileId) => {
+      const tile = manager.getTileByID(tileId);
+      return tile ? [tile] : []
+    })))
 
     for (const tile of tiles) {
       const key = this.getRttTileKey(tile)
@@ -128,6 +180,7 @@ export class AppLayer implements CustomLayerInterface {
       sync_terrain_data(
         this.canvasSelector,
         key,
+        contentStamp,
         dem.stride,
         dem.dim,
         dem.min,

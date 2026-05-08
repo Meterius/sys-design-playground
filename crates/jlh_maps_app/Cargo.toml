@@ -25,3 +25,5 @@ bevy_rich_text3d = "0.6.0"
 serde-wasm-bindgen = "0.6.5"
 bevy_heightmap = { git = "https://github.com/Sofianel5/bevy_heightmap", rev = "d7a7824d960a44b84a7e3ac8393dce1570d2c050" }
 tracing = "0.1.44"
+geojson = "0.24.2"
+earcutr = "0.4.3"

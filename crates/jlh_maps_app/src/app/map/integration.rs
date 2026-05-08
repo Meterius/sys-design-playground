@@ -6,11 +6,12 @@ use std::collections::VecDeque;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::app::map::core::{
-    MapView, MapViewCamera, MapViewCameraState, MapViewTileManager, MapViewTileTerrainData, Tile,
-    TileKey,
+    MapView, MapViewCamera, MapViewCameraState, MapViewFeatureData, MapViewFeatureKey,
+    MapViewFeatureManager, MapViewTileManager, MapViewTileTerrainData, Tile, TileKey,
 };
 use crate::utils::dem_data::DEMData;
 use crate::utils::terrain::TerrainData;
+use geojson::Geometry;
 
 thread_local! {
     static PENDING_SYNC_COMMANDS: RefCell<VecDeque<MapViewSyncCommand>> = const { RefCell::new(VecDeque::new()) };
@@ -46,9 +47,14 @@ enum MapViewSyncCommand {
         canvas_selector: String,
         encoded_tiles: String,
     },
+    Features {
+        canvas_selector: String,
+        encoded_features: String,
+    },
     TerrainData {
         canvas_selector: String,
         tile_key: String,
+        content_stamp: String,
         stride: u32,
         dim: u32,
         min: f64,
@@ -99,10 +105,19 @@ pub fn sync_tiles(canvas_selector: String, encoded_tiles: String) {
 }
 
 #[wasm_bindgen]
+pub fn sync_features(canvas_selector: String, encoded_features: String) {
+    enqueue_sync_command(MapViewSyncCommand::Features {
+        canvas_selector,
+        encoded_features,
+    });
+}
+
+#[wasm_bindgen]
 #[allow(clippy::too_many_arguments)]
 pub fn sync_terrain_data(
     canvas_selector: String,
     tile_key: String,
+    content_stamp: String,
     stride: u32,
     dim: u32,
     min: f64,
@@ -120,6 +135,7 @@ pub fn sync_terrain_data(
     enqueue_sync_command(MapViewSyncCommand::TerrainData {
         canvas_selector,
         tile_key,
+        content_stamp,
         stride,
         dim,
         min,
@@ -141,6 +157,7 @@ fn drain_map_view_sync_commands(
     map_views: Query<(Entity, &MapViewIntegrationId), With<MapView>>,
     mut cameras: Query<&mut MapViewCamera>,
     mut tile_managers: Query<&mut MapViewTileManager>,
+    mut feature_managers: Query<&mut MapViewFeatureManager>,
 ) {
     let queued_commands =
         PENDING_SYNC_COMMANDS.with_borrow_mut(|pending| pending.drain(..).collect::<Vec<_>>());
@@ -183,23 +200,42 @@ fn drain_map_view_sync_commands(
                 canvas_selector,
                 encoded_tiles,
             } => {
-                let Some(map_view_entity) = find_map_view(&map_views, &canvas_selector) else {
+                let Some(map_view_id) = find_map_view(&map_views, &canvas_selector) else {
                     continue;
                 };
 
                 let active_tiles = parse_tiles(&encoded_tiles);
 
                 for mut tile_manager in &mut tile_managers {
-                    if tile_manager.map_view != Some(map_view_entity) {
+                    if tile_manager.map_view_id != map_view_id {
                         continue;
                     }
 
                     tile_manager.active_tiles = active_tiles.clone();
                 }
             }
+            MapViewSyncCommand::Features {
+                canvas_selector,
+                encoded_features,
+            } => {
+                let Some(map_view_id) = find_map_view(&map_views, &canvas_selector) else {
+                    continue;
+                };
+
+                let active_features = parse_features(&encoded_features);
+
+                for mut feature_manager in &mut feature_managers {
+                    if feature_manager.map_view_id != map_view_id {
+                        continue;
+                    }
+
+                    feature_manager.active_features = active_features.clone();
+                }
+            }
             MapViewSyncCommand::TerrainData {
                 canvas_selector,
                 tile_key,
+                content_stamp,
                 stride,
                 dim,
                 min,
@@ -211,24 +247,25 @@ fn drain_map_view_sync_commands(
                 terrain_matrix,
                 data,
             } => {
-                let Some(map_view_entity) = find_map_view(&map_views, &canvas_selector) else {
+                let Some(map_view_id) = find_map_view(&map_views, &canvas_selector) else {
                     continue;
                 };
                 let Some(tile_key) = parse_tile_key(&tile_key) else {
                     continue;
                 };
 
-                for mut tile_manager in &mut tile_managers {
-                    if tile_manager.map_view != Some(map_view_entity) {
-                        continue;
-                    }
-
+                if let Some(mut tile_manager) = tile_managers
+                    .iter_mut()
+                    .filter(|tile_manager| tile_manager.map_view_id == map_view_id)
+                    .next()
+                {
                     tile_manager.terrain_data.insert(
                         tile_key,
                         MapViewTileTerrainData {
+                            content_stamp,
                             terrain_data: TerrainData {
                                 dem_data: DEMData {
-                                    data: data.clone(),
+                                    data,
                                     stride,
                                     dim,
                                     min,
@@ -242,8 +279,6 @@ fn drain_map_view_sync_commands(
                             },
                         },
                     );
-
-                    tile_manager.terrain_data_dirty.insert(tile_key);
                 }
             }
         }
@@ -276,6 +311,39 @@ fn parse_tiles(encoded_tiles: &str) -> Vec<Tile> {
                 DVec2::new(tile.bounds_lnglat.0[0], tile.bounds_lnglat.0[1]),
                 DVec2::new(tile.bounds_lnglat.1[0], tile.bounds_lnglat.1[1]),
             ),
+        })
+        .collect()
+}
+
+#[derive(Deserialize)]
+struct EncodedFeature {
+    key: String,
+    tile_key: TileKey,
+    layer_id: String,
+    id: Option<String>,
+    geometry: Geometry,
+    #[serde(default)]
+    properties: serde_json::Value,
+}
+
+fn parse_features(encoded_features: &str) -> Vec<MapViewFeatureData> {
+    serde_json::from_str::<Vec<EncodedFeature>>(encoded_features)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|feature| {
+            let key = MapViewFeatureKey {
+                tile_key: feature.tile_key,
+                layer_id: feature.layer_id.clone(),
+                id: feature.key,
+            };
+
+            MapViewFeatureData {
+                key,
+                layer_id: feature.layer_id,
+                id: feature.id,
+                geometry: feature.geometry,
+                properties: feature.properties,
+            }
         })
         .collect()
 }

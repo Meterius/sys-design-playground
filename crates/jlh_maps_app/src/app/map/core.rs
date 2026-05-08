@@ -1,6 +1,6 @@
 use crate::app::common::settings::Settings;
 use crate::utils::debug::SoftExpect;
-use crate::utils::mercator_coordinate::{EARTH_CIRCUMFERENCE, LngLat, MercatorCoordinate};
+use crate::utils::mercator_coordinate::{EARTH_CIRCUMFERENCE, LngLat, MercatorCoordinate, lng_from_mercator_x, lat_from_mercator_y};
 use crate::utils::terrain::{TerrainData, get_dem_elevation};
 use crate::utils::terrain_mesh::build_terrain_mesh_with_skirts;
 use bevy::asset::RenderAssetUsages;
@@ -8,11 +8,13 @@ use bevy::camera::{
     CameraProjection, RenderTarget,
     visibility::{NoFrustumCulling, RenderLayers},
 };
-use bevy::math::{DMat4, DQuat, DVec2, DVec3, DVec4, dvec3};
+use bevy::math::{DMat4, DQuat, DVec2, DVec3, DVec4, dvec3, dvec2};
+use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::window::WindowRef;
 use big_space::prelude::{CellCoord, FloatingOrigin, Grid};
+use geojson::{Geometry, Value};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 
@@ -32,6 +34,8 @@ impl Plugin for MapViewCorePlugin {
             Update,
             (
                 sync_map_view_cameras,
+                sync_map_view_feature_managers,
+                sync_map_view_features,
                 sync_map_view_tile_managers,
                 sync_map_view_tiles,
                 draw_map_view_tile_debug_gizmos.run_if(Settings::in_debug_mode),
@@ -73,13 +77,22 @@ pub struct MapViewCameraState {
     pub main_matrix: Vec<f64>,
 }
 
-#[derive(Component, Default)]
+#[derive(Component)]
 pub struct MapViewTileManager {
-    pub map_view: Option<Entity>,
+    pub map_view_id: Entity,
+
     pub active_tiles: Vec<Tile>,
     pub tiles: HashMap<TileKey, (Entity, MapViewTile)>,
+
     pub terrain_data: HashMap<TileKey, MapViewTileTerrainData>,
-    pub terrain_data_dirty: HashSet<TileKey>,
+}
+
+#[derive(Component)]
+pub struct MapViewFeatureManager {
+    pub map_view_id: Entity,
+    pub map_view_tile_manager_id: Entity,
+    pub active_features: Vec<MapViewFeatureData>,
+    pub features: HashMap<MapViewFeatureKey, (Entity, MapViewFeature)>,
 }
 
 #[derive(Clone, Component)]
@@ -90,7 +103,25 @@ pub struct MapViewTile {
     pub texture: Option<Handle<Image>>,
     pub tile: Tile,
     pub manager_id: Entity,
+    pub last_synced_terrain_content_stamp: Option<String>,
     pub use_elevation_as_texture: bool,
+}
+
+#[derive(Clone, Component)]
+pub struct MapViewFeature {
+    pub map_view_id: Entity,
+    pub manager_id: Entity,
+    pub key: MapViewFeatureKey,
+    pub layer_id: String,
+    pub id: Option<String>,
+    pub geometry: Geometry,
+    pub properties: serde_json::Value,
+}
+
+#[derive(Clone, Component, Default)]
+pub struct MapViewFeaturePolygonMesh {
+    mesh_stamp: Option<String>,
+    last_synced_terrain_content_stamp: Option<String>,
 }
 
 pub struct MapViewTileTexture {
@@ -101,7 +132,24 @@ pub struct MapViewTileTexture {
 
 #[derive(Clone, Debug)]
 pub struct MapViewTileTerrainData {
+    pub content_stamp: String,
     pub terrain_data: TerrainData,
+}
+
+#[derive(Clone, Debug)]
+pub struct MapViewFeatureData {
+    pub key: MapViewFeatureKey,
+    pub layer_id: String,
+    pub id: Option<String>,
+    pub geometry: Geometry,
+    pub properties: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct MapViewFeatureKey {
+    pub layer_id: String,
+    pub id: String,
+    pub tile_key: TileKey,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq)]
@@ -189,8 +237,8 @@ fn sync_map_view_tiles(
             *tile_transform = new_tile_cell_transform;
             *tile_cell = new_tile_cell;
 
-            if manager.terrain_data_dirty.remove(&tile.key)
-                && let Some(terrain_data) = manager.terrain_data.get(&tile.key)
+            if let Some(terrain_data) = manager.terrain_data.get(&tile.key)
+                && tile.last_synced_terrain_content_stamp.as_ref() != Some(&terrain_data.content_stamp)
             {
                 let get_elevation = |uv: Vec2| {
                     let uv = vec2(0.0, 1.0) + vec2(1.0, -1.0) * uv;
@@ -229,6 +277,8 @@ fn sync_map_view_tiles(
 
                     tile.texture = Some(texture_handle);
                 }
+
+                tile.last_synced_terrain_content_stamp = Some(terrain_data.content_stamp.clone());
             }
         }
     }
@@ -290,6 +340,136 @@ fn terrain_skirt_delta(tile: &Tile) -> f32 {
         * MERCATOR_WORLD_SIZE) as f32
 }
 
+fn sync_map_view_feature_managers(
+    mut commands: Commands,
+    map_views: Query<&MapView>,
+    mut managers: Query<(Entity, &mut MapViewFeatureManager)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (manager_id, mut manager) in &mut managers {
+        let Ok(map_view) = map_views.get(manager.map_view_id) else {
+            continue;
+        };
+
+        let active_features = manager
+            .active_features
+            .iter()
+            .map(|feature| feature.key.clone())
+            .collect::<HashSet<_>>();
+
+        manager.features.retain(|key, (feature_id, _feature)| {
+            let keep = active_features.contains(key);
+            if !keep {
+                commands.entity(*feature_id).despawn();
+            }
+            keep
+        });
+
+        for synced_feature in manager.active_features.clone() {
+            if let Some((feature_id, feature)) = manager.features.get_mut(&synced_feature.key) {
+                feature.layer_id.clone_from(&synced_feature.layer_id);
+                feature.id.clone_from(&synced_feature.id);
+                feature.geometry.clone_from(&synced_feature.geometry);
+                feature.properties.clone_from(&synced_feature.properties);
+                commands.entity(*feature_id).insert(feature.clone());
+                continue;
+            }
+
+            let feature = MapViewFeature {
+                map_view_id: manager.map_view_id,
+                manager_id,
+                key: synced_feature.key.clone(),
+                layer_id: synced_feature.layer_id,
+                id: synced_feature.id,
+                geometry: synced_feature.geometry,
+                properties: synced_feature.properties,
+            };
+
+            let feature_id = commands
+                .spawn((
+                    Transform::default(),
+                    CellCoord::default(),
+                    Name::new(format!(
+                        "Feature {}:{}",
+                        feature.key.layer_id, feature.key.id
+                    )),
+                    RenderLayers::layer(map_view.render_layer),
+                    MapViewFeaturePolygonMesh::default(),
+                    Mesh3d(Handle::default()),
+                    MeshMaterial3d(materials.add(StandardMaterial {
+                        base_color: Color::srgba(0.1, 0.55, 0.95, 0.45),
+                        alpha_mode: AlphaMode::Opaque,
+                        unlit: false,
+                        ..default()
+                    })),
+                    NoFrustumCulling,
+                    feature.clone(),
+                ))
+                .id();
+
+            commands.entity(manager.map_view_id).add_child(feature_id);
+            manager
+                .features
+                .insert(feature.key.clone(), (feature_id, feature));
+        }
+    }
+}
+
+fn sync_map_view_features(
+    map_views: Query<&Grid, With<MapView>>,
+    feature_managers: Query<&MapViewFeatureManager>,
+    tile_managers: Query<&MapViewTileManager>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut features: Query<(
+        &MapViewFeature,
+        &mut CellCoord,
+        &mut Transform,
+        &mut Mesh3d,
+        &mut MapViewFeaturePolygonMesh,
+    )>,
+) {
+    for (feature, mut cell, mut transform, mut mesh_handle, mut polygon_mesh) in &mut features {
+        let Ok(map_view_grid) = map_views.get(feature.map_view_id) else {
+            continue;
+        };
+
+        let Ok(feature_manager) = feature_managers.get(feature.manager_id) else {
+            continue;
+        };
+
+        let Ok(tile_manager) = tile_managers.get(feature_manager.map_view_tile_manager_id) else {
+            continue;
+        };
+
+        let Some(terrain_data) = tile_manager.terrain_data.get(&feature.key.tile_key) else {
+            continue;
+        };
+
+        let Some(center_lnglat) = geometry_center_lnglat(&feature.geometry) else {
+            continue;
+        };
+
+        let mesh_stamp = serde_json::to_string(&feature.geometry).unwrap_or_default();
+        if Some(&terrain_data.content_stamp) == polygon_mesh.last_synced_terrain_content_stamp.as_ref()
+            && polygon_mesh.mesh_stamp.as_ref() == Some(&mesh_stamp)
+        {
+            continue;
+        }
+
+        let center_alt = sample_tile_dem_elevation(feature.key.tile_key, terrain_data, center_lnglat).unwrap_or(0.0);
+        let center = lng_lat_to_world(center_lnglat.x, center_lnglat.y, center_alt);
+        let (feature_cell, feature_translation) = map_view_grid.translation_to_grid(center.with_z(center.z + 0.001));
+        *cell = feature_cell;
+        *transform = Transform::from_translation(feature_translation);
+
+        *mesh_handle = build_feature_polygon_mesh(&feature.geometry, center, feature.key.tile_key, terrain_data)
+            .map(|mesh| Mesh3d(meshes.add(mesh)))
+            .unwrap_or_else(|| Mesh3d(Handle::default()));
+        polygon_mesh.mesh_stamp = Some(mesh_stamp);
+        polygon_mesh.last_synced_terrain_content_stamp = Some(terrain_data.content_stamp.clone());
+    }
+}
+
 fn sync_map_view_tile_managers(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -299,10 +479,7 @@ fn sync_map_view_tile_managers(
     mut managers: Query<(Entity, &mut MapViewTileManager)>,
 ) {
     for (manager_id, mut manager) in &mut managers {
-        let Some(map_view_id) = manager.map_view else {
-            continue;
-        };
-        let Ok(map_view) = map_views.get(map_view_id) else {
+        let Ok(map_view) = map_views.get(manager.map_view_id) else {
             continue;
         };
 
@@ -328,18 +505,19 @@ fn sync_map_view_tile_managers(
             }
 
             let material = materials.add(StandardMaterial {
-                base_color: tile_color(key),
+                base_color: Color::srgb(0.4, 0.4, 0.4), // tile_color(key),
                 ..default()
             });
 
             let tile = MapViewTile {
                 manager_id,
-                map_view_id,
+                map_view_id: manager.map_view_id.clone(),
                 key,
                 tile: synced_tile.clone(),
                 material: material.clone(),
                 texture: None,
                 use_elevation_as_texture: false,
+                last_synced_terrain_content_stamp: None,
             };
 
             let tile_id = commands
@@ -355,10 +533,9 @@ fn sync_map_view_tile_managers(
                 ))
                 .id();
 
-            commands.entity(map_view_id).add_child(tile_id);
+            commands.entity(manager.map_view_id).add_child(tile_id);
 
             manager.tiles.insert(key, (tile_id, tile));
-            manager.terrain_data_dirty.insert(key);
         }
     }
 }
@@ -406,14 +583,24 @@ pub fn spawn_map_view_camera(
     camera
 }
 
-pub fn spawn_map_view_tile_manager(commands: &mut Commands, map_view: Entity) -> Entity {
+pub fn spawn_map_view_tile_manager(commands: &mut Commands, map_view_id: Entity) -> Entity {
     commands
         .spawn(MapViewTileManager {
-            map_view: Some(map_view),
+            map_view_id,
             active_tiles: Vec::new(),
             tiles: HashMap::new(),
             terrain_data: HashMap::new(),
-            terrain_data_dirty: HashSet::new(),
+        })
+        .id()
+}
+
+pub fn spawn_map_view_feature_manager(commands: &mut Commands, map_view_id: Entity, map_view_tile_manager_id: Entity) -> Entity {
+    commands
+        .spawn(MapViewFeatureManager {
+            map_view_id: map_view_id,
+            map_view_tile_manager_id,
+            active_features: Vec::new(),
+            features: HashMap::new(),
         })
         .id()
 }
@@ -469,6 +656,237 @@ fn lng_lat_to_world(lng: f64, lat: f64, alt: f64) -> DVec3 {
 fn mercator_to_world(coords: MercatorCoordinate) -> DVec3 {
     let MercatorCoordinate { x, y, z } = coords;
     dvec3(x, -y, z) * MERCATOR_WORLD_SIZE
+}
+
+fn find_managed_tile(manager: &MapViewTileManager, key: TileKey) -> Option<&Tile> {
+    manager
+        .tiles
+        .get(&key)
+        .map(|(_, tile)| &tile.tile)
+        .or_else(|| manager.active_tiles.iter().find(|tile| tile.key == key))
+}
+
+fn get_tile_lnglat_bounds(key: TileKey) -> (DVec2, DVec2) {
+    let ll_min= dvec2(
+        lng_from_mercator_x(key.x as f64 / 2f64.powf(key.z as f64)),
+        lat_from_mercator_y((key.y as f64 + 1.0) / 2f64.powf(key.z as f64))
+    );
+
+    let ll_max = dvec2(
+        lng_from_mercator_x((key.x + 1) as f64 / 2f64.powf(key.z as f64)),
+        lat_from_mercator_y(key.y as f64 / 2f64.powf(key.z as f64))
+    );
+
+    (ll_min.min(ll_max), ll_min.max(ll_max))
+}
+
+fn sample_tile_dem_elevation(
+    tile_key: TileKey,
+    terrain_data: &MapViewTileTerrainData,
+    lnglat: DVec2,
+) -> Option<f64> {
+    let bounds_lnglat = get_tile_lnglat_bounds(tile_key);
+
+    let bounds_size = bounds_lnglat.1 - bounds_lnglat.0;
+    if bounds_size.x.abs() <= f64::EPSILON || bounds_size.y.abs() <= f64::EPSILON {
+        return None;
+    }
+
+    let rel = (lnglat - bounds_lnglat.0) / bounds_size;
+    let dem_uv = vec2(rel.x as f32, 1.0 - rel.y as f32);
+
+    get_dem_elevation(&terrain_data.terrain_data, dem_uv).map(f64::from)
+}
+
+fn geometry_center_lnglat(geometry: &Geometry) -> Option<DVec2> {
+    let mut min = DVec2::splat(f64::INFINITY);
+    let mut max = DVec2::splat(f64::NEG_INFINITY);
+    let mut has_position = false;
+
+    visit_geometry_positions(geometry, &mut |position| {
+        if position.len() < 2 {
+            return;
+        }
+
+        let lnglat = DVec2::new(position[0], position[1]);
+        min = min.min(lnglat);
+        max = max.max(lnglat);
+        has_position = true;
+    });
+
+    has_position.then_some((min + max) * 0.5)
+}
+
+fn visit_geometry_positions(geometry: &Geometry, visit: &mut impl FnMut(&Vec<f64>)) {
+    match &geometry.value {
+        Value::Point(position) => visit(position),
+        Value::MultiPoint(positions) | Value::LineString(positions) => {
+            for position in positions {
+                visit(position);
+            }
+        }
+        Value::MultiLineString(lines) | Value::Polygon(lines) => {
+            for line in lines {
+                for position in line {
+                    visit(position);
+                }
+            }
+        }
+        Value::MultiPolygon(polygons) => {
+            for polygon in polygons {
+                for line in polygon {
+                    for position in line {
+                        visit(position);
+                    }
+                }
+            }
+        }
+        Value::GeometryCollection(geometries) => {
+            for geometry in geometries {
+                visit_geometry_positions(geometry, visit);
+            }
+        }
+    }
+}
+
+fn build_feature_polygon_mesh(
+    geometry: &Geometry,
+    center: DVec3,
+    tile_key: TileKey,
+    terrain_data: &MapViewTileTerrainData,
+) -> Option<Mesh> {
+    let mut positions = Vec::new();
+    let mut normals = Vec::new();
+    let mut uvs = Vec::new();
+    let mut indices = Vec::new();
+
+    match &geometry.value {
+        Value::Polygon(polygon) => push_polygon_mesh(
+            polygon,
+            center,
+            tile_key,
+            terrain_data,
+            &mut positions,
+            &mut normals,
+            &mut uvs,
+            &mut indices,
+        ),
+        Value::MultiPolygon(polygons) => {
+            for polygon in polygons {
+                push_polygon_mesh(
+                    polygon,
+                    center,
+                    tile_key,
+                    terrain_data,
+                    &mut positions,
+                    &mut normals,
+                    &mut uvs,
+                    &mut indices,
+                );
+            }
+        }
+        _ => return None,
+    }
+
+    if positions.is_empty() || indices.is_empty() {
+        return None;
+    }
+
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Indices::U32(indices));
+    Some(mesh)
+}
+
+fn push_polygon_mesh(
+    polygon: &[Vec<Vec<f64>>],
+    center: DVec3,
+    tile_key: TileKey,
+    terrain_data: &MapViewTileTerrainData,
+    positions: &mut Vec<[f32; 3]>,
+    normals: &mut Vec<[f32; 3]>,
+    uvs: &mut Vec<[f32; 2]>,
+    indices: &mut Vec<u32>,
+) {
+    let first_vertex = positions.len() as u32;
+    let mut flat_coords = Vec::new();
+    let mut hole_indices = Vec::new();
+    let mut vertex_count = 0usize;
+
+    for (ring_index, ring) in polygon.iter().enumerate() {
+        let ring_positions = ring_without_closing_position(ring);
+        if ring_positions.len() < 3 {
+            continue;
+        }
+
+        if ring_index > 0 {
+            hole_indices.push(vertex_count);
+        }
+
+        for position in ring_positions {
+            if position.len() < 2 {
+                continue;
+            }
+
+            let lnglat = DVec2::new(position[0], position[1]);
+            let altitude = sample_tile_dem_elevation(tile_key, terrain_data, lnglat).unwrap_or(0.0);
+            let world = lng_lat_to_world(lnglat.x, lnglat.y, altitude) - center;
+            flat_coords.push(world.x);
+            flat_coords.push(world.y);
+            positions.push(world.as_vec3().to_array());
+            normals.push([0.0, 0.0, 1.0]);
+            uvs.push([world.x as f32, world.y as f32]);
+            vertex_count += 1;
+        }
+    }
+
+    if vertex_count < 3 {
+        positions.truncate(first_vertex as usize);
+        normals.truncate(first_vertex as usize);
+        uvs.truncate(first_vertex as usize);
+        return;
+    }
+
+    let Ok(triangle_indices) = earcutr::earcut(&flat_coords, &hole_indices, 2) else {
+        positions.truncate(first_vertex as usize);
+        normals.truncate(first_vertex as usize);
+        uvs.truncate(first_vertex as usize);
+        return;
+    };
+
+    indices.extend(
+        triangle_indices
+            .into_iter()
+            .filter_map(|index| u32::try_from(index).ok())
+            .map(|index| first_vertex + index),
+    );
+}
+
+fn ring_without_closing_position(ring: &[Vec<f64>]) -> &[Vec<f64>] {
+    let Some((first, rest)) = ring.split_first() else {
+        return ring;
+    };
+    let Some(last) = rest.last() else {
+        return ring;
+    };
+
+    if positions_equal_2d(first, last) {
+        &ring[..ring.len() - 1]
+    } else {
+        ring
+    }
+}
+
+fn positions_equal_2d(left: &[f64], right: &[f64]) -> bool {
+    left.len() >= 2
+        && right.len() >= 2
+        && (left[0] - right[0]).abs() <= f64::EPSILON
+        && (left[1] - right[1]).abs() <= f64::EPSILON
 }
 
 #[derive(Clone, Debug)]

@@ -472,7 +472,7 @@ watchDefinedOnce(
 
     // App Layer
 
-    map.addLayer(new AppLayer(`#${mapAppCanvasId.value}`))
+    map.addLayer(new AppLayer(`.maplibregl-canvas`, ['Water']))
 
     //
 

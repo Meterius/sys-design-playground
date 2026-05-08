@@ -30,7 +30,9 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-/* eslint-env browser */
+
+/* eslint-disable */
+// @ts-nocheck
 
 ;(function () {
   const settings = {
@@ -1257,22 +1259,29 @@
 
   // copy all WebGL constants and functions to the prototype of
   // VirtualWebGLContext
-  function copyProperties(keys, VirtualClass, overrideFns) {
+  function copyProperties(keys, sourcePrototype, VirtualClass, overrideFns) {
     for (const key of keys) {
-      const propDesc = Object.getOwnPropertyDescriptor(WebGL2RenderingContext.prototype, key)
-      if (propDesc.get) {
+      const propDesc = Object.getOwnPropertyDescriptor(sourcePrototype, key)
+
+      if (!propDesc) {
+        continue
+      }
+
+      if (propDesc.get || propDesc.set) {
         // it's a getter/setter ?
         const virtualPropDesc = Object.getOwnPropertyDescriptor(VirtualClass.prototype, key)
         if (!virtualPropDesc) {
-          console.warn(`WebGL2RenderingContext.${key} is not supported`)
+          console.warn(`WebGL2RenderingContext.${key} is not explicitly supported`)
           Object.defineProperty(VirtualClass.prototype, key, {
             get() {
-              return propDesc.get.call(sharedWebGLContext)
+              return propDesc.get?.call(sharedWebGLContext)
             },
             set(v) {
-              console.log(`setting WebGL2RenderingContext.${key} is not supported`)
-              //propDesc.set.call(sharedWebGLContext, v);
+              console.log(`setting WebGL2RenderingContext.${key} is not explicitely supported`)
+              propDesc.set?.call(sharedWebGLContext, v)
             },
+            enumerable: propDesc.enumerable,
+            configurable: true,
           })
         }
         continue
@@ -1289,14 +1298,29 @@
               newValue = createWrapper(value, key)
             }
           }
-          VirtualClass.prototype[key] = newValue
+          Object.defineProperty(VirtualClass.prototype, key, {
+            value: newValue,
+            writable: true,
+            enumerable: propDesc.enumerable,
+            configurable: true,
+          })
           break
         }
       }
     }
   }
-  copyProperties(Object.keys(WebGLRenderingContext.prototype), VirtualWebGLContext, webgl1Fns)
-  copyProperties(Object.keys(WebGL2RenderingContext.prototype), VirtualWebGL2Context, {})
+  copyProperties(
+    Object.keys(WebGLRenderingContext.prototype),
+    WebGLRenderingContext.prototype,
+    VirtualWebGLContext,
+    webgl1Fns,
+  )
+  copyProperties(
+    Object.keys(WebGL2RenderingContext.prototype),
+    WebGL2RenderingContext.prototype,
+    VirtualWebGL2Context,
+    {},
+  )
 
   function makeCurrentContext(vCtx) {
     if (currentVirtualContext === vCtx) {

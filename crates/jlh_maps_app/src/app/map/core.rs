@@ -77,13 +77,14 @@ pub struct MapViewCameraState {
     pub main_matrix: Vec<f64>,
 }
 
-#[derive(Component)]
+#[derive(Reflect, Component)]
 pub struct MapViewTileManager {
     pub map_view_id: Entity,
 
     pub active_tiles: Vec<Tile>,
+    #[reflect(ignore)]
     pub tiles: HashMap<TileKey, (Entity, MapViewTile)>,
-
+    #[reflect(ignore)]
     pub terrain_data: HashMap<TileKey, MapViewTileTerrainData>,
 }
 
@@ -152,14 +153,14 @@ pub struct MapViewFeatureKey {
     pub tile_key: TileKey,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq)]
+#[derive(Reflect, Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq)]
 pub struct TileKey {
     pub z: u32,
     pub x: u32,
     pub y: u32,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Reflect, Clone, Debug)]
 pub struct Tile {
     pub key: TileKey,
     pub bounds_lnglat: (DVec2, DVec2),

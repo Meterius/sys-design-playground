@@ -42,7 +42,7 @@ interface TreeMeshLayerOptions {
 }
 
 interface TreeInstance {
-  position: { x: number, y: number, z: number },
+  position: { x: number; y: number; z: number }
   modelIndex: number
   rotation: number
   horizontalScale: number
@@ -73,7 +73,10 @@ export class TreeMeshLayer implements CustomLayerInterface {
 
   private readonly options: Required<TreeMeshLayerOptions>
 
-  constructor(private readonly targetLayer: StyleLayer, options: TreeMeshLayerOptions = {}) {
+  constructor(
+    private readonly targetLayer: StyleLayer,
+    options: TreeMeshLayerOptions = {},
+  ) {
     this.options = {
       maxTrees: options.maxTrees ?? DEFAULT_MAX_TREES_PER_TILE,
       treesPerSquareKm: options.treesPerSquareKm ?? DEFAULT_TREES_PER_SQUARE_KM,
@@ -100,10 +103,13 @@ export class TreeMeshLayer implements CustomLayerInterface {
 
     this.renderer.autoClear = false
 
-    this.loadTreeModels().catch(console.error);
+    this.loadTreeModels().catch(console.error)
   }
 
-  render(_gl: WebGLRenderingContext | WebGL2RenderingContext, options: CustomRenderMethodInput): void {
+  render(
+    _gl: WebGLRenderingContext | WebGL2RenderingContext,
+    options: CustomRenderMethodInput,
+  ): void {
     if (this.disposed) return
 
     this.buildTiles()
@@ -111,15 +117,21 @@ export class TreeMeshLayer implements CustomLayerInterface {
     for (const entry of this.tileCache.values()) {
       if (entry.inactive) continue
 
-      const center = MercatorCoordinate.fromLngLat(tileIdToLngLatBounds(entry.tileId.canonical).getCenter())
+      const center = MercatorCoordinate.fromLngLat(
+        tileIdToLngLatBounds(entry.tileId.canonical).getCenter(),
+      )
 
-      const mainMatrix = (new THREE.Matrix4().fromArray(
-        options.defaultProjectionData.mainMatrix
-      ))
+      const mainMatrix = new THREE.Matrix4().fromArray(options.defaultProjectionData.mainMatrix)
 
-      const tileMatrix = (new THREE.Matrix4()).makeTranslation(
-        center.x, center.y, center.z
-      ).scale(new THREE.Vector3(center.meterInMercatorCoordinateUnits(), center.meterInMercatorCoordinateUnits(), center.meterInMercatorCoordinateUnits()));
+      const tileMatrix = new THREE.Matrix4()
+        .makeTranslation(center.x, center.y, center.z)
+        .scale(
+          new THREE.Vector3(
+            center.meterInMercatorCoordinateUnits(),
+            center.meterInMercatorCoordinateUnits(),
+            center.meterInMercatorCoordinateUnits(),
+          ),
+        )
 
       this.camera.projectionMatrix = mainMatrix.multiply(tileMatrix)
 
@@ -351,11 +363,12 @@ export class TreeMeshLayer implements CustomLayerInterface {
       if (!booleanPointInPolygon(point(gcs), feature)) continue
 
       // const position = this.lngLatToTilePoint(lng, lat, coord)
-      const elevation = this.map.terrain?.getElevationForLngLatZoom(new LngLat(lng, lat), coord.z) ?? 0
-      const position = MercatorCoordinate.fromLngLat(gcs, elevation);
-      const scaleMeters =
-        this.options.scaleMeters[0] +
-        random() * (this.options.scaleMeters[1] - this.options.scaleMeters[0])
+      const elevation =
+        this.map.terrain?.getElevationForLngLatZoom(new LngLat(lng, lat), coord.z) ?? 0
+      const position = MercatorCoordinate.fromLngLat(gcs, elevation)
+      // const scaleMeters =
+      //   this.options.scaleMeters[0] +
+      //   random() * (this.options.scaleMeters[1] - this.options.scaleMeters[0])
 
       instances.push({
         position,
@@ -383,7 +396,11 @@ export class TreeMeshLayer implements CustomLayerInterface {
     const scale = 1 / center.meterInMercatorCoordinateUnits()
 
     const group = new THREE.Group()
-    group.position.set(scale * (instance.position.x - center.x), scale * (instance.position.y - center.y), scale * (instance.position.z - center.z))
+    group.position.set(
+      scale * (instance.position.x - center.x),
+      scale * (instance.position.y - center.y),
+      scale * (instance.position.z - center.z),
+    )
     // group.position.set(scale * (instance.position.x - center.x), scale * (instance.position.y - center.y), scale * (instance.position.z - center.z))
     //group.scale.setScalar(50)
     // group.rotation.z = instance.rotation

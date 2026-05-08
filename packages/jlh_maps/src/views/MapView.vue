@@ -191,12 +191,14 @@ watchDefinedOnce(
 
 watchDefinedOnce(
   () => {
-    if (!loaded.value) return undefined;
+    if (!loaded.value) return undefined
 
-    return mapInstance.map !== undefined && mapAppCanvas.value !== undefined ? {
-      map: mapInstance.map,
-      appCanvas: mapAppCanvas.value,
-    } : undefined;
+    return mapInstance.map !== undefined && mapAppCanvas.value !== undefined
+      ? {
+          map: mapInstance.map,
+          appCanvas: mapAppCanvas.value,
+        }
+      : undefined
   },
   ({ map }) => {
     const onCleanupCallbacks: (() => void)[] = []
@@ -472,7 +474,7 @@ watchDefinedOnce(
 
     // App Layer
 
-    map.addLayer(new AppLayer(`.maplibregl-canvas`, ['Water']))
+    map.addLayer(new AppLayer(`#${mapAppCanvasId.value}`, ['Water']))
 
     //
 

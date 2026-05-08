@@ -303,6 +303,7 @@ struct EncodedTile {
 
 fn parse_tiles(encoded_tiles: &str) -> Vec<Tile> {
     serde_json::from_str::<Vec<EncodedTile>>(encoded_tiles)
+        .inspect_err(|err| error!("Failed to parse tiles: {}", err))
         .unwrap_or_default()
         .into_iter()
         .map(|tile| Tile {
@@ -328,6 +329,7 @@ struct EncodedFeature {
 
 fn parse_features(encoded_features: &str) -> Vec<MapViewFeatureData> {
     serde_json::from_str::<Vec<EncodedFeature>>(encoded_features)
+        .inspect_err(|err| error!("Failed to parse features: {}", err))
         .unwrap_or_default()
         .into_iter()
         .map(|feature| {

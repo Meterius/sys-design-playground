@@ -1,7 +1,6 @@
 import {
   type CustomLayerInterface,
   type CustomRenderMethodInput,
-  EXTENT,
   type Map as MapLibreMap,
   type Subscription,
 } from 'maplibre-gl'
@@ -12,7 +11,6 @@ import type { DEMData } from 'maplibre-gl/src/data/dem_data.ts'
 import type { GeoJsonProperties, Geometry } from 'geojson'
 
 type TileKey = string
-type GL = WebGLRenderingContext | WebGL2RenderingContext
 
 interface TileCoord {
   z: number
@@ -28,7 +26,7 @@ interface SyncedTile {
 interface SyncedFeature {
   key: string
   layer_id: string
-  tile_key: TileCoord,
+  tile_key: TileCoord
   id?: string
   geometry: Geometry
   properties: GeoJsonProperties
@@ -48,8 +46,7 @@ export class AppLayer implements CustomLayerInterface {
   constructor(
     private readonly canvasSelector: string,
     private readonly featureLayers: string[] = [],
-  ) {
-  }
+  ) {}
 
   onAdd(map: MapLibreMap, gl: WebGLRenderingContext | WebGL2RenderingContext): void {
     this.map = map as unknown as MapInternal
@@ -57,7 +54,10 @@ export class AppLayer implements CustomLayerInterface {
     console.log(this.map)
   }
 
-  render(gl: WebGLRenderingContext | WebGL2RenderingContext, options: CustomRenderMethodInput): void {
+  render(
+    gl: WebGLRenderingContext | WebGL2RenderingContext,
+    options: CustomRenderMethodInput,
+  ): void {
     const center = this.map.getCenter()
     const canvas = this.map.getCanvas()
 
@@ -85,13 +85,13 @@ export class AppLayer implements CustomLayerInterface {
       this.readFramebuffer = null
     }
     this.terrainDataStamps.clear()
-    this.subscriptions.splice(0).forEach(subscription => subscription.unsubscribe())
+    this.subscriptions.splice(0).forEach((subscription) => subscription.unsubscribe())
   }
 
   private getVisibleTiles() {
     const tiles = new Map<TileKey, SyncedTile>()
 
-    const tileManagers = [this.map.style.tileManagers['terrain']!];// Object.values(this.map.style.tileManagers);
+    // const tileManagers = [this.map.style.tileManagers['terrain']!] // Object.values(this.map.style.tileManagers);
     //
     // tileManagers.forEach((tileManager) => {
     //   tileManager.getRenderableIds().map((id) => {
@@ -135,25 +135,26 @@ export class AppLayer implements CustomLayerInterface {
       layers: this.featureLayers,
     })
 
-    const syncedFeatures: SyncedFeature[] = features
-      .flatMap((feature, index) => {
-        const geojson = feature.toJSON()
-        const layerId = feature.layer?.id ?? geojson.layer?.id
-        const geometry = geojson.geometry
-        if (!layerId || !geometry) return []
+    const syncedFeatures: SyncedFeature[] = features.flatMap((feature, index) => {
+      const geojson = feature.toJSON()
+      const layerId = feature.layer?.id ?? geojson.layer?.id
+      const geometry = geojson.geometry
+      if (!layerId || !geometry) return []
 
-        const id = geojson.id == null ? undefined : String(geojson.id)
-        const key = id ?? `${layerId}/${index}/${JSON.stringify(geometry)}`
+      const id = geojson.id == null ? undefined : String(geojson.id)
+      const key = id ?? `${layerId}/${index}/${JSON.stringify(geometry)}`
 
-        return [{
+      return [
+        {
           key,
           tile_key: { x: feature._x, y: feature._y, z: feature._z },
           layer_id: layerId,
           ...(id == null ? {} : { id }),
           geometry,
           properties: geojson.properties ?? null,
-        }]
-      })
+        },
+      ]
+    })
 
     sync_features(this.canvasSelector, JSON.stringify(syncedFeatures))
   }
@@ -162,10 +163,14 @@ export class AppLayer implements CustomLayerInterface {
     const terrain = this.map.terrain
     const tiles = terrain?.tileManager?.getRenderableTiles?.() ?? []
 
-    tiles.push(...Object.values(this.map.style.tileManagers).flatMap((manager) => manager.getRenderableIds().flatMap((tileId) => {
-      const tile = manager.getTileByID(tileId);
-      return tile ? [tile] : []
-    })))
+    tiles.push(
+      ...Object.values(this.map.style.tileManagers).flatMap((manager) =>
+        manager.getRenderableIds().flatMap((tileId) => {
+          const tile = manager.getTileByID(tileId)
+          return tile ? [tile] : []
+        }),
+      ),
+    )
 
     for (const tile of tiles) {
       const key = this.getRttTileKey(tile)
@@ -203,7 +208,11 @@ export class AppLayer implements CustomLayerInterface {
     // }
   }
 
-  private getTerrainDataContentStamp(tile: Tile, sourceTile: Tile | null | undefined, dem: DEMData) {
+  private getTerrainDataContentStamp(
+    tile: Tile,
+    sourceTile: Tile | null | undefined,
+    dem: DEMData,
+  ) {
     const sourceTileID = sourceTile?.tileID?.key ?? sourceTile?.tileID?.toString?.() ?? 'none'
     const renderTileID = tile.tileID?.key ?? tile.tileID?.toString?.() ?? 'none'
     const rttStamp = this.getRttContentStamp(tile) ?? 'none'

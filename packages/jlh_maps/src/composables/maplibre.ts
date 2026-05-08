@@ -19,11 +19,11 @@ export interface SelectionItem {
   feature: GeoJSONFeature
 }
 
-let mapKeyCounter = 0;
+let mapKeyCounter = 0
 
 export function makeUniqueMapKey() {
-  mapKeyCounter += 1;
-  return `uniq-map-${mapKeyCounter}`;
+  mapKeyCounter += 1
+  return `uniq-map-${mapKeyCounter}`
 }
 
 export function useMapSelection(options: {

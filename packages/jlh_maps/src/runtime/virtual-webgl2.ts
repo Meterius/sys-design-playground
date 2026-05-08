@@ -150,6 +150,9 @@
         gl.canvas.height = maxHeight
       }
 
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+      gl.readBuffer(gl.BACK)
+      gl.drawBuffers([gl.BACK])
       gl.viewport(0, 0, width, height)
 
       gl.useProgram(
@@ -282,6 +285,29 @@
     }
   }
 
+  function getContextColorSpace(gl, key) {
+    return key in gl ? gl[key] : undefined
+  }
+
+  function setContextColorSpace(gl, key, value) {
+    if (key in gl && value !== undefined) {
+      gl[key] = value
+    }
+  }
+
+  function getVirtualContextColorSpace(key) {
+    return this._state?.[key] ?? getContextColorSpace(sharedWebGLContext, key)
+  }
+
+  function setVirtualContextColorSpace(key, value) {
+    if (this._state) {
+      this._state[key] = value
+    }
+    if (currentVirtualContext === this) {
+      setContextColorSpace(sharedWebGLContext, key, value)
+    }
+  }
+
   // Base exists so VirtualWebGLContext has a base class we can replace
   // because otherwise it's base is Object which we can't replace.
   class Base {}
@@ -301,6 +327,18 @@
     get drawingBufferHeight() {
       return this.canvas.height
     }
+    get drawingBufferColorSpace() {
+      return getVirtualContextColorSpace.call(this, 'drawingBufferColorSpace')
+    }
+    set drawingBufferColorSpace(value) {
+      setVirtualContextColorSpace.call(this, 'drawingBufferColorSpace', value)
+    }
+    get unpackColorSpace() {
+      return getVirtualContextColorSpace.call(this, 'unpackColorSpace')
+    }
+    set unpackColorSpace(value) {
+      setVirtualContextColorSpace.call(this, 'unpackColorSpace', value)
+    }
   }
   class Base2 {}
   class VirtualWebGL2Context extends Base2 {
@@ -318,6 +356,18 @@
     }
     get drawingBufferHeight() {
       return this.canvas.height
+    }
+    get drawingBufferColorSpace() {
+      return getVirtualContextColorSpace.call(this, 'drawingBufferColorSpace')
+    }
+    set drawingBufferColorSpace(value) {
+      setVirtualContextColorSpace.call(this, 'drawingBufferColorSpace', value)
+    }
+    get unpackColorSpace() {
+      return getVirtualContextColorSpace.call(this, 'unpackColorSpace')
+    }
+    set unpackColorSpace(value) {
+      setVirtualContextColorSpace.call(this, 'unpackColorSpace', value)
     }
   }
 
@@ -348,6 +398,8 @@
       uniformBuffer: null,
 
       readBuffer: gl.BACK,
+      drawingBufferColorSpace: getContextColorSpace(gl, 'drawingBufferColorSpace'),
+      unpackColorSpace: getContextColorSpace(gl, 'unpackColorSpace'),
 
       enable: new Map([
         [gl.BLEND, false],
@@ -459,6 +511,20 @@
     return vCtx._state.drawFramebuffer === vCtx._drawingbufferFramebuffer
   }
 
+  function realReadBuffer(state, vCtx) {
+    const gl = sharedWebGLContext
+
+    if (state.readFramebuffer === null) {
+      return state.readBuffer === gl.NONE ? gl.NONE : gl.BACK
+    }
+
+    if (vCtx && state.readFramebuffer === vCtx._drawingbufferFramebuffer && state.readBuffer === gl.BACK) {
+      return gl.COLOR_ATTACHMENT0
+    }
+
+    return state.readBuffer
+  }
+
   function createWrapper(origFn /*, name*/) {
     // lots of optimization could happen here depending on specific functions
     return function (...args) {
@@ -475,8 +541,10 @@
       gl.bindFramebuffer(gl.FRAMEBUFFER, vCtx._drawingbufferFramebuffer)
       gl.disable(gl.SCISSOR_TEST)
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT)
-      enableDisable(gl, gl.SCISSOR_TEST, vCtx._state.scissorTest)
+      enableDisable(gl, gl.SCISSOR_TEST, vCtx._state.enable.get(gl.SCISSOR_TEST))
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, vCtx._state.readFramebuffer)
       gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, vCtx._state.drawFramebuffer)
+      gl.readBuffer(realReadBuffer(vCtx._state, vCtx))
     }
   }
 
@@ -862,7 +930,7 @@
       makeCurrentContext(this)
       resizeCanvasIfChanged(this)
       const gl = sharedWebGLContext
-      if (framebuffer === null) {
+      if (framebuffer == null) {
         // bind our drawingBuffer
         framebuffer = this._drawingbufferFramebuffer
       }
@@ -926,7 +994,7 @@
       makeCurrentContext(this)
       resizeCanvasIfChanged(this)
       const gl = sharedWebGLContext
-      if (src === gl.BACK) {
+      if (src === gl.BACK && this._state.readFramebuffer === this._drawingbufferFramebuffer) {
         src = gl.COLOR_ATTACHMENT0
       }
       gl.readBuffer(src)
@@ -1438,6 +1506,8 @@
     gl.bindRenderbuffer(gl.RENDERBUFFER, state.renderbuffer)
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, state.readFramebuffer)
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, state.drawFramebuffer)
+    setContextColorSpace(gl, 'drawingBufferColorSpace', state.drawingBufferColorSpace)
+    setContextColorSpace(gl, 'unpackColorSpace', state.unpackColorSpace)
 
     // restore attributes
     gl.bindVertexArray(state.vertexArray)
@@ -1489,7 +1559,7 @@
     gl.bindBuffer(gl.TRANSFORM_FEEDBACK_BUFFER, state.transformFeedbackBuffer)
     gl.bindBuffer(gl.UNIFORM_BUFFER, state.uniformBuffer)
 
-    gl.readBuffer(state.readBuffer)
+    gl.readBuffer(realReadBuffer(state, vCtx))
 
     state.enable.forEach((value, key) => {
       enableDisable(gl, key, value)

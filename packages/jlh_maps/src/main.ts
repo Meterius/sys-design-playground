@@ -1,4 +1,5 @@
 import './assets/main.css'
+import './runtime/virtual-webgl2'
 
 import initFr from 'jlh_maps_frontend'
 import initApp, { initialize } from 'jlh_maps_app'
@@ -11,20 +12,19 @@ import ui from '@nuxt/ui/vue-plugin'
 import App from './App.vue'
 import router from './router'
 
-Promise.all([
-  initFr(),
-  initApp()
-]).catch((err) => {
-  console.error('WASM Initialization Failure: ', err);
-}).finally(() => {
-  initialize();
+Promise.all([initFr(), initApp()])
+  .catch((err) => {
+    console.error('WASM Initialization Failure: ', err)
+  })
+  .finally(() => {
+    initialize()
 
-  const app = createApp(App)
+    const app = createApp(App)
 
-  app.use(VueMaplibreGl)
-  app.use(createPinia())
-  app.use(router)
-  app.use(ui)
+    app.use(VueMaplibreGl)
+    app.use(createPinia())
+    app.use(router)
+    app.use(ui)
 
-  app.mount('#app')
-})
+    app.mount('#app')
+  })

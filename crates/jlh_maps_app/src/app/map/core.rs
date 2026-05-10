@@ -8,6 +8,9 @@ use big_space::bundles::BigSpaceRootBundle;
 use big_space::prelude::{CellCoord, FloatingOrigin};
 use std::collections::HashMap;
 
+const FIRST_CASCADE_FAR_METERS: f64 = 1_000.0;
+const SHADOW_MAX_DISTANCE_METERS: f64 = 5_000.0;
+
 pub(super) struct CorePlugin;
 
 impl Plugin for CorePlugin {
@@ -38,20 +41,25 @@ pub fn spawn_map_view(commands: &mut Commands, maplibre_integration_id: Entity) 
     let world_per_meter = MERCATOR_WORLD_SIZE
         * MercatorCoordinate::from_lng_lat(LngLat::new(13.0, 52.0), 0.0)
             .meter_in_mercator_coordinate_units();
+    let first_cascade_far_bound = (world_per_meter * FIRST_CASCADE_FAR_METERS) as f32;
+    let maximum_distance = (world_per_meter * SHADOW_MAX_DISTANCE_METERS) as f32;
 
     commands.entity(map_view_id).with_child((
         DirectionalLight {
             color: Color::srgb(0.98, 0.95, 0.82),
             shadows_enabled: true,
+            shadow_depth_bias: 0.02,
+            shadow_normal_bias: 1.8,
             ..default()
         },
         CascadeShadowConfigBuilder {
-            first_cascade_far_bound: (world_per_meter * 1000.0) as f32,
-            maximum_distance: (world_per_meter * 1000.0) as f32,
+            first_cascade_far_bound,
+            maximum_distance,
             ..default()
         }
         .build(),
-        Transform::from_xyz(0.0, 0.0, 0.0).looking_at(Vec3::new(-0.15, -0.05, -0.15), Vec3::Z),
+        Transform::from_xyz(0.0, 0.0, 0.0).looking_to(Vec3::new(1.0, 0.2, -0.35), Vec3::Z),
+        CellCoord::default(),
     ));
 
     commands.entity(map_view_id).with_child((

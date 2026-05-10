@@ -87,11 +87,7 @@ class MaplibreGlJsIntegration {
 
   start() {
     this.unsubscribeCallbacks.push(...[
-      this.on('move', () => this.scheduleSyncView()),
-      this.on('zoom', () => this.scheduleSyncView()),
-      this.on('rotate', () => this.scheduleSyncView()),
-      this.on('pitch', () => this.scheduleSyncView()),
-      this.on('resize', () => this.scheduleSyncView()),
+      this.on('render', () => this.syncView()),
       this.on('moveend', () => this.scheduleSyncData()),
       this.on('zoomend', () => this.scheduleSyncData()),
       this.on('rotateend', () => this.scheduleSyncData()),
@@ -129,15 +125,6 @@ class MaplibreGlJsIntegration {
     return () => this.map.off(type, callback)
   }
 
-  private scheduleSyncView() {
-    if (this.syncViewFrame !== undefined) return
-
-    this.syncViewFrame = requestAnimationFrame(() => {
-      this.syncViewFrame = undefined
-      this.syncView()
-    })
-  }
-
   private scheduleSyncData() {
     if (this.syncDataFrame !== undefined) return
 
@@ -168,7 +155,6 @@ class MaplibreGlJsIntegration {
   }
 
   private syncData() {
-    const visibleTiles = this.getVisibleTiles()
     this.syncFeatures()
     this.syncTerrain()
   }

@@ -9,6 +9,7 @@ use bevy::prelude::*;
 use big_space::prelude::{CellCoord, Grid};
 
 const MAPLIBRE_DEFAULT_FOV_RADIANS: f64 = 0.643_501_108_793_284_4;
+const DEFAULT_MAPLIBRE_FAR: f32 = 1_000.0;
 
 pub(super) struct CameraPlugin;
 
@@ -109,12 +110,14 @@ fn maplibre_semantic_camera_transform(state: &MaplibreMapViewData) -> SemanticCa
 #[derive(Clone, Debug)]
 struct MapLibreMercatorProjection {
     clip_from_view: Mat4,
+    far: f32,
 }
 
 impl Default for MapLibreMercatorProjection {
     fn default() -> Self {
         Self {
             clip_from_view: Mat4::IDENTITY,
+            far: DEFAULT_MAPLIBRE_FAR,
         }
     }
 }
@@ -131,13 +134,54 @@ impl MapLibreMercatorProjection {
             DVec4::W,
         );
 
+        let clip_from_view = (opengl_to_wgpu_clip_matrix()
+            * maplibre_clip_from_mercator
+            * mercator_from_world
+            * world_from_view)
+            .as_mat4();
+
         Some(Self {
-            clip_from_view: (opengl_to_wgpu_clip_matrix()
-                * maplibre_clip_from_mercator
-                * mercator_from_world
-                * world_from_view)
-                .as_mat4(),
+            clip_from_view,
+            far: Self::far_from_clip_from_view(clip_from_view),
         })
+    }
+
+    fn unproject_ndc_to_view(&self, ndc_x: f32, ndc_y: f32, ndc_z: f32) -> Vec3 {
+        self.clip_from_view
+            .inverse()
+            .project_point3(Vec3::new(ndc_x, ndc_y, ndc_z))
+    }
+
+    fn far_from_clip_from_view(clip_from_view: Mat4) -> f32 {
+        let view_from_clip = clip_from_view.inverse();
+        let far = [
+            Vec3::new(1.0, -1.0, 1.0),
+            Vec3::new(1.0, 1.0, 1.0),
+            Vec3::new(-1.0, 1.0, 1.0),
+            Vec3::new(-1.0, -1.0, 1.0),
+        ]
+        .into_iter()
+        .map(|corner| view_from_clip.project_point3(corner).z.abs())
+        .filter(|z| z.is_finite() && *z > 0.0)
+        .fold(0.0, f32::max);
+
+        if far.is_finite() && far > 0.0 {
+            far
+        } else {
+            DEFAULT_MAPLIBRE_FAR
+        }
+    }
+
+    fn frustum_corner_at_view_z(&self, ndc_x: f32, ndc_y: f32, view_z: f32) -> Vec3A {
+        let near = self.unproject_ndc_to_view(ndc_x, ndc_y, 0.0);
+        let far = self.unproject_ndc_to_view(ndc_x, ndc_y, 1.0);
+        let ray = far - near;
+
+        if !near.is_finite() || !far.is_finite() || ray.z.abs() <= f32::EPSILON {
+            return Vec3A::from(near);
+        }
+
+        Vec3A::from(near + ray * ((view_z - near.z) / ray.z))
     }
 }
 
@@ -153,20 +197,19 @@ impl CameraProjection for MapLibreMercatorProjection {
     fn update(&mut self, _width: f32, _height: f32) {}
 
     fn far(&self) -> f32 {
-        f32::MAX
+        self.far
     }
 
-    fn get_frustum_corners(&self, _z_near: f32, _z_far: f32) -> [Vec3A; 8] {
-        let extent = MERCATOR_WORLD_SIZE as f32;
+    fn get_frustum_corners(&self, z_near: f32, z_far: f32) -> [Vec3A; 8] {
         [
-            Vec3A::new(extent, -extent, 0.0),
-            Vec3A::new(extent, extent, 0.0),
-            Vec3A::new(-extent, extent, 0.0),
-            Vec3A::new(-extent, -extent, 0.0),
-            Vec3A::new(extent, -extent, extent),
-            Vec3A::new(extent, extent, extent),
-            Vec3A::new(-extent, extent, extent),
-            Vec3A::new(-extent, -extent, extent),
+            self.frustum_corner_at_view_z(1.0, -1.0, z_near),
+            self.frustum_corner_at_view_z(1.0, 1.0, z_near),
+            self.frustum_corner_at_view_z(-1.0, 1.0, z_near),
+            self.frustum_corner_at_view_z(-1.0, -1.0, z_near),
+            self.frustum_corner_at_view_z(1.0, -1.0, z_far),
+            self.frustum_corner_at_view_z(1.0, 1.0, z_far),
+            self.frustum_corner_at_view_z(-1.0, 1.0, z_far),
+            self.frustum_corner_at_view_z(-1.0, -1.0, z_far),
         ]
     }
 }

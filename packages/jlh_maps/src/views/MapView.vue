@@ -156,6 +156,9 @@ const terrainEnabled = ref(true)
 const useRasterOnly = false
 const useRaster = false
 
+const enableTrees = false
+const enableDynWater = false
+
 watchDefinedOnce(
   () => mapInstance.map,
   (map) => {
@@ -389,35 +392,39 @@ watchDefinedOnce(
       }).stop,
     )
 
-    // // Tree Mesh Layer
+    // Tree Mesh Layer
 
-    const forestLayer = map.getLayer('Wood')!
-    const treeMeshLayer = new TreeMeshLayer(forestLayer)
-    map.addLayer(treeMeshLayer, 'Water labels')
+    if (enableTrees) {
+      const forestLayer = map.getLayer('Wood')!
+      const treeMeshLayer = new TreeMeshLayer(forestLayer)
+      map.addLayer(treeMeshLayer, 'Water labels')
 
-    onCleanupCallbacks.push(
-      watch(
-        zoom,
-        (value) => {
-          const visible = value >= 14 && !useRaster
-          map.setLayoutProperty(treeMeshLayer.id, 'visibility', visible ? 'visible' : 'none')
-        },
-        { immediate: true },
-      ).stop,
-    )
+      onCleanupCallbacks.push(
+        watch(
+          zoom,
+          (value) => {
+            const visible = value >= 14 && !useRaster
+            map.setLayoutProperty(treeMeshLayer.id, 'visibility', visible ? 'visible' : 'none')
+          },
+          { immediate: true },
+        ).stop,
+      )
+    }
 
     // Dyn Water Layer
 
-    const dynWaterLayer = new DynWaterLayer(map.getLayer('Water')!)
-    map.addLayer(dynWaterLayer, 'Landcover patterns')
-    map.setLayoutProperty(dynWaterLayer.id, 'visibility', useRaster ? 'none' : 'visible')
+    if (enableDynWater) {
+      const dynWaterLayer = new DynWaterLayer(map.getLayer('Water')!)
+      map.addLayer(dynWaterLayer, 'Landcover patterns')
+      map.setLayoutProperty(dynWaterLayer.id, 'visibility', useRaster ? 'none' : 'visible')
 
-    onCleanupCallbacks.push(
-      watch(zoom, (value) => {
-        const visible = value >= 14 && !useRaster
-        map.setLayoutProperty(dynWaterLayer.id, 'visibility', visible ? 'visible' : 'none')
-      }).stop,
-    )
+      onCleanupCallbacks.push(
+        watch(zoom, (value) => {
+          const visible = value >= 14 && !useRaster
+          map.setLayoutProperty(dynWaterLayer.id, 'visibility', visible ? 'visible' : 'none')
+        }).stop,
+      )
+    }
 
     // Highlight Layer
 

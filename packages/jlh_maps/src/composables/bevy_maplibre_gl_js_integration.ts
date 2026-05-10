@@ -3,6 +3,7 @@ import {
   remove_features,
   remove_map_integration,
   remove_terrain_tile_data,
+  sync_terrain_active_tile_ids,
   sync_view,
   update_features,
   update_terrain_tile_data,
@@ -169,7 +170,7 @@ class MaplibreGlJsIntegration {
   private syncData() {
     const visibleTiles = this.getVisibleTiles()
     this.syncFeatures()
-    this.syncTerrainData(visibleTiles)
+    this.syncTerrain()
   }
 
   private getMainMatrix(): number[] | undefined {
@@ -247,24 +248,29 @@ class MaplibreGlJsIntegration {
     }
   }
 
-  private syncTerrainData(terrainTiles: Tile[]) {
+  private syncTerrain() {
     const terrain = this.map.terrain
     if (!terrain) {
       this.removeTerrainData([...this.terrainDataHashes.keys()])
       return
     }
 
-    const visibleTerrainKeys = new Set(
-      terrainTiles.flatMap((tile) => {
+    const activeTerrainTiles = terrain.tileManager.getRenderableTiles();
+
+    const activeTerrainTileIds = new Set(
+      activeTerrainTiles.flatMap((tile) => {
         const key = this.getTileKey(tile)
         return key ? [key] : []
       }),
     )
+
     this.removeTerrainData(
-      [...this.terrainDataHashes.keys()].filter((key) => !visibleTerrainKeys.has(key)),
+      [...this.terrainDataHashes.keys()].filter((key) => !activeTerrainTileIds.has(key)),
     )
 
-    for (const tile of terrainTiles) {
+    sync_terrain_active_tile_ids(this.instanceId, this.mapIntegrationId, [...activeTerrainTileIds]);
+
+    for (const tile of activeTerrainTiles) {
       const key = this.getTileKey(tile)
       if (!key) continue
 

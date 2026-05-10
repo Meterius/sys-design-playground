@@ -1,7 +1,7 @@
 use bevy::prelude::Reflect;
 use geojson::Geometry;
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::utils::terrain::TerrainData;
 
@@ -20,6 +20,7 @@ pub struct MaplibreMapViewData {
 
 #[derive(Default)]
 pub struct MaplibreTerrainData {
+    pub active_tile_ids: HashSet<CanonicalTileId>,
     pub tiles: HashMap<CanonicalTileId, MaplibreTerrainTileData>,
 }
 

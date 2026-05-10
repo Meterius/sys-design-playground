@@ -57,7 +57,6 @@ pub fn mount(canvas_selector: String) {
                 }),
                 ..default()
             })
-            .disable::<LogPlugin>()
             .disable::<TransformPlugin>(),
         BigSpaceDefaultPlugins,
         EguiPlugin::default(),

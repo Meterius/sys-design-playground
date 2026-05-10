@@ -1,5 +1,5 @@
 import './assets/main.css'
-import './runtime/virtual-webgl2'
+// import './runtime/virtual-webgl2'
 
 import initFr from 'jlh_maps_frontend'
 import initApp, { initialize } from 'jlh_maps_app'

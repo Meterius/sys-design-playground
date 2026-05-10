@@ -2,7 +2,10 @@ use crate::app::common::settings::SettingsPlugin;
 use crate::app::editor::EditorPlugin;
 use crate::app::instance_management::InstanceManagementPlugin;
 use crate::app::instance_management::instance::register_instance;
+use crate::app::map::MapPlugin;
+use crate::app::map::core::spawn_map_view;
 use crate::app::maplibre_gl_js::MaplibreGlJsPlugin;
+use crate::app::maplibre_gl_js::integration::MaplibreMapIntegration;
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
@@ -61,15 +64,21 @@ pub fn mount(canvas_selector: String) {
         SettingsPlugin {},
         EditorPlugin {},
         MaplibreGlJsPlugin,
+        MapPlugin,
         InstanceManagementPlugin { id: instance_id },
     ));
 
-    app.add_systems(Startup, setup);
+    app.add_systems(PreUpdate, setup_map_for_integration);
     app.insert_resource(WinitSettings::continuous());
 
     app.run();
 }
 
-fn setup(mut commands: Commands) {
-    commands.spawn((Camera3d::default(), Transform::IDENTITY));
+fn setup_map_for_integration(
+    mut commands: Commands,
+    integrations: Query<Entity, Added<MaplibreMapIntegration>>,
+) {
+    for int_id in integrations.iter() {
+        spawn_map_view(&mut commands, int_id);
+    }
 }

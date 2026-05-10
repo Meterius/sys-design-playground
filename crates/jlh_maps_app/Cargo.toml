@@ -10,7 +10,7 @@ wasm-opt = ["-O1"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-bevy = "0.18.1"
+bevy = { version = "0.18.1", features = ["webgl2"] }
 bevy_winit = "0.18.1"
 big_space = "0.12.0"
 serde = { version = "1", features = ["derive"] }
@@ -27,3 +27,4 @@ bevy_heightmap = { git = "https://github.com/Sofianel5/bevy_heightmap", rev = "d
 tracing = "0.1.44"
 geojson = "0.24.2"
 earcutr = "0.4.3"
+anyhow = "1.0.102"

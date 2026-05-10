@@ -4898,6 +4898,7 @@ dependencies = [
 name = "jlh_maps_app"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bevy",
  "bevy-inspector-egui",
  "bevy_heightmap",

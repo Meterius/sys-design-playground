@@ -45,11 +45,8 @@
 
     <div style="position: absolute; width: 100%; height: 50%; bottom: 0">
       <canvas
-        :id="mapAppCanvasId"
-        ref="mapAppCanvas"
-        tabindex="0"
+        :id="bevyCanvasId"
         style="position: absolute; inset: 0; height: 100%; width: 100%"
-        @pointerdown="focusMapAppCanvas"
       ></canvas>
     </div>
 
@@ -82,15 +79,7 @@
 
 <script setup lang="ts">
 import { MglMap } from '@indoorequal/vue-maplibre-gl'
-import {
-  computed,
-  onBeforeUnmount,
-  onMounted,
-  onWatcherCleanup,
-  ref,
-  watch,
-  watchEffect,
-} from 'vue'
+import { computed, onWatcherCleanup, ref, watch, watchEffect } from 'vue'
 import { GeoJSONSource, GeolocateControl, GlobeControl, NavigationControl } from 'maplibre-gl'
 import { center } from '@turf/turf'
 import type { FeatureCollection } from 'geojson'
@@ -104,29 +93,18 @@ import { DynWaterLayer } from '@/components/dyn-water-layer.ts'
 import { TreeMeshLayer } from '@/components/tree-mesh-layer.ts'
 import { makeUniqueMapKey, useMapExtended, useMapSelection } from '@/composables/maplibre.ts'
 import { watchDefinedOnce } from '@/composables/helper.ts'
-import { AppLayer } from '@/components/app-layer.ts'
-import { mount, unmount } from 'jlh_maps_app'
+import { useMaplibreGlJsIntegration } from '@/composables/bevy_maplibre_gl_js_integration.ts'
+import { useBevy } from '@/composables/bevy.ts'
 
 const mapKey = makeUniqueMapKey()
 
-const mapAppCanvasId = computed(() => `map-app-${mapKey}`)
+const bevyCanvasId = `bevy-canvas-${mapKey}`
 
-const mapAppCanvas = ref<HTMLCanvasElement | undefined>()
-
-const focusMapAppCanvas = () => {
-  document.getElementById(mapAppCanvasId.value)?.focus()
-}
-
-onMounted(() => {
-  mount(`#${mapAppCanvasId.value}`)
-  focusMapAppCanvas()
-})
-
-onBeforeUnmount(() => {
-  unmount(`#${mapAppCanvasId.value}`)
-})
+const { instanceId } = useBevy(`#${bevyCanvasId}`)
 
 const { mapInstance, loaded, zoom, pitch } = useMapExtended(mapKey)
+
+useMaplibreGlJsIntegration(() => instanceId, mapKey, { featureLayers: [] })
 
 const tilejsonUrl = TILESERVER_OMT_DEFAULT_STYLE_TILEJSON_URL.toString()
 console.debug('Using TileJson URL: ', tilejsonUrl)
@@ -193,12 +171,7 @@ watchDefinedOnce(
   () => {
     if (!loaded.value) return undefined
 
-    return mapInstance.map !== undefined && mapAppCanvas.value !== undefined
-      ? {
-          map: mapInstance.map,
-          appCanvas: mapAppCanvas.value,
-        }
-      : undefined
+    return mapInstance.map !== undefined ? { map: mapInstance.map } : undefined
   },
   ({ map }) => {
     const onCleanupCallbacks: (() => void)[] = []
@@ -471,12 +444,6 @@ watchDefinedOnce(
         'circle-stroke-width': 3,
       },
     })
-
-    // App Layer
-
-    map.addLayer(new AppLayer(`#${mapAppCanvasId.value}`, ['Water']))
-
-    //
 
     selectableLayers.value = map
       .getLayersOrder()

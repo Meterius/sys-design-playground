@@ -14,6 +14,8 @@ import type { DEMData } from 'maplibre-gl/src/data/dem_data.ts'
 import { onWatcherCleanup, toValue, type WatchSource } from 'vue'
 import { watchDefinedOnce } from '@/composables/helper.ts'
 import { useMap } from '@indoorequal/vue-maplibre-gl'
+import type { Terrain } from 'maplibre-gl/src/render/terrain.ts'
+import { CanonicalTileID, type OverscaledTileID } from 'maplibre-gl/src/tile/tile_id'
 
 type TileKey = string
 
@@ -86,8 +88,10 @@ class MaplibreGlJsIntegration {
   ) {}
 
   start() {
+    console.log('Starting maplibre integration on map: ', this.map);
+
     this.unsubscribeCallbacks.push(...[
-      this.on('render', () => this.syncView()),
+      this.on('render', () => { this.syncView(); this.syncTerrain(); }),
       this.on('moveend', () => this.scheduleSyncData()),
       this.on('zoomend', () => this.scheduleSyncData()),
       this.on('rotateend', () => this.scheduleSyncData()),
@@ -174,18 +178,6 @@ class MaplibreGlJsIntegration {
     return matrix ? Array.from(matrix) : undefined
   }
 
-  private getVisibleTiles(): Tile[] {
-    const tiles = new Map<TileKey, Tile>()
-
-    this.map.terrain?.tileManager?.getRenderableTiles?.().forEach((tile: Tile) => {
-      const key = this.getTileKey(tile)
-      if (!key) return
-      tiles.set(key, tile)
-    })
-
-    return [...tiles.values()]
-  }
-
   private syncFeatures() {
     if (this.featureLayers.length === 0) {
       this.removeTransmittedFeatures([...this.transmittedFeatureKeys])
@@ -234,55 +226,70 @@ class MaplibreGlJsIntegration {
     }
   }
 
+  private get terrain(): Terrain | null {
+    return this.map.terrain;
+  }
+
   private syncTerrain() {
-    const terrain = this.map.terrain
-    if (!terrain) {
-      this.removeTerrainData([...this.terrainDataHashes.keys()])
-      return
-    }
+    const terrain = this.terrain ?? undefined;
 
-    const activeTerrainTiles = terrain.tileManager.getRenderableTiles();
+    if (terrain) {
+      const activeTerrainTiles = terrain.tileManager.getRenderableTiles() ?? []
 
-    const activeTerrainTileIds = new Set(
-      activeTerrainTiles.flatMap((tile) => {
-        const key = this.getTileKey(tile)
-        return key ? [key] : []
-      }),
-    )
+      const activeTerrainTileIds = new Set(
+        activeTerrainTiles.map((tile) => this.getTileKey(tile.tileID.canonical))
+      );
 
-    this.removeTerrainData(
-      [...this.terrainDataHashes.keys()].filter((key) => !activeTerrainTileIds.has(key)),
-    )
-
-    sync_terrain_active_tile_ids(this.instanceId, this.mapIntegrationId, [...activeTerrainTileIds]);
-
-    for (const tile of activeTerrainTiles) {
-      const key = this.getTileKey(tile)
-      if (!key) continue
-
-      const terrainData = terrain.getTerrainData(tile.tileID)
-      const dem = terrainData.tile?.dem as DEMData | undefined
-      if (!dem) continue
-      const hash = this.getTerrainDataHash(tile, terrainData.tile, dem)
-      if (this.terrainDataHashes.get(key) === hash) continue
-
-      update_terrain_tile_data(
-        this.instanceId,
-        this.mapIntegrationId,
-        key,
-        hash,
-        dem.stride,
-        dem.dim,
-        dem.min,
-        dem.max,
-        dem.redFactor,
-        dem.greenFactor,
-        dem.blueFactor,
-        dem.baseShift,
-        JSON.stringify(Array.from(terrainData.u_terrain_matrix)),
-        new Uint32Array(dem.data),
+      this.removeTerrainData(
+        [...this.terrainDataHashes.keys()].filter((key) => !activeTerrainTileIds.has(key)),
       )
-      this.terrainDataHashes.set(key, hash)
+
+      sync_terrain_active_tile_ids(this.instanceId, this.mapIntegrationId, [
+        ...activeTerrainTileIds,
+      ])
+
+      for (const tile of activeTerrainTiles) {
+        const key = this.getTileKey(tile.tileID.canonical)
+
+        const terrainData = terrain.getTerrainData(tile.tileID)
+        const dem = terrainData.tile?.dem
+        if (!dem) continue
+
+        const hash = this.getTerrainDataHash(tile, terrainData.tile, dem)
+        if (this.terrainDataHashes.get(key) === hash) continue
+
+        update_terrain_tile_data(
+          this.instanceId,
+          this.mapIntegrationId,
+          key,
+          hash,
+          dem.stride,
+          dem.dim,
+          dem.min,
+          dem.max,
+          dem.redFactor,
+          dem.greenFactor,
+          dem.blueFactor,
+          dem.baseShift,
+          JSON.stringify(Array.from(terrainData.u_terrain_matrix)),
+          new Uint32Array(dem.data),
+        )
+        this.terrainDataHashes.set(key, hash)
+      }
+    } else {
+      // terrain is not available, remove all terrain data that may have existed while terrain was active
+      if (this.terrainDataHashes.size !== 0) {
+        this.removeTerrainData([...this.terrainDataHashes.keys()]);
+        this.terrainDataHashes.clear();
+      }
+
+      const activeTerrainTileIds = new Set(
+        this.map.coveringTiles({
+        tileSize: 512,
+      }).map((tileId) => this.getTileKey(tileId.canonical))
+      );
+
+      sync_terrain_active_tile_ids(this.instanceId, this.mapIntegrationId, [...activeTerrainTileIds])
     }
   }
 
@@ -323,11 +330,8 @@ class MaplibreGlJsIntegration {
     ].join('|')
   }
 
-  private getTileKey(tile: Tile): TileKey | undefined {
-    const canonical = tile.tileID?.canonical
-    if (!canonical) return undefined
-
-    return `${canonical.z}/${canonical.x}/${canonical.y}`
+  private getTileKey(tileId: CanonicalTileID): TileKey {
+    return `${tileId.z}/${tileId.x}/${tileId.y}`
   }
 
   private getRttContentStamp(tile: Tile) {

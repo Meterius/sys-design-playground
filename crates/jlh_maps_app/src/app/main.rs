@@ -1,3 +1,4 @@
+use crate::app::common::debug_gizmos::DebugGizmosPlugin;
 use crate::app::common::settings::SettingsPlugin;
 use crate::app::editor::EditorPlugin;
 use crate::app::instance_management::InstanceManagementPlugin;
@@ -61,6 +62,7 @@ pub fn mount(canvas_selector: String) {
         BigSpaceDefaultPlugins,
         EguiPlugin::default(),
         SettingsPlugin {},
+        DebugGizmosPlugin,
         EditorPlugin {},
         MaplibreGlJsPlugin,
         MapPlugin,

@@ -1,3 +1,4 @@
+use crate::app::common::debug_gizmos::DebugAabbGizmo;
 use crate::app::map::transform::{MERCATOR_WORLD_SIZE, lng_lat_to_world};
 use crate::app::maplibre_gl_js::integration::MaplibreMapIntegration;
 use crate::app::maplibre_gl_js::types::CanonicalTileId;
@@ -35,6 +36,7 @@ fn sync_spawned_tiles(
     map_ints: Query<&MaplibreMapIntegration>,
     mut managers: Query<(Entity, &mut TerrainTileManager)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut meshes: ResMut<Assets<Mesh>>,
 ) {
     for (manager_id, mut manager) in managers.iter_mut() {
         let maplibre_int_id = manager.maplibre_int_id;
@@ -57,11 +59,12 @@ fn sync_spawned_tiles(
                         Name::new(format!("Terrain Tile {tile_id:?}")),
                         Transform::default(),
                         CellCoord::default(),
-                        Mesh3d::default(),
+                        Mesh3d(meshes.add(Mesh::from(Plane3d::new(Vec3::Z, Vec2::ONE / 2.0)))),
                         MeshMaterial3d(materials.add(StandardMaterial {
                             base_color: Color::srgb(0.4, 0.4, 0.4),
                             ..default()
                         })),
+                        DebugAabbGizmo,
                         TerrainTile {
                             maplibre_int_id,
                             maplibre_tile_id: tile_id,
@@ -115,7 +118,7 @@ fn sync_tiles(
 
         match map_int.terrain.tiles.get(&tile.maplibre_tile_id) {
             None if tile.prev_terrain_hash.is_some() => {
-                tile_mesh.0 = meshes.add(Mesh::from(Plane3d::new(Vec3::Z, Vec2::ONE)));
+                tile_mesh.0 = meshes.add(Mesh::from(Plane3d::new(Vec3::Z, Vec2::ONE / 2.0)));
                 tile.prev_terrain_hash = None;
             }
             Some(terrain_data) if Some(&terrain_data.hash) != tile.prev_terrain_hash.as_ref() => {

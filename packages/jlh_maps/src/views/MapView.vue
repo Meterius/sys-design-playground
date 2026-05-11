@@ -95,16 +95,19 @@ import { makeUniqueMapKey, useMapExtended, useMapSelection } from '@/composables
 import { watchDefinedOnce } from '@/composables/helper.ts'
 import { useMaplibreGlJsIntegration } from '@/composables/bevy_maplibre_gl_js_integration.ts'
 import { useBevy } from '@/composables/bevy.ts'
+import { TextureLayer } from '@/components/texture-layer.ts'
 
 const mapKey = makeUniqueMapKey()
 
 const bevyCanvasId = `bevy-canvas-${mapKey}`
 
-const { instanceId } = useBevy(`#${bevyCanvasId}`)
+const { depthTexture, instanceId, renderTexture } = useBevy(`#${bevyCanvasId}`)
 
 const { mapInstance, loaded, zoom, pitch } = useMapExtended(mapKey)
 
-useMaplibreGlJsIntegration(() => instanceId, mapKey, { featureLayers: [] })
+useMaplibreGlJsIntegration(() => instanceId, mapKey, {
+  featureSourceLayers: [{ sourceId: 'openmaptiles', sourceLayer: 'building' }],
+})
 
 const tilejsonUrl = TILESERVER_OMT_DEFAULT_STYLE_TILEJSON_URL.toString()
 console.debug('Using TileJson URL: ', tilejsonUrl)
@@ -151,7 +154,7 @@ const highlightGeoJsonData = computed(
   }),
 )
 
-const terrainEnabled = ref(true)
+const terrainEnabled = ref(false)
 
 const useRasterOnly = false
 const useRaster = false
@@ -437,6 +440,14 @@ watchDefinedOnce(
       watchEffect(() => {
         map.getSource<GeoJSONSource>('highlight')?.setData(highlightGeoJsonData.value)
       }).stop,
+    )
+
+    map.addLayer(
+      new TextureLayer(() => renderTexture.value?.texture, {
+        id: 'bevy-texture',
+        depthMode: 'texture',
+        depthTexture: () => depthTexture.value,
+      }),
     )
 
     map.addLayer({

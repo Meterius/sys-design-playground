@@ -46,6 +46,8 @@
 
   let currentVirtualContext = null
   let someContextsNeedRendering
+  let nextExternalRenderTextureId = 1
+  const externalRenderTextures = new Map()
 
   const sharedWebGLContext = document.createElement('canvas').getContext('webgl2')
   const numAttribs = sharedWebGLContext.getParameter(sharedWebGLContext.MAX_VERTEX_ATTRIBS)
@@ -258,8 +260,14 @@
   function virtualGLDispose() {
     this._disposeHelper()
     const gl = sharedWebGLContext
+    if (this._externalRenderTextureTarget) {
+      externalRenderTextures.delete(this._externalRenderTextureTarget.id)
+    }
     gl.deleteFramebuffer(this._drawingbufferFramebuffer)
     gl.deleteTexture(this._drawingbufferTexture)
+    if (this._depthTexture) {
+      gl.deleteTexture(this._depthTexture)
+    }
     if (this._depthRenderbuffer) {
       gl.deleteRenderbuffer(this._depthRenderbuffer)
     }
@@ -276,6 +284,287 @@
         this[key] = errorDisposedContext(key)
       }
     }
+  }
+
+  function canvasFromCanvasOrSelector(canvasOrSelector) {
+    if (typeof canvasOrSelector === 'string') {
+      const canvas = document.querySelector(canvasOrSelector)
+      if (!canvas) {
+        throw new Error(`No canvas found for selector ${canvasOrSelector}`)
+      }
+      return canvas
+    }
+
+    return canvasOrSelector
+  }
+
+  function createDrawingbufferTarget(vCtx, width, height) {
+    const gl = sharedWebGLContext
+    const oldTexture = gl.getParameter(gl.TEXTURE_BINDING_2D)
+    const oldFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING)
+    const oldRenderbuffer = gl.getParameter(gl.RENDERBUFFER_BINDING)
+    const format = vCtx._contextAttributes.alpha ? gl.RGBA : gl.RGB
+    const texture = gl.createTexture()
+    const framebuffer = gl.createFramebuffer()
+    const depthTexture = vCtx._contextAttributes.depth ? gl.createTexture() : null
+
+    gl.bindTexture(gl.TEXTURE_2D, texture)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    gl.texImage2D(gl.TEXTURE_2D, 0, format, width, height, 0, format, gl.UNSIGNED_BYTE, null)
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0)
+
+    if (depthTexture) {
+      gl.bindTexture(gl.TEXTURE_2D, depthTexture)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.DEPTH_COMPONENT24,
+        width,
+        height,
+        0,
+        gl.DEPTH_COMPONENT,
+        gl.UNSIGNED_INT,
+        null,
+      )
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, depthTexture, 0)
+    }
+
+    gl.bindTexture(gl.TEXTURE_2D, oldTexture)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, oldFramebuffer)
+    gl.bindRenderbuffer(gl.RENDERBUFFER, oldRenderbuffer)
+
+    const target = {
+      id: nextExternalRenderTextureId++,
+      width,
+      height,
+      texture,
+      depthTexture,
+      framebuffer,
+      resize(nextWidth, nextHeight) {
+        if (target.width === nextWidth && target.height === nextHeight) {
+          return
+        }
+
+        const oldTexture = gl.getParameter(gl.TEXTURE_BINDING_2D)
+        const oldFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING)
+
+        target.width = nextWidth
+        target.height = nextHeight
+
+        gl.bindTexture(gl.TEXTURE_2D, texture)
+        gl.texImage2D(
+          gl.TEXTURE_2D,
+          0,
+          format,
+          nextWidth,
+          nextHeight,
+          0,
+          format,
+          gl.UNSIGNED_BYTE,
+          null,
+        )
+
+        if (depthTexture) {
+          gl.bindTexture(gl.TEXTURE_2D, depthTexture)
+          gl.texImage2D(
+            gl.TEXTURE_2D,
+            0,
+            gl.DEPTH_COMPONENT24,
+            nextWidth,
+            nextHeight,
+            0,
+            gl.DEPTH_COMPONENT,
+            gl.UNSIGNED_INT,
+            null,
+          )
+        }
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
+        const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER)
+        gl.bindTexture(gl.TEXTURE_2D, oldTexture)
+        gl.bindFramebuffer(gl.FRAMEBUFFER, oldFramebuffer)
+
+        if (status !== gl.FRAMEBUFFER_COMPLETE) {
+          throw new Error(`Resized framebuffer is incomplete: ${status}`)
+        }
+      },
+      dispose() {
+        externalRenderTextures.delete(target.id)
+        gl.deleteFramebuffer(framebuffer)
+        gl.deleteTexture(texture)
+        if (depthTexture) {
+          gl.deleteTexture(depthTexture)
+        }
+      },
+    }
+    externalRenderTextures.set(target.id, target)
+    return target
+  }
+
+  function createR32fRenderTexture(options = {}) {
+    const gl = sharedWebGLContext
+    const width = options.width ?? 1
+    const height = options.height ?? 1
+    const colorBufferFloat = gl.getExtension('EXT_color_buffer_float')
+    if (!colorBufferFloat) {
+      throw new Error('EXT_color_buffer_float is required for R32F render targets')
+    }
+
+    const oldTexture = gl.getParameter(gl.TEXTURE_BINDING_2D)
+    const oldFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING)
+    const texture = gl.createTexture()
+    const depthTexture = gl.createTexture()
+    const framebuffer = gl.createFramebuffer()
+
+    gl.bindTexture(gl.TEXTURE_2D, texture)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, width, height, 0, gl.RED, gl.FLOAT, null)
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0)
+
+    gl.bindTexture(gl.TEXTURE_2D, depthTexture)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.DEPTH_COMPONENT24,
+      width,
+      height,
+      0,
+      gl.DEPTH_COMPONENT,
+      gl.UNSIGNED_INT,
+      null,
+    )
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, depthTexture, 0)
+
+    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER)
+    gl.bindTexture(gl.TEXTURE_2D, oldTexture)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, oldFramebuffer)
+
+    if (status !== gl.FRAMEBUFFER_COMPLETE) {
+      gl.deleteFramebuffer(framebuffer)
+      gl.deleteTexture(texture)
+      gl.deleteTexture(depthTexture)
+      throw new Error(`R32F framebuffer is incomplete: ${status}`)
+    }
+
+    const target = {
+      id: nextExternalRenderTextureId++,
+      width,
+      height,
+      texture,
+      depthTexture,
+      framebuffer,
+      resize(nextWidth, nextHeight) {
+        if (target.width === nextWidth && target.height === nextHeight) {
+          return
+        }
+
+        const oldTexture = gl.getParameter(gl.TEXTURE_BINDING_2D)
+        const oldFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING)
+
+        target.width = nextWidth
+        target.height = nextHeight
+
+        gl.bindTexture(gl.TEXTURE_2D, texture)
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, nextWidth, nextHeight, 0, gl.RED, gl.FLOAT, null)
+
+        gl.bindTexture(gl.TEXTURE_2D, depthTexture)
+        gl.texImage2D(
+          gl.TEXTURE_2D,
+          0,
+          gl.DEPTH_COMPONENT24,
+          nextWidth,
+          nextHeight,
+          0,
+          gl.DEPTH_COMPONENT,
+          gl.UNSIGNED_INT,
+          null,
+        )
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
+        const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER)
+        gl.bindTexture(gl.TEXTURE_2D, oldTexture)
+        gl.bindFramebuffer(gl.FRAMEBUFFER, oldFramebuffer)
+
+        if (status !== gl.FRAMEBUFFER_COMPLETE) {
+          throw new Error(`Resized R32F framebuffer is incomplete: ${status}`)
+        }
+      },
+      dispose() {
+        externalRenderTextures.delete(target.id)
+        gl.deleteFramebuffer(framebuffer)
+        gl.deleteTexture(texture)
+        gl.deleteTexture(depthTexture)
+      },
+    }
+    externalRenderTextures.set(target.id, target)
+    return target
+  }
+
+  function useDrawingbufferTarget(vCtx, target) {
+    const gl = sharedWebGLContext
+    gl.deleteFramebuffer(vCtx._drawingbufferFramebuffer)
+    gl.deleteTexture(vCtx._drawingbufferTexture)
+    if (vCtx._depthTexture) {
+      gl.deleteTexture(vCtx._depthTexture)
+    }
+    if (vCtx._depthRenderbuffer) {
+      gl.deleteRenderbuffer(vCtx._depthRenderbuffer)
+    }
+
+    vCtx._drawingbufferTexture = target.texture
+    vCtx._drawingbufferFramebuffer = target.framebuffer
+    vCtx._depthTexture = target.depthTexture
+    vCtx._depthRenderbuffer = null
+    vCtx._width = target.width
+    vCtx._height = target.height
+    vCtx._state.readFramebuffer = target.framebuffer
+    vCtx._state.drawFramebuffer = target.framebuffer
+    vCtx._state.readBuffer = gl.COLOR_ATTACHMENT0
+    vCtx._externalRenderTextureTarget = target
+  }
+
+  function createRenderTextureForCanvas(canvasOrSelector, options = {}) {
+    const canvas = canvasFromCanvasOrSelector(canvasOrSelector)
+    const vCtx = canvas.getContext('webgl2')
+    const width = options.width ?? canvas.width
+    const height = options.height ?? canvas.height
+    const target = createDrawingbufferTarget(vCtx, width, height)
+    useDrawingbufferTarget(vCtx, target)
+    return target
+  }
+
+  function createRenderTexture(options = {}) {
+    const width = options.width ?? 1
+    const height = options.height ?? 1
+    const vCtx = {
+      _contextAttributes: {
+        alpha: true,
+        depth: true,
+      },
+    }
+    return createDrawingbufferTarget(vCtx, width, height)
+  }
+
+  function getRenderTexture(id) {
+    return externalRenderTextures.get(id)
   }
 
   function virtualGLComposite(gl) {
@@ -518,7 +807,11 @@
       return state.readBuffer === gl.NONE ? gl.NONE : gl.BACK
     }
 
-    if (vCtx && state.readFramebuffer === vCtx._drawingbufferFramebuffer && state.readBuffer === gl.BACK) {
+    if (
+      vCtx &&
+      state.readFramebuffer === vCtx._drawingbufferFramebuffer &&
+      state.readBuffer === gl.BACK
+    ) {
       return gl.COLOR_ATTACHMENT0
     }
 
@@ -1421,6 +1714,21 @@
       const format = vCtx._contextAttributes.alpha ? gl.RGBA : gl.RGB
       gl.bindTexture(gl.TEXTURE_2D, vCtx._drawingbufferTexture)
       gl.texImage2D(gl.TEXTURE_2D, 0, format, width, height, 0, format, gl.UNSIGNED_BYTE, null)
+
+      if (vCtx._depthTexture) {
+        gl.bindTexture(gl.TEXTURE_2D, vCtx._depthTexture)
+        gl.texImage2D(
+          gl.TEXTURE_2D,
+          0,
+          gl.DEPTH_COMPONENT24,
+          width,
+          height,
+          0,
+          gl.DEPTH_COMPONENT,
+          gl.UNSIGNED_INT,
+          null,
+        )
+      }
       gl.bindTexture(gl.TEXTURE_2D, oldTexture)
 
       if (vCtx._depthRenderbuffer) {
@@ -1466,14 +1774,14 @@
       gl.shaderSource(shader, shaderSources[ndx])
       gl.compileShader(shader)
       if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-        console.error(gl.getShaderInfoLog(shader)) // eslint-disable-line
+        console.error(gl.getShaderInfoLog(shader))
       }
       gl.attachShader(program, shader)
     })
     gl.bindAttribLocation(program, 0, 'position')
     gl.linkProgram(program)
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      console.error(gl.getProgramInfoLog(program)) // eslint-disable-line
+      console.error(gl.getProgramInfoLog(program))
     }
 
     return program
@@ -1652,6 +1960,10 @@
   }
 
   window.virtualWebGL = {
+    createR32fRenderTexture,
+    createRenderTexture,
+    createRenderTextureForCanvas,
+    getRenderTexture,
     setup,
   }
 })()

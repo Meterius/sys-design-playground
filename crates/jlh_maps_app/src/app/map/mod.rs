@@ -1,3 +1,4 @@
+pub mod buildings;
 pub mod camera;
 pub mod core;
 pub mod terrain;
@@ -13,6 +14,7 @@ impl Plugin for MapPlugin {
             camera::CameraPlugin,
             core::CorePlugin,
             terrain::TerrainPlugin,
+            buildings::BuildingsPlugin,
         ));
     }
 }

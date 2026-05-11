@@ -1,4 +1,4 @@
-use bevy::camera::{Viewport, visibility::RenderLayers};
+use bevy::camera::{RenderTarget, Viewport, visibility::RenderLayers};
 use bevy::input::ButtonState;
 use bevy::input::keyboard::KeyboardInput;
 use bevy::reflect::TypeRegistry;
@@ -64,10 +64,14 @@ fn show_ui_system(world: &mut World) {
 fn set_camera_viewport(
     ui_state: Res<UiState>,
     window: Single<&Window, With<PrimaryWindow>>,
-    mut cams: Query<&mut Camera, Without<PrimaryEguiContext>>,
+    mut cams: Query<(&RenderTarget, &mut Camera), Without<PrimaryEguiContext>>,
     egui_settings: Single<&EguiContextSettings>,
 ) {
-    for mut cam in cams.iter_mut() {
+    for (cam_rt, mut cam) in cams.iter_mut() {
+        if !matches!(cam_rt, RenderTarget::Window(_)) {
+            continue;
+        }
+
         if ui_state.editor_active {
             let scale_factor = window.scale_factor() * egui_settings.scale_factor;
 
@@ -309,7 +313,7 @@ fn setup(mut commands: Commands, mut egui_global_settings: ResMut<EguiGlobalSett
         PrimaryEguiContext,
         RenderLayers::none(),
         Camera {
-            order: 1,
+            order: -1,
             clear_color: ClearColorConfig::None,
             ..default()
         },

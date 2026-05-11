@@ -22,9 +22,13 @@ fn draw_aabb_gizmos(
 ) {
     for (aabb, transform, color) in items.iter() {
         let color = color.map(|c| c.0).unwrap_or(Color::srgb(1.0, 0.0, 0.0));
-        gizmos.aabb_3d(Aabb {
-            center: aabb.center,
-            half_extents: aabb.half_extents + Vec3A::ONE * 0.00001,
-        }, *transform, color);
+        gizmos.aabb_3d(
+            Aabb {
+                center: aabb.center,
+                half_extents: aabb.half_extents + Vec3A::ONE * 0.00001,
+            },
+            *transform,
+            color,
+        );
     }
 }

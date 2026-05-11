@@ -1,3 +1,3 @@
 [build]
 rustflags = ["-C", "target-cpu=generic"]
-
+target = "wasm32-unknown-unknown"

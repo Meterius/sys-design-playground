@@ -1,6 +1,8 @@
 <template>
   <div style="position: absolute; left: 0; right: 0; top: 0; bottom: 0">
-    <div :style="`position: absolute; width: 100%; height: ${showBevyCanvas ? '50%' : '100%'}; top: 0`">
+    <div
+      :style="`position: absolute; width: 100%; height: ${showBevyCanvas ? '50%' : '100%'}; top: 0`"
+    >
       <mgl-map
         :map-key="mapKey"
         :map-style="tilejsonUrl"
@@ -60,7 +62,10 @@
       </mgl-map>
     </div>
 
-    <div v-show="showBevyCanvas" :style="`position: absolute; width: ${showBevyCanvas ? '100%' : '10px'}; height: ${showBevyCanvas ? '50%' : '1px'}; bottom: 0`">
+    <div
+      v-show="showBevyCanvas"
+      :style="`position: absolute; width: ${showBevyCanvas ? '100%' : '10px'}; height: ${showBevyCanvas ? '50%' : '1px'}; bottom: 0`"
+    >
       <canvas
         :id="bevyCanvasId"
         style="position: absolute; inset: 0; height: 100%; width: 100%"
@@ -118,12 +123,12 @@ const mapKey = makeUniqueMapKey()
 
 const bevyCanvasId = `bevy-canvas-${mapKey}`
 
-const { depthTexture, instanceId, renderTexture, tick } = useBevy(
+const { depthTexture, instanceId, renderTexture, tick, enableWindowCameras } = useBevy(
   `#${bevyCanvasId}`,
   '.maplibregl-canvas',
 )
 
-const { mapInstance, loaded, zoom, pitch } = useMapExtended(mapKey)
+const { mapInstance, loaded, zoom } = useMapExtended(mapKey)
 
 const { syncOnRender } = useMaplibreGlJsIntegration(() => instanceId, mapKey, {
   featureSourceLayers: [{ sourceId: 'openmaptiles', sourceLayer: 'building' }],
@@ -175,6 +180,15 @@ const highlightGeoJsonData = computed(
 )
 
 const showBevyCanvas = ref(false)
+
+watch(
+  showBevyCanvas,
+  (value) => {
+    enableWindowCameras.value = value
+  },
+  { immediate: true },
+)
+
 const terrainEnabled = ref(false)
 
 const useRasterOnly = false

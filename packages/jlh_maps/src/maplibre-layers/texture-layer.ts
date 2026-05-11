@@ -96,9 +96,9 @@ export class TextureLayer implements CustomLayerInterface {
 
   render(gl: WebGL2RenderingContext | WebGLRenderingContext): void {
     try {
-      this.tickCallback?.();
+      this.tickCallback?.()
     } catch (err) {
-      console.error('Error in texture layer tick callback:', err);
+      console.error('Error in texture layer tick callback:', err)
     }
 
     if (!this.program || !this.vertexBuffer) {
@@ -172,18 +172,6 @@ export class TextureLayer implements CustomLayerInterface {
 
   private getTexture(provider: TextureProvider) {
     return typeof provider === 'function' ? provider() : provider
-  }
-}
-
-function depthModeToUniform(mode: TextureLayerDepthMode): 0 | 1 | 2 {
-  switch (mode) {
-    case 'front':
-      return 1
-    case 'back':
-      return 2
-    case 'texture':
-    default:
-      return 0
   }
 }
 

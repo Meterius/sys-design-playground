@@ -135,8 +135,8 @@ class MaplibreGlJsIntegration {
   }
 
   syncOnRender() {
-    this.syncView();
-    this.syncTerrain();
+    this.syncView()
+    this.syncTerrain()
   }
 
   stop() {

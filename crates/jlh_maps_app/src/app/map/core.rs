@@ -28,7 +28,29 @@ thread_local! {
 pub(super) struct CorePlugin;
 
 impl Plugin for CorePlugin {
-    fn build(&self, _app: &mut App) {}
+    fn build(&self, app: &mut App) {
+        app.insert_resource(MapViewSettings {
+            enable_window_cameras: false,
+        });
+
+        app.add_systems(PreUpdate, sync_window_cameras);
+    }
+}
+
+#[derive(Debug, Reflect, Resource)]
+pub struct MapViewSettings {
+    pub enable_window_cameras: bool,
+}
+
+fn sync_window_cameras(
+    mv_settings: Res<MapViewSettings>,
+    mut cams: Query<(&mut Camera, &RenderTarget)>,
+) {
+    for (mut cam, cam_target) in cams.iter_mut() {
+        if matches!(cam_target, RenderTarget::Window(_)) {
+            cam.is_active = mv_settings.enable_window_cameras;
+        }
+    }
 }
 
 #[derive(Debug, Reflect, Component)]
@@ -112,7 +134,7 @@ pub fn spawn_map_view(
     commands.entity(map_view_id).with_child((
         DirectionalLight {
             color: Color::srgb(0.98, 0.95, 0.82),
-            shadows_enabled: true,
+            shadows_enabled: false,
             shadow_depth_bias: 0.01,
             shadow_normal_bias: 1.8,
             ..default()
@@ -132,7 +154,7 @@ pub fn spawn_map_view(
     commands.entity(map_view_id).with_child((
         Transform::default(),
         CellCoord::default(),
-        Msaa::Off,
+        Msaa::Sample8,
         Camera3d::default(),
         Camera {
             clear_color: ClearColorConfig::Custom(Color::NONE),
@@ -148,7 +170,7 @@ pub fn spawn_map_view(
         Name::new("External Color Camera"),
         Transform::default(),
         CellCoord::default(),
-        Msaa::Off,
+        Msaa::Sample8,
         FloatingOrigin,
         Camera3d::default(),
         Camera {

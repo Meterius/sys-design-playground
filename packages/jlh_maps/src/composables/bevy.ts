@@ -1,5 +1,11 @@
-import { onBeforeUnmount, onMounted, shallowRef } from 'vue'
-import { mount, resize_external_targets, tick, unmount } from 'jlh_maps_app'
+import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import {
+  mount,
+  resize_external_targets,
+  set_map_view_enable_window_cameras,
+  tick,
+  unmount,
+} from 'jlh_maps_app'
 
 interface BevyRenderTexture {
   id: number
@@ -28,11 +34,17 @@ declare global {
 
 export function useBevy(bevyCanvasSelector: string, textureCanvasSelector: string) {
   const instanceId = bevyCanvasSelector
+
   const renderTexture = shallowRef<BevyRenderTexture>()
   const depthRenderTexture = shallowRef<BevyRenderTexture>()
   const depthTexture = shallowRef<WebGLTexture | null>()
+
   let resizeObserver: ResizeObserver | undefined
   let resizeHandler: (() => void) | undefined
+
+  const onBeforeUnmountCallbacks = []
+
+  const enableWindowCameras = ref(false)
 
   onMounted(() => {
     const textureCanvas = document.querySelector<HTMLCanvasElement>(textureCanvasSelector)
@@ -63,6 +75,16 @@ export function useBevy(bevyCanvasSelector: string, textureCanvasSelector: strin
       texture.height,
       texture.framebuffer,
       r32fTexture.framebuffer,
+    )
+
+    onBeforeUnmountCallbacks.push(
+      watch(
+        enableWindowCameras,
+        (value) => {
+          set_map_view_enable_window_cameras(instanceId, value)
+        },
+        { immediate: true },
+      ).stop,
     )
 
     resizeHandler = () => {
@@ -102,6 +124,7 @@ export function useBevy(bevyCanvasSelector: string, textureCanvasSelector: strin
     instanceId,
     renderTexture,
     depthTexture,
+    enableWindowCameras,
     tick: () => tick(instanceId),
   }
 }

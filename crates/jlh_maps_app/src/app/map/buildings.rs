@@ -1,18 +1,15 @@
+use crate::app::common::materials::DepthTextureMaterial;
 use crate::app::map::camera::MapViewCamera;
 use crate::app::map::core::{MAP_VIEW_COLOR_RENDER_LAYER, MAP_VIEW_DEPTH_RENDER_LAYER};
 use crate::app::map::transform::lng_lat_to_world;
 use crate::app::maplibre_gl_js::integration::MaplibreMapIntegration;
 use crate::app::maplibre_gl_js::types::{CanonicalTileId, SourceLayerFeature};
 use crate::utils::debug::SoftExpect;
-use bevy::asset::{Handle, RenderAssetUsages, load_internal_asset, uuid_handle};
+use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
 use bevy::math::{DVec2, DVec3, dvec2};
 use bevy::mesh::{Indices, PrimitiveTopology};
-use bevy::pbr::{Material, MaterialPlugin};
 use bevy::prelude::*;
-use bevy::render::render_resource::AsBindGroup;
-use bevy::shader::Shader;
-use bevy::shader::ShaderRef;
 use big_space::grid::Grid;
 use geojson::{Geometry, Value};
 use serde_json::Value as JsonValue;
@@ -20,18 +17,8 @@ use std::collections::HashMap;
 
 pub struct BuildingsPlugin;
 
-const DEPTH_TEXTURE_MATERIAL_SHADER_HANDLE: Handle<Shader> =
-    uuid_handle!("5bc825bd-3fd3-49e7-8542-38a1d2426f04");
-
 impl Plugin for BuildingsPlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(
-            app,
-            DEPTH_TEXTURE_MATERIAL_SHADER_HANDLE,
-            "depth_encoded_material.wgsl",
-            Shader::from_wgsl
-        );
-        app.add_plugins(MaterialPlugin::<DepthTextureMaterial>::default());
         app.add_systems(
             Update,
             (
@@ -270,15 +257,6 @@ fn setup_buildings(
                 RenderLayers::layer(MAP_VIEW_DEPTH_RENDER_LAYER),
             ));
         });
-    }
-}
-
-#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
-pub struct DepthTextureMaterial {}
-
-impl Material for DepthTextureMaterial {
-    fn fragment_shader() -> ShaderRef {
-        DEPTH_TEXTURE_MATERIAL_SHADER_HANDLE.into()
     }
 }
 

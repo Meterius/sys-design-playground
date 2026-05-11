@@ -89,13 +89,13 @@ import {
 } from '@/external/endpoints.ts'
 import MapDetails from '@/components/MapDetails.vue'
 import MapSettings from '@/components/MapSettings.vue'
-import { DynWaterLayer } from '@/components/dyn-water-layer.ts'
-import { TreeMeshLayer } from '@/components/tree-mesh-layer.ts'
+import { DynWaterLayer } from '../maplibre-layers/dyn-water-layer.ts'
+import { TreeMeshLayer } from '../maplibre-layers/tree-mesh-layer.ts'
 import { makeUniqueMapKey, useMapExtended, useMapSelection } from '@/composables/maplibre.ts'
 import { watchDefinedOnce } from '@/composables/helper.ts'
-import { useMaplibreGlJsIntegration } from '@/composables/bevy_maplibre_gl_js_integration.ts'
+import { useMaplibreGlJsIntegration } from '@/composables/bevy-maplibre-integration.ts'
 import { useBevy } from '@/composables/bevy.ts'
-import { TextureLayer } from '@/components/texture-layer.ts'
+import { TextureLayer } from '../maplibre-layers/texture-layer.ts'
 
 const mapKey = makeUniqueMapKey()
 

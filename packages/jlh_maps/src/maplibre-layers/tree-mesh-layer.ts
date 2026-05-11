@@ -13,8 +13,8 @@ import * as THREE from 'three'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { area, bbox, booleanPointInPolygon, point } from '@turf/turf'
 import type { Feature, Geometry, MultiPolygon, Polygon, Position } from 'geojson'
-import treeCollectionUrl from '@/assets/tree-models/source/Lowpoly_Trees_Collection.fbx?url'
-import treePaletteUrl from '@/assets/tree-models/textures/palette.png?url'
+import treeCollectionUrl from '../assets/tree-models/source/Lowpoly_Trees_Collection.fbx?url'
+import treePaletteUrl from '../assets/tree-models/textures/palette.png?url'
 import { tileIdToLngLatBounds } from 'maplibre-gl/src/tile/tile_id_to_lng_lat_bounds.ts'
 
 type TileKey = string

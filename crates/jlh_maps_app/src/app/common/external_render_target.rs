@@ -11,10 +11,10 @@ use bevy::render::renderer::RenderDevice;
 use bevy::render::renderer::WgpuWrapper;
 use bevy::render::texture::ManualTextureView;
 use tracing::{info, warn};
-use wasm_bindgen::prelude::wasm_bindgen;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
+use wasm_bindgen::prelude::wasm_bindgen;
 
 pub const EXTERNAL_COLOR_TARGET_HANDLE: ManualTextureViewHandle = ManualTextureViewHandle(9101);
 pub const EXTERNAL_R32F_TARGET_HANDLE: ManualTextureViewHandle = ManualTextureViewHandle(9102);
@@ -259,6 +259,6 @@ fn import_external_framebuffer_as_texture_view(
 unsafe fn render_device_as_wgpu_device(render_device: &RenderDevice) -> &wgpu::Device {
     // Diagnostic bridge: Bevy wraps the wgpu device but does not expose
     // create_texture_from_hal. RenderDevice is a single-field wrapper in Bevy 0.18.
-    
+
     (unsafe { &*(render_device as *const RenderDevice as *const WgpuWrapper<wgpu::Device>) }) as _
 }

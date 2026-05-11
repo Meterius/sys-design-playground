@@ -140,12 +140,6 @@ impl MapLibreMercatorProjection {
             * world_from_view)
             .as_mat4();
 
-        info!(
-            "near: {} far: {}",
-            Self::near_from_clip_from_view(clip_from_view),
-            Self::far_from_clip_from_view(clip_from_view)
-        );
-
         Some(Self {
             clip_from_view,
             far: Self::far_from_clip_from_view(clip_from_view),
@@ -156,19 +150,6 @@ impl MapLibreMercatorProjection {
         self.clip_from_view
             .inverse()
             .project_point3(Vec3::new(ndc_x, ndc_y, ndc_z))
-    }
-
-    fn near_from_clip_from_view(clip_from_view: Mat4) -> f32 {
-        let view_from_clip = clip_from_view.inverse();
-        [
-            Vec3::new(1.0, -1.0, -1.0),
-            Vec3::new(1.0, 1.0, -1.0),
-            Vec3::new(-1.0, 1.0, -1.0),
-            Vec3::new(-1.0, -1.0, -1.0),
-        ]
-        .into_iter()
-        .map(|corner| view_from_clip.project_point3(corner).z)
-        .fold(f32::MAX, f32::min)
     }
 
     fn far_from_clip_from_view(clip_from_view: Mat4) -> f32 {

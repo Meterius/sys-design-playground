@@ -1,4 +1,4 @@
-use crate::utils::dem_data::DEMData;
+use crate::app::maplibre_gl_js::utils::dem_data::DEMData;
 use bevy::math::{DMat4, IVec2, Vec2, Vec4Swizzles, vec4};
 
 pub const EXTENT: u32 = 8192;

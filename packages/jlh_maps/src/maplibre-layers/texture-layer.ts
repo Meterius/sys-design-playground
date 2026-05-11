@@ -110,8 +110,6 @@ export class TextureLayer implements CustomLayerInterface {
       return
     }
 
-    console.log('rtl ', this.map.painter.getDepthModeFor3D().range);
-
     const colorTexture = this.getTexture(this.colorTextureProvider)
     if (!colorTexture) {
       this.map.triggerRepaint()

@@ -2,11 +2,11 @@ use crate::app::common::debug_gizmos::DebugAabbGizmo;
 use crate::app::map::transform::{MERCATOR_WORLD_SIZE, lng_lat_to_world};
 use crate::app::maplibre_gl_js::integration::MaplibreMapIntegration;
 use crate::app::maplibre_gl_js::types::CanonicalTileId;
-use crate::utils::debug::SoftExpect;
-use crate::utils::mercator_coordinate::{
+use crate::app::maplibre_gl_js::utils::mercator_coordinate::{
     EARTH_CIRCUMFERENCE, LngLat, MercatorCoordinate, lat_from_mercator_y, lng_from_mercator_x,
 };
-use crate::utils::terrain::get_dem_elevation;
+use crate::app::maplibre_gl_js::utils::terrain::get_dem_elevation;
+use crate::utils::debug::SoftExpect;
 use crate::utils::terrain_mesh::build_terrain_mesh_with_skirts;
 use bevy::math::{DVec2, DVec3, dvec2};
 use bevy::prelude::*;

@@ -1,4 +1,4 @@
-use crate::utils::mercator_coordinate::{LngLat, MercatorCoordinate};
+use crate::app::maplibre_gl_js::utils::mercator_coordinate::{LngLat, MercatorCoordinate};
 use bevy::math::{DVec3, dvec3};
 
 pub const MERCATOR_WORLD_SIZE: f64 = 100_000.0;

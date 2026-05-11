@@ -5,8 +5,8 @@ use crate::app::maplibre_gl_js::integration::{
 use crate::app::maplibre_gl_js::types::{
     CanonicalTileId, MaplibreMapViewData, MaplibreTerrainTileData, SourceLayerFeature,
 };
-use crate::utils::dem_data::DEMData;
-use crate::utils::terrain::TerrainData;
+use crate::app::maplibre_gl_js::utils::dem_data::DEMData;
+use crate::app::maplibre_gl_js::utils::terrain::TerrainData;
 use anyhow::anyhow;
 use bevy::math::DMat4;
 use bevy::prelude::{Name, default};

@@ -3,7 +3,7 @@ use geojson::Geometry;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 
-use crate::utils::terrain::TerrainData;
+use crate::app::maplibre_gl_js::utils::terrain::TerrainData;
 
 #[derive(Default)]
 #[allow(dead_code)]

@@ -53,6 +53,7 @@ const props = defineProps<{
 const showTileBoundaries = computed({
   get: () => props.map.showTileBoundaries,
   set: (value: boolean) => {
+    // eslint-disable-next-line vue/no-mutating-props
     props.map.showTileBoundaries = value
   },
 })
@@ -60,6 +61,7 @@ const showTileBoundaries = computed({
 const showCollisionBoxes = computed({
   get: () => props.map.showCollisionBoxes,
   set: (value: boolean) => {
+    // eslint-disable-next-line vue/no-mutating-props
     props.map.showCollisionBoxes = value
   },
 })
@@ -67,6 +69,7 @@ const showCollisionBoxes = computed({
 const showPadding = computed({
   get: () => props.map.showPadding,
   set: (value: boolean) => {
+    // eslint-disable-next-line vue/no-mutating-props
     props.map.showPadding = value
   },
 })

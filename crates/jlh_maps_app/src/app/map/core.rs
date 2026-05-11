@@ -4,7 +4,7 @@ use crate::app::common::external_render_target::{
 use crate::app::map::buildings::BuildingManager;
 use crate::app::map::camera::MapViewCamera;
 use crate::app::map::transform::MERCATOR_WORLD_SIZE;
-use crate::utils::mercator_coordinate::{LngLat, MercatorCoordinate};
+use crate::app::maplibre_gl_js::utils::mercator_coordinate::{LngLat, MercatorCoordinate};
 use bevy::camera::RenderTarget;
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;

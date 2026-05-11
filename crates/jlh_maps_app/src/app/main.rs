@@ -1,9 +1,10 @@
 use crate::app::common::debug_gizmos::DebugGizmosPlugin;
+use crate::app::common::editor::EditorPlugin;
 use crate::app::common::external_render_target::{
     BevyRenderTextureConfig, ExternalRenderTargetPlugin,
 };
+use crate::app::common::materials::MaterialsPlugin;
 use crate::app::common::settings::SettingsPlugin;
-use crate::app::editor::EditorPlugin;
 use crate::app::instance_management::InstanceManagementPlugin;
 use crate::app::instance_management::instance::InstanceState;
 use crate::app::instance_management::instance::register_instance;
@@ -77,6 +78,7 @@ pub fn mount(
         EditorPlugin {},
         MaplibreGlJsPlugin,
         MapPlugin,
+        MaterialsPlugin,
         InstanceManagementPlugin { id: instance_id },
         ExternalRenderTargetPlugin {
             render_texture_id,

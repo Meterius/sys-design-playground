@@ -1,6 +1,7 @@
 pub mod integration;
 pub mod interop;
 pub mod types;
+pub mod utils;
 
 use bevy::prelude::*;
 

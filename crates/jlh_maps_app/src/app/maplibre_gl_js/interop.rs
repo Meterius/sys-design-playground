@@ -12,31 +12,51 @@ use bevy::math::DMat4;
 use bevy::prelude::{Name, default};
 use geojson::Geometry;
 use serde::Deserialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use tracing::error;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 #[derive(Deserialize)]
 struct EncodedFeature {
-    key: String,
+    source_id: String,
+    source_layer_id: String,
     tile_key: CanonicalTileId,
-    layer_id: String,
+    feature_id: String,
     geometry: Geometry,
     #[serde(default)]
-    properties: serde_json::Value,
+    properties: HashMap<String, serde_json::Value>,
 }
 
-fn parse_features(encoded_features: &str) -> Vec<SourceLayerFeature> {
+struct ParsedFeature {
+    source_id: String,
+    source_layer_id: String,
+    tile_id: CanonicalTileId,
+    feature: SourceLayerFeature,
+}
+
+#[derive(Deserialize)]
+struct EncodedFeatureKey {
+    source_id: String,
+    source_layer_id: String,
+    tile_key: CanonicalTileId,
+    feature_id: String,
+}
+
+fn parse_features(encoded_features: &str) -> Vec<ParsedFeature> {
     serde_json::from_str::<Vec<EncodedFeature>>(encoded_features)
         .inspect_err(|err| error!("Failed to parse features: {}", err))
         .unwrap_or_default()
         .into_iter()
-        .map(|feature| SourceLayerFeature {
+        .map(|feature| ParsedFeature {
+            source_id: feature.source_id,
+            source_layer_id: feature.source_layer_id,
             tile_id: feature.tile_key,
-            id: feature.key,
-            source_layer_id: feature.layer_id,
-            geometry: feature.geometry,
-            properties: feature.properties,
+            feature: SourceLayerFeature {
+                tile_id: feature.tile_key,
+                id: feature.feature_id,
+                geometry: feature.geometry,
+                properties: feature.properties,
+            },
         })
         .collect()
 }
@@ -207,10 +227,12 @@ pub fn update_features(
     enqueue_instance_command(&instance_id, move |world| {
         with_map_data_mut(world, integration_id, |map_data| {
             for feature in features {
-                map_data
-                    .features
-                    .features
-                    .insert(feature.id.clone(), feature);
+                map_data.features.insert(
+                    feature.source_id,
+                    feature.source_layer_id,
+                    feature.tile_id,
+                    feature.feature,
+                );
             }
         });
     })
@@ -223,14 +245,19 @@ pub fn remove_features(
     integration_id: u32,
     encoded_feature_keys: String,
 ) -> Result<(), String> {
-    let feature_keys = serde_json::from_str::<Vec<String>>(&encoded_feature_keys)
+    let feature_keys = serde_json::from_str::<Vec<EncodedFeatureKey>>(&encoded_feature_keys)
         .inspect_err(|err| error!("Failed to parse removed feature keys: {}", err))
         .unwrap_or_default();
 
     enqueue_instance_command(&instance_id, move |world| {
         with_map_data_mut(world, integration_id, |map_data| {
             for feature_key in feature_keys {
-                map_data.features.features.remove(&feature_key);
+                map_data.features.remove(
+                    &feature_key.source_id,
+                    &feature_key.source_layer_id,
+                    &feature_key.tile_key,
+                    &feature_key.feature_id,
+                );
             }
         });
     })

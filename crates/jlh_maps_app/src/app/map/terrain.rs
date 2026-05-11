@@ -1,17 +1,17 @@
 use crate::app::common::debug_gizmos::DebugAabbGizmo;
 use crate::app::common::materials::TransparentOverwriteMaterial;
 use crate::app::map::core::{MAP_VIEW_COLOR_RENDER_LAYER, MAP_VIEW_DEPTH_RENDER_LAYER};
-use crate::app::map::transform::{MERCATOR_WORLD_SIZE, lng_lat_to_world};
+use crate::app::map::transform::MERCATOR_WORLD_SIZE;
 use crate::app::maplibre_gl_js::integration::MaplibreMapIntegration;
 use crate::app::maplibre_gl_js::types::CanonicalTileId;
 use crate::app::maplibre_gl_js::utils::mercator_coordinate::{
-    EARTH_CIRCUMFERENCE, LngLat, MercatorCoordinate, lat_from_mercator_y, lng_from_mercator_x,
+    EARTH_CIRCUMFERENCE, LngLat, MercatorCoordinate,
 };
 use crate::app::maplibre_gl_js::utils::terrain::get_dem_elevation;
+use crate::app::maplibre_gl_js::utils::tile::{get_tile_lnglat_bounds, tile_transform_d};
 use crate::utils::debug::SoftExpect;
 use crate::utils::terrain_mesh::build_terrain_mesh_with_skirts;
 use bevy::camera::visibility::RenderLayers;
-use bevy::math::{DVec2, DVec3, dvec2};
 use bevy::prelude::*;
 use big_space::grid::Grid;
 use big_space::prelude::CellCoord;
@@ -154,32 +154,6 @@ fn sync_tiles(
     }
 }
 
-fn get_tile_lnglat_bounds(id: CanonicalTileId) -> (DVec2, DVec2) {
-    let ll_min = dvec2(
-        lng_from_mercator_x(id.x as f64 / 2f64.powf(id.z as f64)),
-        lat_from_mercator_y((id.y as f64 + 1.0) / 2f64.powf(id.z as f64)),
-    );
-
-    let ll_max = dvec2(
-        lng_from_mercator_x((id.x + 1) as f64 / 2f64.powf(id.z as f64)),
-        lat_from_mercator_y(id.y as f64 / 2f64.powf(id.z as f64)),
-    );
-
-    (ll_min.min(ll_max), ll_min.max(ll_max))
-}
-
-fn tile_transform_d(tile_id: CanonicalTileId, alt: f64) -> (DVec3, DVec2) {
-    let bounds = get_tile_lnglat_bounds(tile_id);
-
-    let south_west = lng_lat_to_world(bounds.0.x, bounds.0.y, alt);
-    let north_east = lng_lat_to_world(bounds.1.x, bounds.1.y, alt);
-
-    let min = south_west.min(north_east);
-    let max = south_west.max(north_east);
-    let size = max - min;
-
-    ((min + max) * 0.5, size.xy())
-}
 fn terrain_skirt_delta(tile_id: CanonicalTileId) -> f32 {
     let bounds = get_tile_lnglat_bounds(tile_id);
 

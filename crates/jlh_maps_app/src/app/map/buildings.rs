@@ -3,27 +3,28 @@ use crate::app::map::core::MAP_VIEW_COLOR_RENDER_LAYER;
 use crate::app::map::transform::lng_lat_to_world;
 use crate::app::maplibre_gl_js::integration::MaplibreMapIntegration;
 use crate::app::maplibre_gl_js::types::{CanonicalTileId, SourceLayerFeature};
+use crate::app::maplibre_gl_js::utils::tile::get_tile_lnglat_bounds;
 use crate::utils::debug::SoftExpect;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
-use bevy::math::{DVec2, DVec3, dvec2};
+use bevy::math::{DVec3, dvec2};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use big_space::grid::Grid;
-use geojson::{Geometry, Value};
+use geojson::Value;
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub struct BuildingsPlugin;
 
 impl Plugin for BuildingsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.init_resource::<BuildingMaterial>().add_systems(
             Update,
             (
+                sync_spawned_building_buckets,
                 sync_distance_visibility,
-                sync_spawned_buildings,
-                setup_visible_building_meshes,
+                setup_visible_building_bucket_meshes,
             )
                 .chain(),
         );
@@ -31,6 +32,7 @@ impl Plugin for BuildingsPlugin {
 }
 
 const DEFAULT_BUILDING_VISIBILITY_DISTANCE: f32 = 10.0;
+const BUILDING_SOURCE_LAYER: &str = "building";
 
 #[derive(Component)]
 pub struct BuildingManager {
@@ -40,144 +42,201 @@ pub struct BuildingManager {
 
 #[derive(Default)]
 pub struct SpawnedBuildingSource {
-    tiles: HashMap<CanonicalTileId, HashMap<String, Entity>>,
+    tiles: HashMap<CanonicalTileId, Entity>,
 }
 
-fn sync_spawned_buildings(
+#[derive(Component)]
+struct BuildingTileBucket {
+    maplibre_int_id: Entity,
+    source_id: String,
+    tile_id: CanonicalTileId,
+    center: DVec3,
+    mesh_handle: Option<Handle<Mesh>>,
+    mesh_dirty: bool,
+    meshed_feature_ids: HashSet<String>,
+    buffers: BuildingMeshBuffers,
+}
+
+#[derive(Default)]
+struct BuildingMeshBuffers {
+    positions: Vec<[f32; 3]>,
+    normals: Vec<[f32; 3]>,
+    uvs: Vec<[f32; 2]>,
+    indices: Vec<u32>,
+}
+
+impl BuildingMeshBuffers {
+    fn clear(&mut self) {
+        self.positions.clear();
+        self.normals.clear();
+        self.uvs.clear();
+        self.indices.clear();
+    }
+
+    fn is_empty(&self) -> bool {
+        self.positions.is_empty() || self.indices.is_empty()
+    }
+
+    fn to_mesh(&self) -> Mesh {
+        let mut mesh = Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::default(),
+        );
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, self.positions.clone());
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, self.normals.clone());
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, self.uvs.clone());
+        mesh.insert_indices(Indices::U32(self.indices.clone()));
+        mesh
+    }
+}
+
+#[derive(Resource)]
+struct BuildingMaterial(Handle<StandardMaterial>);
+
+impl FromWorld for BuildingMaterial {
+    fn from_world(world: &mut World) -> Self {
+        let mut materials = world.resource_mut::<Assets<StandardMaterial>>();
+        Self(materials.add(StandardMaterial {
+            base_color: Color::srgb(0.8, 0.2, 0.2),
+            ..default()
+        }))
+    }
+}
+
+fn sync_spawned_building_buckets(
     mut commands: Commands,
     map_ints: Query<&MaplibreMapIntegration>,
     mut managers: Query<(Entity, &Grid, &mut BuildingManager)>,
+    mut buckets: Query<&mut BuildingTileBucket>,
 ) {
     for (manager_id, grid, mut manager) in managers.iter_mut() {
-        let Some(map_int) = map_ints.get(manager.maplibre_int_id).ok().soft_expect("") else {
+        let maplibre_int_id = manager.maplibre_int_id;
+        let Some(map_int) = map_ints.get(maplibre_int_id).ok().soft_expect("") else {
             continue;
         };
 
-        remove_stale_buildings(&mut commands, map_int, &mut manager.spawned_buildings);
+        remove_stale_building_buckets(
+            &mut commands,
+            map_int,
+            &mut manager.spawned_buildings,
+            &mut buckets,
+        );
 
         for (source_id, source) in &map_int.features.sources {
-            let Some(building_layer) = source.source_layers.get("building") else {
+            let Some(building_layer) = source.source_layers.get(BUILDING_SOURCE_LAYER) else {
                 continue;
             };
 
-            for (tile_id, features) in &building_layer.tiles {
-                for (feature_id, feature) in features {
-                    let spawned_source = manager
-                        .spawned_buildings
-                        .entry(source_id.clone())
-                        .or_default();
-                    let spawned_tile = spawned_source.tiles.entry(*tile_id).or_default();
-                    if spawned_tile.contains_key(feature_id) {
-                        continue;
-                    }
-
-                    let Some(building_id) = spawn_building(
-                        &mut commands,
-                        manager_id,
-                        grid,
-                        source_id,
-                        *tile_id,
-                        feature_id,
-                        feature,
-                    ) else { continue; };
-                    spawned_tile.insert(feature_id.clone(), building_id);
+            for tile_id in building_layer.tiles.keys() {
+                let spawned_source = manager
+                    .spawned_buildings
+                    .entry(source_id.clone())
+                    .or_default();
+                if spawned_source.tiles.contains_key(tile_id) {
+                    continue;
                 }
+
+                let bucket_id = spawn_building_bucket(
+                    &mut commands,
+                    manager_id,
+                    maplibre_int_id,
+                    grid,
+                    source_id,
+                    *tile_id,
+                );
+                spawned_source.tiles.insert(*tile_id, bucket_id);
             }
         }
     }
 }
 
-fn remove_stale_buildings(
+fn remove_stale_building_buckets(
     commands: &mut Commands,
     map_int: &MaplibreMapIntegration,
     spawned_buildings: &mut HashMap<String, SpawnedBuildingSource>,
+    buckets: &mut Query<&mut BuildingTileBucket>,
 ) {
     spawned_buildings.retain(|source_id, spawned_source| {
         let building_layer = map_int
             .features
             .sources
             .get(source_id)
-            .and_then(|source| source.source_layers.get("building"));
+            .and_then(|source| source.source_layers.get(BUILDING_SOURCE_LAYER));
 
-        spawned_source.tiles.retain(|tile_id, spawned_tile| {
-            let current_features = building_layer.and_then(|layer| layer.tiles.get(tile_id));
+        spawned_source.tiles.retain(|tile_id, bucket_entity| {
+            let Some(current_features) = building_layer.and_then(|layer| layer.tiles.get(tile_id))
+            else {
+                commands.entity(*bucket_entity).despawn();
+                return false;
+            };
 
-            spawned_tile.retain(|feature_id, building_entity| {
-                if current_features.is_some_and(|features| features.contains_key(feature_id)) {
-                    true
-                } else {
-                    commands.entity(*building_entity).despawn();
-                    false
-                }
-            });
+            let Ok(mut bucket) = buckets.get_mut(*bucket_entity) else {
+                return true;
+            };
 
-            !spawned_tile.is_empty()
+            let removed_meshed_feature = bucket
+                .meshed_feature_ids
+                .iter()
+                .any(|feature_id| !current_features.contains_key(feature_id));
+
+            if removed_meshed_feature {
+                bucket.buffers.clear();
+                bucket.mesh_dirty = true;
+                bucket.meshed_feature_ids.clear();
+            }
+
+            true
         });
 
         !spawned_source.tiles.is_empty()
     });
 }
 
-fn spawn_building(
+fn spawn_building_bucket(
     commands: &mut Commands,
     manager_id: Entity,
+    maplibre_int_id: Entity,
     grid: &Grid,
     source_id: &str,
     tile_id: CanonicalTileId,
-    feature_id: &str,
-    feature: &SourceLayerFeature,
-) -> Option<Entity> {
-    let center_lnglat = geometry_center_lnglat(&feature.geometry)?;
+) -> Entity {
+    let (center, flat_half_extents) = tile_flat_bounds_world(tile_id);
+    let (cell, translation) = grid.translation_to_grid(center);
 
-    let center = lng_lat_to_world(center_lnglat.x, center_lnglat.y, 0.0);
-    let (feature_cell, feature_translation) = grid.translation_to_grid(center);
+    let bucket_id = commands
+        .spawn((
+            Name::new(format!("Building bucket {source_id}/{tile_id:?}")),
+            Visibility::Hidden,
+            cell,
+            Transform::from_translation(translation),
+            RenderLayers::layer(MAP_VIEW_COLOR_RENDER_LAYER),
+            DistanceVisibility {
+                max_distance: DEFAULT_BUILDING_VISIBILITY_DISTANCE,
+                flat_half_extents,
+            },
+            BuildingTileBucket {
+                maplibre_int_id,
+                source_id: source_id.to_owned(),
+                tile_id,
+                center,
+                mesh_handle: None,
+                mesh_dirty: false,
+                meshed_feature_ids: HashSet::default(),
+                buffers: BuildingMeshBuffers::default(),
+            },
+        ))
+        .id();
 
-    let mut building_commands = commands.spawn((
-        Name::new(format!("Building {source_id}/{tile_id:?}/{feature_id}")),
-        Visibility::Hidden,
-        Building {
-            geometry: feature.geometry.clone(),
-            base_altitude: building_altitude_property(
-                &feature.properties,
-                ["render_min_height", "min_height"],
-            )
-            .unwrap_or(0.0),
-            top_altitude: building_altitude_property(
-                &feature.properties,
-                ["render_height", "height"],
-            )
-            .unwrap_or(0.0),
-        },
-        feature_cell,
-        Transform::from_translation(feature_translation),
-        RenderLayers::layer(MAP_VIEW_COLOR_RENDER_LAYER),
-    ));
-
-    building_commands.insert(DistanceVisibility {
-        max_distance: DEFAULT_BUILDING_VISIBILITY_DISTANCE,
-    });
-
-    let building_id = building_commands.id();
-
-    commands.entity(manager_id).add_child(building_id);
-    Some(building_id)
+    commands.entity(manager_id).add_child(bucket_id);
+    bucket_id
 }
-
-#[derive(Component)]
-pub struct Building {
-    geometry: Geometry,
-    base_altitude: f64,
-    top_altitude: f64,
-}
-
-#[derive(Component)]
-struct BuildingMeshInitialized;
 
 pub const DISABLE_DISTANCE_VISIBILITY: bool = false;
 
 #[derive(Component)]
 pub struct DistanceVisibility {
     pub max_distance: f32,
+    pub flat_half_extents: Vec2,
 }
 
 fn sync_distance_visibility(
@@ -204,8 +263,11 @@ fn sync_distance_visibility(
 
         let max_distance_squared =
             distance_visibility.max_distance * distance_visibility.max_distance;
-        let distance_squared = entity_transform.translation()
-            .distance_squared(camera_transform.translation());
+        let distance_squared = distance_to_flat_bounds_squared(
+            camera_transform.translation(),
+            entity_transform.translation(),
+            distance_visibility.flat_half_extents,
+        );
 
         *visibility = if DISABLE_DISTANCE_VISIBILITY || distance_squared <= max_distance_squared {
             Visibility::Inherited
@@ -215,42 +277,126 @@ fn sync_distance_visibility(
     }
 }
 
-fn setup_visible_building_meshes(
+fn setup_visible_building_bucket_meshes(
     mut commands: Commands,
-    buildings: Query<
-        (Entity, &Building, &Visibility),
-        Without<BuildingMeshInitialized>,
-    >,
+    map_ints: Query<&MaplibreMapIntegration>,
+    mut buckets: Query<(Entity, &mut BuildingTileBucket, &Visibility)>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut standard_materials: ResMut<Assets<StandardMaterial>>,
+    material: Res<BuildingMaterial>,
 ) {
-    for (building_id, building, visibility) in buildings.iter() {
+    for (bucket_entity, mut bucket, visibility) in buckets.iter_mut() {
         if matches!(*visibility, Visibility::Hidden) {
             continue;
         }
 
-        let Some(center_lnglat) = geometry_center_lnglat(&building.geometry) else {
-            commands.entity(building_id).insert(BuildingMeshInitialized);
+        let Some(features) = map_ints
+            .get(bucket.maplibre_int_id)
+            .ok()
+            .and_then(|map_int| map_int.features.sources.get(&bucket.source_id))
+            .and_then(|source| source.source_layers.get(BUILDING_SOURCE_LAYER))
+            .and_then(|layer| layer.tiles.get(&bucket.tile_id))
+        else {
             continue;
         };
-        let center = lng_lat_to_world(center_lnglat.x, center_lnglat.y, 0.0);
-        let mesh = build_feature_polygon_mesh(
-            &building.geometry,
-            center,
-            building.base_altitude,
-            building.top_altitude,
-        )
-        .map(|mesh| meshes.add(mesh))
-        .unwrap_or_default();
 
-        commands.entity(building_id).insert((
-            Mesh3d(mesh.clone()),
-            MeshMaterial3d(standard_materials.add(StandardMaterial {
-                base_color: Color::srgb(0.8, 0.2, 0.2),
-                ..default()
-            })),
-            BuildingMeshInitialized,
-        ));
+        let new_feature_ids = features
+            .keys()
+            .filter(|feature_id| !bucket.meshed_feature_ids.contains(*feature_id))
+            .cloned()
+            .collect::<Vec<_>>();
+
+        if new_feature_ids.is_empty() && !bucket.mesh_dirty {
+            continue;
+        }
+
+        for feature_id in new_feature_ids {
+            let Some(feature) = features.get(&feature_id) else {
+                continue;
+            };
+            if append_building_feature_mesh(feature, bucket.center, &mut bucket.buffers) {
+                bucket.mesh_dirty = true;
+                bucket.meshed_feature_ids.insert(feature_id);
+            }
+        }
+
+        if bucket.buffers.is_empty() {
+            if bucket.mesh_dirty {
+                commands
+                    .entity(bucket_entity)
+                    .remove::<(Mesh3d, MeshMaterial3d<StandardMaterial>)>();
+                bucket.mesh_handle = None;
+                bucket.mesh_dirty = false;
+            }
+            continue;
+        }
+
+        let mesh = bucket.buffers.to_mesh();
+        if let Some(mesh_handle) = &bucket.mesh_handle {
+            if let Some(existing_mesh) = meshes.get_mut(mesh_handle) {
+                *existing_mesh = mesh;
+            }
+        } else {
+            let mesh_handle = meshes.add(mesh);
+            bucket.mesh_handle = Some(mesh_handle.clone());
+            commands
+                .entity(bucket_entity)
+                .insert((Mesh3d(mesh_handle), MeshMaterial3d(material.0.clone())));
+        }
+        bucket.mesh_dirty = false;
+    }
+}
+
+fn append_building_feature_mesh(
+    feature: &SourceLayerFeature,
+    center: DVec3,
+    buffers: &mut BuildingMeshBuffers,
+) -> bool {
+    let base_altitude =
+        building_altitude_property(&feature.properties, ["render_min_height", "min_height"])
+            .unwrap_or(0.0);
+    let top_altitude =
+        building_altitude_property(&feature.properties, ["render_height", "height"]).unwrap_or(0.0);
+    let top_altitude = top_altitude.max(base_altitude);
+    let start_position_count = buffers.positions.len();
+    let start_index_count = buffers.indices.len();
+
+    match &feature.geometry.value {
+        Value::Polygon(polygon) => push_polygon_mesh(
+            polygon,
+            center,
+            base_altitude,
+            top_altitude,
+            &mut buffers.positions,
+            &mut buffers.normals,
+            &mut buffers.uvs,
+            &mut buffers.indices,
+        ),
+        Value::MultiPolygon(polygons) => {
+            for polygon in polygons {
+                push_polygon_mesh(
+                    polygon,
+                    center,
+                    base_altitude,
+                    top_altitude,
+                    &mut buffers.positions,
+                    &mut buffers.normals,
+                    &mut buffers.uvs,
+                    &mut buffers.indices,
+                );
+            }
+        }
+        _ => return false,
+    }
+
+    if buffers.positions.len() == start_position_count || buffers.indices.len() == start_index_count
+    {
+        buffers.positions.truncate(start_position_count);
+        buffers.normals.truncate(start_position_count);
+        buffers.uvs.truncate(start_position_count);
+        buffers.indices.truncate(start_index_count);
+        false
+    } else {
+        true
     }
 }
 
@@ -270,110 +416,22 @@ fn json_value_as_f64(value: &JsonValue) -> Option<f64> {
     }
 }
 
-fn geometry_center_lnglat(geometry: &Geometry) -> Option<DVec2> {
-    let mut min = DVec2::splat(f64::INFINITY);
-    let mut max = DVec2::splat(f64::NEG_INFINITY);
-    let mut has_position = false;
+fn tile_flat_bounds_world(tile_id: CanonicalTileId) -> (DVec3, Vec2) {
+    let bounds = get_tile_lnglat_bounds(tile_id);
+    let south_west = lng_lat_to_world(bounds.0.x, bounds.0.y, 0.0);
+    let north_east = lng_lat_to_world(bounds.1.x, bounds.1.y, 0.0);
+    let min = south_west.min(north_east);
+    let max = south_west.max(north_east);
+    let size = max - min;
 
-    visit_geometry_positions(geometry, &mut |position| {
-        if position.len() < 2 {
-            return;
-        }
-
-        let lnglat = dvec2(position[0], position[1]);
-        min = min.min(lnglat);
-        max = max.max(lnglat);
-        has_position = true;
-    });
-
-    has_position.then_some((min + max) * 0.5)
+    ((min + max) * 0.5, size.xy().as_vec2() * 0.5)
 }
 
-fn visit_geometry_positions(geometry: &Geometry, visit: &mut impl FnMut(&Vec<f64>)) {
-    match &geometry.value {
-        Value::Point(position) => visit(position),
-        Value::MultiPoint(positions) | Value::LineString(positions) => {
-            for position in positions {
-                visit(position);
-            }
-        }
-        Value::MultiLineString(lines) | Value::Polygon(lines) => {
-            for line in lines {
-                for position in line {
-                    visit(position);
-                }
-            }
-        }
-        Value::MultiPolygon(polygons) => {
-            for polygon in polygons {
-                for line in polygon {
-                    for position in line {
-                        visit(position);
-                    }
-                }
-            }
-        }
-        Value::GeometryCollection(geometries) => {
-            for geometry in geometries {
-                visit_geometry_positions(geometry, visit);
-            }
-        }
-    }
-}
+fn distance_to_flat_bounds_squared(point: Vec3, center: Vec3, half_extents: Vec2) -> f32 {
+    let local = point - center;
+    let outside_xy = (local.xy().abs() - half_extents).max(Vec2::ZERO);
 
-fn build_feature_polygon_mesh(
-    geometry: &Geometry,
-    center: DVec3,
-    start_altitude: f64,
-    end_altitude: f64,
-) -> Option<Mesh> {
-    let mut positions = Vec::new();
-    let mut normals = Vec::new();
-    let mut uvs = Vec::new();
-    let mut indices = Vec::new();
-    let end_altitude = end_altitude.max(start_altitude);
-
-    match &geometry.value {
-        Value::Polygon(polygon) => push_polygon_mesh(
-            polygon,
-            center,
-            start_altitude,
-            end_altitude,
-            &mut positions,
-            &mut normals,
-            &mut uvs,
-            &mut indices,
-        ),
-        Value::MultiPolygon(polygons) => {
-            for polygon in polygons {
-                push_polygon_mesh(
-                    polygon,
-                    center,
-                    start_altitude,
-                    end_altitude,
-                    &mut positions,
-                    &mut normals,
-                    &mut uvs,
-                    &mut indices,
-                );
-            }
-        }
-        _ => return None,
-    }
-
-    if positions.is_empty() || indices.is_empty() {
-        return None;
-    }
-
-    let mut mesh = Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::default(),
-    );
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
-    mesh.insert_indices(Indices::U32(indices));
-    Some(mesh)
+    outside_xy.length_squared() + local.z * local.z
 }
 
 fn push_polygon_mesh(
@@ -409,7 +467,7 @@ fn push_polygon_mesh(
                 continue;
             }
 
-            let lnglat = DVec2::new(position[0], position[1]);
+            let lnglat = dvec2(position[0], position[1]);
             let top_world = lng_lat_to_world(lnglat.x, lnglat.y, end_altitude) - center;
             let base_world = lng_lat_to_world(lnglat.x, lnglat.y, start_altitude) - center;
             flat_coords.push(top_world.x);

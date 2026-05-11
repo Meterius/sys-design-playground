@@ -1,8 +1,12 @@
 use crate::app::map::camera::MapViewCamera;
 use crate::app::map::core::MAP_VIEW_COLOR_RENDER_LAYER;
-use crate::app::map::transform::lng_lat_to_world;
+use crate::app::map::transform::{MERCATOR_WORLD_SIZE, lng_lat_to_world};
 use crate::app::maplibre_gl_js::integration::MaplibreMapIntegration;
-use crate::app::maplibre_gl_js::types::{CanonicalTileId, SourceLayerFeature};
+use crate::app::maplibre_gl_js::types::{
+    CanonicalTileId, MaplibreTerrainTileData, SourceLayerFeature,
+};
+use crate::app::maplibre_gl_js::utils::mercator_coordinate::{LngLat, MercatorCoordinate};
+use crate::app::maplibre_gl_js::utils::terrain::get_dem_elevation;
 use crate::app::maplibre_gl_js::utils::tile::get_tile_lnglat_bounds;
 use crate::utils::debug::SoftExpect;
 use bevy::asset::RenderAssetUsages;
@@ -53,6 +57,7 @@ struct BuildingTileBucket {
     center: DVec3,
     mesh_handle: Option<Handle<Mesh>>,
     mesh_dirty: bool,
+    terrain_hash: Option<String>,
     meshed_feature_ids: HashSet<String>,
     buffers: BuildingMeshBuffers,
 }
@@ -221,6 +226,7 @@ fn spawn_building_bucket(
                 center,
                 mesh_handle: None,
                 mesh_dirty: false,
+                terrain_hash: None,
                 meshed_feature_ids: HashSet::default(),
                 buffers: BuildingMeshBuffers::default(),
             },
@@ -289,15 +295,26 @@ fn setup_visible_building_bucket_meshes(
             continue;
         }
 
-        let Some(features) = map_ints
-            .get(bucket.maplibre_int_id)
-            .ok()
-            .and_then(|map_int| map_int.features.sources.get(&bucket.source_id))
+        let Some(map_int) = map_ints.get(bucket.maplibre_int_id).ok() else {
+            continue;
+        };
+        let Some(features) = map_int
+            .features
+            .sources
+            .get(&bucket.source_id)
             .and_then(|source| source.source_layers.get(BUILDING_SOURCE_LAYER))
             .and_then(|layer| layer.tiles.get(&bucket.tile_id))
         else {
             continue;
         };
+        let terrain_data = map_int.terrain.tiles.get(&bucket.tile_id);
+        let terrain_hash = terrain_data.map(|terrain_data| terrain_data.hash.clone());
+        if terrain_hash != bucket.terrain_hash {
+            bucket.buffers.clear();
+            bucket.meshed_feature_ids.clear();
+            bucket.terrain_hash = terrain_hash;
+            bucket.mesh_dirty = true;
+        }
 
         let new_feature_ids = features
             .keys()
@@ -313,7 +330,13 @@ fn setup_visible_building_bucket_meshes(
             let Some(feature) = features.get(&feature_id) else {
                 continue;
             };
-            if append_building_feature_mesh(feature, bucket.center, &mut bucket.buffers) {
+            if append_building_feature_mesh(
+                feature,
+                bucket.tile_id,
+                bucket.center,
+                terrain_data,
+                &mut bucket.buffers,
+            ) {
                 bucket.mesh_dirty = true;
                 bucket.meshed_feature_ids.insert(feature_id);
             }
@@ -348,7 +371,9 @@ fn setup_visible_building_bucket_meshes(
 
 fn append_building_feature_mesh(
     feature: &SourceLayerFeature,
+    tile_id: CanonicalTileId,
     center: DVec3,
+    terrain_data: Option<&MaplibreTerrainTileData>,
     buffers: &mut BuildingMeshBuffers,
 ) -> bool {
     let base_altitude =
@@ -364,8 +389,10 @@ fn append_building_feature_mesh(
         Value::Polygon(polygon) => push_polygon_mesh(
             polygon,
             center,
+            tile_id,
             base_altitude,
             top_altitude,
+            terrain_data,
             &mut buffers.positions,
             &mut buffers.normals,
             &mut buffers.uvs,
@@ -376,8 +403,10 @@ fn append_building_feature_mesh(
                 push_polygon_mesh(
                     polygon,
                     center,
+                    tile_id,
                     base_altitude,
                     top_altitude,
+                    terrain_data,
                     &mut buffers.positions,
                     &mut buffers.normals,
                     &mut buffers.uvs,
@@ -416,6 +445,50 @@ fn json_value_as_f64(value: &JsonValue) -> Option<f64> {
     }
 }
 
+struct TerrainElevationTile<'a> {
+    bounds: (bevy::math::DVec2, bevy::math::DVec2),
+    terrain_data: &'a MaplibreTerrainTileData,
+}
+
+impl<'a> TerrainElevationTile<'a> {
+    fn new(tile_id: CanonicalTileId, terrain_data: &'a MaplibreTerrainTileData) -> Self {
+        Self {
+            bounds: get_tile_lnglat_bounds(tile_id),
+            terrain_data,
+        }
+    }
+
+    fn elevation_meters(&self, lnglat: bevy::math::DVec2) -> Option<f64> {
+        if !lnglat_bounds_contains(self.bounds, lnglat) {
+            return None;
+        }
+
+        let bounds_size = self.bounds.1 - self.bounds.0;
+        if bounds_size.x == 0.0 || bounds_size.y == 0.0 {
+            return None;
+        }
+
+        let uv = ((lnglat - self.bounds.0) / bounds_size).as_vec2();
+        let uv = vec2(uv.x, 1.0 - uv.y);
+        get_dem_elevation(&self.terrain_data.terrain_data, uv).map(f64::from)
+    }
+}
+
+fn lnglat_bounds_contains(
+    bounds: (bevy::math::DVec2, bevy::math::DVec2),
+    lnglat: bevy::math::DVec2,
+) -> bool {
+    lnglat.x >= bounds.0.x
+        && lnglat.x <= bounds.1.x
+        && lnglat.y >= bounds.0.y
+        && lnglat.y <= bounds.1.y
+}
+
+fn lng_lat_alt_to_world(lng: f64, lat: f64, alt: f64) -> DVec3 {
+    let coords = MercatorCoordinate::from_lng_lat(LngLat::new(lng, lat), alt);
+    DVec3::new(coords.x, -coords.y, coords.z) * MERCATOR_WORLD_SIZE
+}
+
 fn tile_flat_bounds_world(tile_id: CanonicalTileId) -> (DVec3, Vec2) {
     let bounds = get_tile_lnglat_bounds(tile_id);
     let south_west = lng_lat_to_world(bounds.0.x, bounds.0.y, 0.0);
@@ -437,8 +510,10 @@ fn distance_to_flat_bounds_squared(point: Vec3, center: Vec3, half_extents: Vec2
 fn push_polygon_mesh(
     polygon: &[Vec<Vec<f64>>],
     center: DVec3,
+    tile_id: CanonicalTileId,
     start_altitude: f64,
     end_altitude: f64,
+    terrain_data: Option<&MaplibreTerrainTileData>,
     positions: &mut Vec<[f32; 3]>,
     normals: &mut Vec<[f32; 3]>,
     uvs: &mut Vec<[f32; 2]>,
@@ -449,6 +524,8 @@ fn push_polygon_mesh(
     let mut hole_indices = Vec::new();
     let mut vertex_count = 0usize;
     let mut rings = Vec::new();
+    let terrain_tile =
+        terrain_data.map(|terrain_data| TerrainElevationTile::new(tile_id, terrain_data));
 
     for (ring_index, ring) in polygon.iter().enumerate() {
         let ring_positions = ring_without_closing_position(ring);
@@ -468,8 +545,15 @@ fn push_polygon_mesh(
             }
 
             let lnglat = dvec2(position[0], position[1]);
-            let top_world = lng_lat_to_world(lnglat.x, lnglat.y, end_altitude) - center;
-            let base_world = lng_lat_to_world(lnglat.x, lnglat.y, start_altitude) - center;
+            let terrain_altitude = terrain_tile
+                .as_ref()
+                .and_then(|terrain_tile| terrain_tile.elevation_meters(lnglat))
+                .unwrap_or(0.0);
+            let top_world =
+                lng_lat_alt_to_world(lnglat.x, lnglat.y, terrain_altitude + end_altitude) - center;
+            let base_world =
+                lng_lat_alt_to_world(lnglat.x, lnglat.y, terrain_altitude + start_altitude)
+                    - center;
             flat_coords.push(top_world.x);
             flat_coords.push(top_world.y);
             positions.push(top_world.as_vec3().to_array());

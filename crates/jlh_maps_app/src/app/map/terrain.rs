@@ -1,4 +1,6 @@
 use crate::app::common::debug_gizmos::DebugAabbGizmo;
+use crate::app::common::materials::TransparentOverwriteMaterial;
+use crate::app::map::core::{MAP_VIEW_COLOR_RENDER_LAYER, MAP_VIEW_DEPTH_RENDER_LAYER};
 use crate::app::map::transform::{MERCATOR_WORLD_SIZE, lng_lat_to_world};
 use crate::app::maplibre_gl_js::integration::MaplibreMapIntegration;
 use crate::app::maplibre_gl_js::types::CanonicalTileId;
@@ -8,6 +10,7 @@ use crate::app::maplibre_gl_js::utils::mercator_coordinate::{
 use crate::app::maplibre_gl_js::utils::terrain::get_dem_elevation;
 use crate::utils::debug::SoftExpect;
 use crate::utils::terrain_mesh::build_terrain_mesh_with_skirts;
+use bevy::camera::visibility::RenderLayers;
 use bevy::math::{DVec2, DVec3, dvec2};
 use bevy::prelude::*;
 use big_space::grid::Grid;
@@ -35,7 +38,7 @@ fn sync_spawned_tiles(
     mut commands: Commands,
     map_ints: Query<&MaplibreMapIntegration>,
     mut managers: Query<(Entity, &mut TerrainTileManager)>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<TransparentOverwriteMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
     for (manager_id, mut manager) in managers.iter_mut() {
@@ -60,16 +63,17 @@ fn sync_spawned_tiles(
                         Transform::default(),
                         CellCoord::default(),
                         Mesh3d(meshes.add(Mesh::from(Plane3d::new(Vec3::Z, Vec2::ONE / 2.0)))),
-                        MeshMaterial3d(materials.add(StandardMaterial {
-                            base_color: Color::srgb(0.4, 0.4, 0.4),
-                            ..default()
-                        })),
+                        MeshMaterial3d(materials.add(TransparentOverwriteMaterial::default())),
                         DebugAabbGizmo,
                         TerrainTile {
                             maplibre_int_id,
                             maplibre_tile_id: tile_id,
                             prev_terrain_hash: None,
                         },
+                        RenderLayers::from_layers(&[
+                            MAP_VIEW_DEPTH_RENDER_LAYER,
+                            MAP_VIEW_COLOR_RENDER_LAYER,
+                        ]),
                     ))
                     .id();
                 commands.entity(manager_id).add_child(tile_e_id);

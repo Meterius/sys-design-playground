@@ -1,6 +1,5 @@
-use crate::app::common::materials::DepthTextureMaterial;
 use crate::app::map::camera::MapViewCamera;
-use crate::app::map::core::{MAP_VIEW_COLOR_RENDER_LAYER, MAP_VIEW_DEPTH_RENDER_LAYER};
+use crate::app::map::core::MAP_VIEW_COLOR_RENDER_LAYER;
 use crate::app::map::transform::lng_lat_to_world;
 use crate::app::maplibre_gl_js::integration::MaplibreMapIntegration;
 use crate::app::maplibre_gl_js::types::{CanonicalTileId, SourceLayerFeature};
@@ -31,7 +30,7 @@ impl Plugin for BuildingsPlugin {
     }
 }
 
-const DEFAULT_BUILDING_VISIBILITY_DISTANCE: f32 = 30.0;
+const DEFAULT_BUILDING_VISIBILITY_DISTANCE: f32 = 10.0;
 
 #[derive(Component)]
 pub struct BuildingManager {
@@ -210,7 +209,6 @@ fn setup_buildings(
     grids: Query<&Grid>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut standard_materials: ResMut<Assets<StandardMaterial>>,
-    mut depth_materials: ResMut<Assets<DepthTextureMaterial>>,
 ) {
     for (building_id, building, ChildOf(building_parent_id)) in buildings.iter() {
         let Some(grid) = grids.get(*building_parent_id).ok().soft_expect("") else {
@@ -246,17 +244,6 @@ fn setup_buildings(
                 max_distance: DEFAULT_BUILDING_VISIBILITY_DISTANCE,
             },
         ));
-
-        commands.entity(building_id).with_children(|children| {
-            children.spawn((
-                Name::new("Building Depth Mesh"),
-                Visibility::Inherited,
-                Transform::default(),
-                Mesh3d(mesh),
-                MeshMaterial3d(depth_materials.add(DepthTextureMaterial {})),
-                RenderLayers::layer(MAP_VIEW_DEPTH_RENDER_LAYER),
-            ));
-        });
     }
 }
 

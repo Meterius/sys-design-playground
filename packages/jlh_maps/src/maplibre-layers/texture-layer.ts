@@ -24,26 +24,17 @@ precision highp float;
 
 in vec2 v_uv;
 uniform sampler2D u_color_texture;
-uniform sampler2D u_depth_texture;
 uniform vec2 u_depth_range;
 out vec4 out_color;
 
 void main() {
   vec4 color = texture(u_color_texture, v_uv);
 
-  // if (color.a <= 0.000001 && dot(color.rgb, color.rgb) <= 0.000001) {
-  //   discard;
-  // }
-
-  float bevyDepth = texture(u_depth_texture, v_uv).r;
-  float depth = mix(u_depth_range.x, u_depth_range.y, 1.0 - bevyDepth);
-  // if (u_depth_mode == 1) {
-  //   depth = 0.0;
-  // } else if (u_depth_mode == 2) {
-  //   depth = 1.0;
-  // }
-
-  gl_FragDepth = clamp(depth, 0.0, 1.0);
+  if (color.a <= 0.000001) {
+    discard;
+  }
+  
+  gl_FragDepth = u_depth_range.x;
   out_color = color;
 }
 `
@@ -139,11 +130,11 @@ export class TextureLayer implements CustomLayerInterface {
     gl.bindTexture(gl.TEXTURE_2D, colorTexture)
     gl.uniform1i(this.uColorTexture, 0)
 
-    gl.activeTexture(gl.TEXTURE1)
-    gl.bindTexture(gl.TEXTURE_2D, depthTexture)
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-    gl.uniform1i(this.uDepthTexture, 1)
+    // gl.activeTexture(gl.TEXTURE1)
+    // gl.bindTexture(gl.TEXTURE_2D, depthTexture)
+    // gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+    // gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+    // gl.uniform1i(this.uDepthTexture, 1)
     gl.uniform2f(
       this.uDepthRange,
       this.map.painter.depthRangeFor3D[0],

@@ -1,8 +1,7 @@
-use crate::app::common::external_render_target::{
-    EXTERNAL_COLOR_TARGET_HANDLE, EXTERNAL_R32F_TARGET_HANDLE,
-};
+use crate::app::common::external_render_target::EXTERNAL_COLOR_TARGET_HANDLE;
 use crate::app::map::buildings::BuildingManager;
 use crate::app::map::camera::MapViewCamera;
+use crate::app::map::terrain::TerrainTileManager;
 use crate::app::map::transform::MERCATOR_WORLD_SIZE;
 use crate::app::maplibre_gl_js::utils::mercator_coordinate::{LngLat, MercatorCoordinate};
 use bevy::camera::RenderTarget;
@@ -91,10 +90,10 @@ pub fn spawn_map_view(
             MapView {
                 maplibre_int_id: maplibre_integration_id,
             },
-            // TerrainTileManager {
-            //     maplibre_int_id: maplibre_integration_id,
-            //     spawned_tiles: HashMap::default(),
-            // },
+            TerrainTileManager {
+                maplibre_int_id: maplibre_integration_id,
+                spawned_tiles: HashMap::default(),
+            },
             BuildingManager {
                 maplibre_int_id: maplibre_integration_id,
                 spawned_buildings: HashMap::default(),
@@ -158,24 +157,6 @@ pub fn spawn_map_view(
         },
         RenderTarget::TextureView(EXTERNAL_COLOR_TARGET_HANDLE),
         RenderLayers::layer(MAP_VIEW_COLOR_RENDER_LAYER),
-        MapViewCamera {
-            maplibre_int_id: maplibre_integration_id,
-        },
-    ));
-
-    commands.entity(map_view_id).with_child((
-        Name::new("External R32F Probe Camera"),
-        Transform::default(),
-        CellCoord::default(),
-        Msaa::Off,
-        Camera3d::default(),
-        Camera {
-            clear_color: ClearColorConfig::Custom(Color::srgb(0.0, 0.0, 0.0)),
-            order: 2,
-            ..default()
-        },
-        RenderTarget::TextureView(EXTERNAL_R32F_TARGET_HANDLE),
-        RenderLayers::layer(MAP_VIEW_DEPTH_RENDER_LAYER),
         MapViewCamera {
             maplibre_int_id: maplibre_integration_id,
         },

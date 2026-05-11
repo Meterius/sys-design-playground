@@ -154,7 +154,7 @@ const highlightGeoJsonData = computed(
   }),
 )
 
-const terrainEnabled = ref(false)
+const terrainEnabled = ref(true)
 
 const useRasterOnly = false
 const useRaster = false
@@ -355,45 +355,46 @@ watchDefinedOnce(
 
     // 3D Buildings Layer
 
-    map.addLayer(
-      {
-        id: '3d-buildings',
-        source: 'openmaptiles',
-        'source-layer': 'building',
-        type: 'fill-extrusion',
-        minzoom: 15,
-        layout: {
-          visibility: 'none',
-        },
-        paint: {
-          'fill-extrusion-color': [
-            'interpolate',
-            ['linear'],
-            ['get', 'render_height'],
-            0,
-            'hsl(26, 12%, 82%)',
-            400,
-            'hsl(26, 15%, 82%)',
-          ],
-          'fill-extrusion-height': ['get', 'render_height'],
-          'fill-extrusion-base': ['get', 'render_min_height'],
-          'fill-extrusion-vertical-gradient': true,
-        },
-      },
-      'Water labels',
-    )
-    ;['Oneway path', 'Oneway', 'Oneway opposite'].forEach((layerId) => {
-      const layer = map.getStyle().layers.find((l) => l.id === layerId)!
-      map.removeLayer(layerId)
-      map.addLayer(layer, '3d-buildings')
-    })
+    // map.addLayer(
+    //   {
+    //     id: '3d-buildings',
+    //     source: 'openmaptiles',
+    //     'source-layer': 'building',
+    //     type: 'fill-extrusion',
+    //     minzoom: 15,
+    //     layout: {
+    //       visibility: 'none',
+    //     },
+    //     paint: {
+    //       'fill-extrusion-color': [
+    //         'interpolate',
+    //         ['linear'],
+    //         ['get', 'render_height'],
+    //         0,
+    //         'hsl(26, 12%, 82%)',
+    //         400,
+    //         'hsl(26, 15%, 82%)',
+    //       ],
+    //       'fill-extrusion-height': ['get', 'render_height'],
+    //       'fill-extrusion-base': ['get', 'render_min_height'],
+    //       'fill-extrusion-vertical-gradient': true,
+    //     },
+    //   },
+    //   'Water labels',
+    // )
+    //
+    // ;['Oneway path', 'Oneway', 'Oneway opposite'].forEach((layerId) => {
+    //   const layer = map.getStyle().layers.find((l) => l.id === layerId)!
+    //   map.removeLayer(layerId)
+    //   map.addLayer(layer, '3d-buildings')
+    // })
 
-    onCleanupCallbacks.push(
-      watchEffect(() => {
-        const visible = (pitch.value > 20 || terrainEnabled.value) && !useRaster
-        map.setLayoutProperty('3d-buildings', 'visibility', visible ? 'visible' : 'none')
-      }).stop,
-    )
+    // onCleanupCallbacks.push(
+    //   watchEffect(() => {
+    //     const visible = (pitch.value > 20 || terrainEnabled.value) && !useRaster
+    //     map.setLayoutProperty('3d-buildings', 'visibility', visible ? 'visible' : 'none')
+    //   }).stop,
+    // )
 
     // Tree Mesh Layer
 

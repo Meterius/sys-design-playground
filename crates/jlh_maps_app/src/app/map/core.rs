@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 const FIRST_CASCADE_FAR_METERS: f64 = 3_000.0;
-const SHADOW_MAX_DISTANCE_METERS: f64 = 10_000.0;
+const SHADOW_MAX_DISTANCE_METERS: f64 = 3_000.0;
 const SHADOW_MIN_DISTANCE_METERS: f64 = 1.0;
 pub const MAP_VIEW_COLOR_RENDER_LAYER: usize = 0;
 pub const MAP_VIEW_DEPTH_RENDER_LAYER: usize = 1;
@@ -134,13 +134,13 @@ pub fn spawn_map_view(
     commands.entity(map_view_id).with_child((
         DirectionalLight {
             color: Color::srgb(0.98, 0.95, 0.82),
-            shadows_enabled: false,
-            shadow_depth_bias: 0.01,
+            shadows_enabled: true,
+            shadow_depth_bias: 0.02,
             shadow_normal_bias: 1.8,
             ..default()
         },
         CascadeShadowConfigBuilder {
-            num_cascades: 2,
+            num_cascades: 1,
             first_cascade_far_bound,
             maximum_distance,
             minimum_distance,

@@ -21,9 +21,9 @@ impl Plugin for BuildingsPlugin {
         app.add_systems(
             Update,
             (
-                sync_spawned_buildings,
                 sync_distance_visibility,
-                setup_buildings,
+                sync_spawned_buildings,
+                setup_visible_building_meshes,
             )
                 .chain(),
         );
@@ -46,9 +46,9 @@ pub struct SpawnedBuildingSource {
 fn sync_spawned_buildings(
     mut commands: Commands,
     map_ints: Query<&MaplibreMapIntegration>,
-    mut managers: Query<(Entity, &mut BuildingManager)>,
+    mut managers: Query<(Entity, &Grid, &mut BuildingManager)>,
 ) {
-    for (manager_id, mut manager) in managers.iter_mut() {
+    for (manager_id, grid, mut manager) in managers.iter_mut() {
         let Some(map_int) = map_ints.get(manager.maplibre_int_id).ok().soft_expect("") else {
             continue;
         };
@@ -71,14 +71,15 @@ fn sync_spawned_buildings(
                         continue;
                     }
 
-                    let building_id = spawn_building(
+                    let Some(building_id) = spawn_building(
                         &mut commands,
                         manager_id,
+                        grid,
                         source_id,
                         *tile_id,
                         feature_id,
                         feature,
-                    );
+                    ) else { continue; };
                     spawned_tile.insert(feature_id.clone(), building_id);
                 }
             }
@@ -120,14 +121,20 @@ fn remove_stale_buildings(
 fn spawn_building(
     commands: &mut Commands,
     manager_id: Entity,
+    grid: &Grid,
     source_id: &str,
     tile_id: CanonicalTileId,
     feature_id: &str,
     feature: &SourceLayerFeature,
-) -> Entity {
+) -> Option<Entity> {
+    let center_lnglat = geometry_center_lnglat(&feature.geometry)?;
+
+    let center = lng_lat_to_world(center_lnglat.x, center_lnglat.y, 0.0);
+    let (feature_cell, feature_translation) = grid.translation_to_grid(center);
+
     let mut building_commands = commands.spawn((
         Name::new(format!("Building {source_id}/{tile_id:?}/{feature_id}")),
-        Visibility::Inherited,
+        Visibility::Hidden,
         Building {
             geometry: feature.geometry.clone(),
             base_altitude: building_altitude_property(
@@ -141,6 +148,9 @@ fn spawn_building(
             )
             .unwrap_or(0.0),
         },
+        feature_cell,
+        Transform::from_translation(feature_translation),
+        RenderLayers::layer(MAP_VIEW_COLOR_RENDER_LAYER),
     ));
 
     building_commands.insert(DistanceVisibility {
@@ -150,7 +160,7 @@ fn spawn_building(
     let building_id = building_commands.id();
 
     commands.entity(manager_id).add_child(building_id);
-    building_id
+    Some(building_id)
 }
 
 #[derive(Component)]
@@ -159,6 +169,9 @@ pub struct Building {
     base_altitude: f64,
     top_altitude: f64,
 }
+
+#[derive(Component)]
+struct BuildingMeshInitialized;
 
 pub const DISABLE_DISTANCE_VISIBILITY: bool = false;
 
@@ -191,8 +204,7 @@ fn sync_distance_visibility(
 
         let max_distance_squared =
             distance_visibility.max_distance * distance_visibility.max_distance;
-        let distance_squared = entity_transform
-            .translation()
+        let distance_squared = entity_transform.translation()
             .distance_squared(camera_transform.translation());
 
         *visibility = if DISABLE_DISTANCE_VISIBILITY || distance_squared <= max_distance_squared {
@@ -203,25 +215,25 @@ fn sync_distance_visibility(
     }
 }
 
-fn setup_buildings(
+fn setup_visible_building_meshes(
     mut commands: Commands,
-    buildings: Query<(Entity, &Building, &ChildOf), Added<Building>>,
-    grids: Query<&Grid>,
+    buildings: Query<
+        (Entity, &Building, &Visibility),
+        Without<BuildingMeshInitialized>,
+    >,
     mut meshes: ResMut<Assets<Mesh>>,
     mut standard_materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    for (building_id, building, ChildOf(building_parent_id)) in buildings.iter() {
-        let Some(grid) = grids.get(*building_parent_id).ok().soft_expect("") else {
+    for (building_id, building, visibility) in buildings.iter() {
+        if matches!(*visibility, Visibility::Hidden) {
             continue;
-        };
+        }
 
         let Some(center_lnglat) = geometry_center_lnglat(&building.geometry) else {
+            commands.entity(building_id).insert(BuildingMeshInitialized);
             continue;
         };
-
         let center = lng_lat_to_world(center_lnglat.x, center_lnglat.y, 0.0);
-        let (feature_cell, feature_translation) = grid.translation_to_grid(center);
-
         let mesh = build_feature_polygon_mesh(
             &building.geometry,
             center,
@@ -232,18 +244,12 @@ fn setup_buildings(
         .unwrap_or_default();
 
         commands.entity(building_id).insert((
-            feature_cell,
-            Transform::from_translation(feature_translation),
             Mesh3d(mesh.clone()),
             MeshMaterial3d(standard_materials.add(StandardMaterial {
                 base_color: Color::srgb(0.8, 0.2, 0.2),
                 ..default()
             })),
-            RenderLayers::layer(MAP_VIEW_COLOR_RENDER_LAYER),
-            DistanceVisibility {
-                max_distance: DEFAULT_BUILDING_VISIBILITY_DISTANCE,
-            },
-            Visibility::Hidden,
+            BuildingMeshInitialized,
         ));
     }
 }

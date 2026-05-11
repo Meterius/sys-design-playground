@@ -22,8 +22,8 @@ impl Plugin for BuildingsPlugin {
             Update,
             (
                 sync_spawned_buildings,
-                setup_buildings,
                 sync_distance_visibility,
+                setup_buildings,
             )
                 .chain(),
         );
@@ -243,6 +243,7 @@ fn setup_buildings(
             DistanceVisibility {
                 max_distance: DEFAULT_BUILDING_VISIBILITY_DISTANCE,
             },
+            Visibility::Hidden,
         ));
     }
 }

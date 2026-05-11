@@ -1,5 +1,5 @@
 import { onBeforeUnmount, onMounted, shallowRef } from 'vue'
-import { mount, resize_external_targets, unmount } from 'jlh_maps_app'
+import { mount, resize_external_targets, tick, unmount } from 'jlh_maps_app'
 
 interface BevyRenderTexture {
   id: number
@@ -26,8 +26,8 @@ declare global {
   }
 }
 
-export function useBevy(canvasSelector: string) {
-  const instanceId = canvasSelector
+export function useBevy(bevyCanvasSelector: string, textureCanvasSelector: string) {
+  const instanceId = bevyCanvasSelector
   const renderTexture = shallowRef<BevyRenderTexture>()
   const depthRenderTexture = shallowRef<BevyRenderTexture>()
   const depthTexture = shallowRef<WebGLTexture | null>()
@@ -35,14 +35,14 @@ export function useBevy(canvasSelector: string) {
   let resizeHandler: (() => void) | undefined
 
   onMounted(() => {
-    const canvas = document.querySelector<HTMLCanvasElement>(canvasSelector)
-    if (!canvas) {
-      throw new Error(`No Bevy canvas found for selector ${canvasSelector}`)
+    const textureCanvas = document.querySelector<HTMLCanvasElement>(textureCanvasSelector)
+    if (!textureCanvas) {
+      throw new Error(`No texture canvas found for selector ${textureCanvasSelector}`)
     }
 
-    const { height, width } = canvasRenderSize(canvas)
-    canvas.width = width
-    canvas.height = height
+    const { height, width } = canvasRenderSize(textureCanvas)
+    textureCanvas.width = width
+    textureCanvas.height = height
 
     const texture = window.virtualWebGL?.createRenderTexture?.({ width, height })
     const r32fTexture = window.virtualWebGL?.createR32fRenderTexture?.({ width, height })
@@ -57,7 +57,7 @@ export function useBevy(canvasSelector: string) {
     depthRenderTexture.value = r32fTexture
     depthTexture.value = r32fTexture.texture
     mount(
-      canvasSelector,
+      bevyCanvasSelector,
       texture.id,
       texture.width,
       texture.height,
@@ -66,20 +66,20 @@ export function useBevy(canvasSelector: string) {
     )
 
     resizeHandler = () => {
-      const { height: nextHeight, width: nextWidth } = canvasRenderSize(canvas)
+      const { height: nextHeight, width: nextWidth } = canvasRenderSize(textureCanvas)
       if (nextWidth === texture.width && nextHeight === texture.height) {
         return
       }
 
-      canvas.width = nextWidth
-      canvas.height = nextHeight
+      textureCanvas.width = nextWidth
+      textureCanvas.height = nextHeight
       texture.resize(nextWidth, nextHeight)
       r32fTexture.resize(nextWidth, nextHeight)
       resize_external_targets(instanceId, nextWidth, nextHeight)
     }
 
     resizeObserver = new ResizeObserver(resizeHandler)
-    resizeObserver.observe(canvas)
+    resizeObserver.observe(textureCanvas)
     window.addEventListener('resize', resizeHandler)
   })
 
@@ -102,6 +102,7 @@ export function useBevy(canvasSelector: string) {
     instanceId,
     renderTexture,
     depthTexture,
+    tick: () => tick(instanceId),
   }
 }
 

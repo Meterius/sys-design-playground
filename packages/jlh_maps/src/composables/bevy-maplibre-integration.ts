@@ -11,7 +11,7 @@ import {
 import type { Geometry } from 'geojson'
 import type { Map as MapInternal, Tile } from 'maplibre-gl/src/index.ts'
 import type { DEMData } from 'maplibre-gl/src/data/dem_data.ts'
-import { onWatcherCleanup, toValue, type WatchSource } from 'vue'
+import { onWatcherCleanup, ref, toValue, type WatchSource } from 'vue'
 import { watchDefinedOnce } from '@/composables/helper.ts'
 import { useMap } from '@indoorequal/vue-maplibre-gl'
 import type { Terrain } from 'maplibre-gl/src/render/terrain.ts'
@@ -66,6 +66,8 @@ export function useMaplibreGlJsIntegration(
 ) {
   const mapInstance = useMap(key)
 
+  const mapIntegration = ref<MaplibreGlJsIntegration | null>(null)
+
   watchDefinedOnce(
     () => {
       const instanceIdValue = toValue(instanceId)
@@ -83,12 +85,18 @@ export function useMaplibreGlJsIntegration(
       )
       integration.start()
 
+      mapIntegration.value = integration
+
       onWatcherCleanup(() => {
         integration.stop()
         remove_map_integration(instanceId, mapIntegrationId)
       })
     },
   )
+
+  return {
+    syncOnRender: () => mapIntegration.value?.syncOnRender(),
+  }
 }
 
 class MaplibreGlJsIntegration {
@@ -112,10 +120,6 @@ class MaplibreGlJsIntegration {
     console.log('Starting maplibre integration on map: ', this.map)
 
     this.unsubscribeCallbacks.push(
-      this.on('render', () => {
-        this.syncView()
-        this.syncTerrain()
-      }),
       this.on('moveend', () => this.scheduleSyncData()),
       this.on('zoomend', () => this.scheduleSyncData()),
       this.on('rotateend', () => this.scheduleSyncData()),
@@ -128,6 +132,11 @@ class MaplibreGlJsIntegration {
 
     this.syncView()
     this.syncData()
+  }
+
+  syncOnRender() {
+    this.syncView();
+    this.syncTerrain();
   }
 
   stop() {

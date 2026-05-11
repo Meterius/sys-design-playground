@@ -6,6 +6,7 @@ use crate::app::map::transform::MERCATOR_WORLD_SIZE;
 use crate::app::maplibre_gl_js::utils::mercator_coordinate::{LngLat, MercatorCoordinate};
 use bevy::camera::RenderTarget;
 use bevy::camera::visibility::RenderLayers;
+use bevy::light::CascadeShadowConfigBuilder;
 use bevy::prelude::*;
 use big_space::bundles::BigSpaceRootBundle;
 use big_space::prelude::{CellCoord, FloatingOrigin};
@@ -104,26 +105,26 @@ pub fn spawn_map_view(
     let world_per_meter = MERCATOR_WORLD_SIZE
         * MercatorCoordinate::from_lng_lat(LngLat::new(13.0, 52.0), 0.0)
             .meter_in_mercator_coordinate_units();
-    let _first_cascade_far_bound = (world_per_meter * FIRST_CASCADE_FAR_METERS) as f32;
-    let _maximum_distance = (world_per_meter * SHADOW_MAX_DISTANCE_METERS) as f32;
-    let _minimum_distance = (world_per_meter * SHADOW_MIN_DISTANCE_METERS) as f32;
+    let first_cascade_far_bound = (world_per_meter * FIRST_CASCADE_FAR_METERS) as f32;
+    let maximum_distance = (world_per_meter * SHADOW_MAX_DISTANCE_METERS) as f32;
+    let minimum_distance = (world_per_meter * SHADOW_MIN_DISTANCE_METERS) as f32;
 
     commands.entity(map_view_id).with_child((
         DirectionalLight {
             color: Color::srgb(0.98, 0.95, 0.82),
-            shadows_enabled: false,
+            shadows_enabled: true,
             shadow_depth_bias: 0.01,
             shadow_normal_bias: 1.8,
             ..default()
         },
-        // CascadeShadowConfigBuilder {
-        //     num_cascades: 2,
-        //     first_cascade_far_bound,
-        //     maximum_distance,
-        //     minimum_distance,
-        //     ..default()
-        // }
-        // .build(),
+        CascadeShadowConfigBuilder {
+            num_cascades: 2,
+            first_cascade_far_bound,
+            maximum_distance,
+            minimum_distance,
+            ..default()
+        }
+        .build(),
         Transform::from_xyz(0.0, 0.0, 0.0).looking_to(Vec3::new(1.0, 0.2, -0.35), Vec3::Z),
         CellCoord::default(),
     ));
@@ -137,7 +138,6 @@ pub fn spawn_map_view(
             clear_color: ClearColorConfig::Custom(Color::NONE),
             ..default()
         },
-        FloatingOrigin,
         MapViewCamera {
             maplibre_int_id: maplibre_integration_id,
         },
@@ -149,10 +149,10 @@ pub fn spawn_map_view(
         Transform::default(),
         CellCoord::default(),
         Msaa::Off,
+        FloatingOrigin,
         Camera3d::default(),
         Camera {
             clear_color: ClearColorConfig::Custom(Color::NONE),
-            order: 1,
             ..default()
         },
         RenderTarget::TextureView(EXTERNAL_COLOR_TARGET_HANDLE),

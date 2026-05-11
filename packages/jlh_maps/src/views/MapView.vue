@@ -1,6 +1,6 @@
 <template>
   <div style="position: absolute; left: 0; right: 0; top: 0; bottom: 0">
-    <div style="position: absolute; width: 100%; height: 50%; top: 0">
+    <div :style="`position: absolute; width: 100%; height: ${showBevyCanvas ? '50%' : '100%'}; top: 0`">
       <mgl-map
         :map-key="mapKey"
         :map-style="tilejsonUrl"
@@ -40,10 +40,27 @@
             />
           </button>
         </mgl-custom-control>
+
+        <mgl-custom-control position="top-right">
+          <button
+            class="map-custom-control"
+            type="button"
+            title="Show bevy"
+            aria-label="Show bevy"
+            :aria-pressed="showBevyCanvas"
+            @click="showBevyCanvas = !showBevyCanvas"
+          >
+            <UIcon
+              name="material-symbols:elevation-outline-rounded"
+              :class="['size-6', ...[showBevyCanvas ? ['text-secondary'] : []]]"
+              style="margin: auto"
+            />
+          </button>
+        </mgl-custom-control>
       </mgl-map>
     </div>
 
-    <div style="position: absolute; width: 100%; height: 50%; bottom: 0">
+    <div v-show="showBevyCanvas" :style="`position: absolute; width: ${showBevyCanvas ? '100%' : '10px'}; height: ${showBevyCanvas ? '50%' : '1px'}; bottom: 0`">
       <canvas
         :id="bevyCanvasId"
         style="position: absolute; inset: 0; height: 100%; width: 100%"
@@ -101,11 +118,14 @@ const mapKey = makeUniqueMapKey()
 
 const bevyCanvasId = `bevy-canvas-${mapKey}`
 
-const { depthTexture, instanceId, renderTexture } = useBevy(`#${bevyCanvasId}`)
+const { depthTexture, instanceId, renderTexture, tick } = useBevy(
+  `#${bevyCanvasId}`,
+  '.maplibregl-canvas',
+)
 
 const { mapInstance, loaded, zoom, pitch } = useMapExtended(mapKey)
 
-useMaplibreGlJsIntegration(() => instanceId, mapKey, {
+const { syncOnRender } = useMaplibreGlJsIntegration(() => instanceId, mapKey, {
   featureSourceLayers: [{ sourceId: 'openmaptiles', sourceLayer: 'building' }],
 })
 
@@ -154,7 +174,8 @@ const highlightGeoJsonData = computed(
   }),
 )
 
-const terrainEnabled = ref(true)
+const showBevyCanvas = ref(false)
+const terrainEnabled = ref(false)
 
 const useRasterOnly = false
 const useRaster = false
@@ -448,6 +469,10 @@ watchDefinedOnce(
         id: 'bevy-texture',
         depthMode: 'texture',
         depthTexture: () => depthTexture.value,
+        tick: () => {
+          syncOnRender()
+          tick()
+        },
       }),
     )
 

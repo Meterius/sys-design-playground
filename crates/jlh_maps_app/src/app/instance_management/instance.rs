@@ -33,3 +33,9 @@ pub fn register_instance(instance_id: String) {
         mounted_instances.borrow_mut().insert(instance_id);
     })
 }
+
+pub fn unregister_instance(instance_id: &str) {
+    MOUNTED_INSTANCES.with(|mounted_instances| {
+        mounted_instances.borrow_mut().remove(instance_id);
+    })
+}

@@ -7,6 +7,7 @@ interface TextureLayerOptions {
   id?: string
   depthMode?: TextureLayerDepthMode
   depthTexture?: TextureProvider
+  tick?: () => void
 }
 
 const DEPTH_VERTEX_SHADER = `#version 300 es
@@ -53,6 +54,7 @@ export class TextureLayer implements CustomLayerInterface {
   private uDepthTexture: WebGLUniformLocation | null = null
   private uDepthRange: WebGLUniformLocation | null = null
   private readonly depthTextureProvider: TextureProvider | undefined
+  private readonly tickCallback: (() => void) | undefined
 
   constructor(
     private readonly colorTextureProvider: TextureProvider,
@@ -61,6 +63,7 @@ export class TextureLayer implements CustomLayerInterface {
     this.id = options.id ?? 'texture-layer'
     this.renderingMode = '3d'
     this.depthTextureProvider = options.depthTexture
+    this.tickCallback = options.tick
   }
 
   onAdd(map: MapLibreMap, gl: WebGLRenderingContext | WebGL2RenderingContext): void {
@@ -92,6 +95,12 @@ export class TextureLayer implements CustomLayerInterface {
   }
 
   render(gl: WebGL2RenderingContext | WebGLRenderingContext): void {
+    try {
+      this.tickCallback?.();
+    } catch (err) {
+      console.error('Error in texture layer tick callback:', err);
+    }
+
     if (!this.program || !this.vertexBuffer) {
       this.map.triggerRepaint()
       return

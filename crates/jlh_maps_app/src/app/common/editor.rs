@@ -313,7 +313,7 @@ fn setup(mut commands: Commands, mut egui_global_settings: ResMut<EguiGlobalSett
         PrimaryEguiContext,
         RenderLayers::none(),
         Camera {
-            order: -1,
+            order: 1,
             clear_color: ClearColorConfig::None,
             ..default()
         },

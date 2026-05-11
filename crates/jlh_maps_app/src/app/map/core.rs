@@ -170,7 +170,7 @@ pub fn spawn_map_view(
         Msaa::Off,
         Camera3d::default(),
         Camera {
-            clear_color: ClearColorConfig::Custom(Color::srgb(1.0, 1.0, 1.0)),
+            clear_color: ClearColorConfig::Custom(Color::srgb(0.0, 0.0, 0.0)),
             order: 2,
             ..default()
         },

@@ -25,8 +25,7 @@ precision highp float;
 in vec2 v_uv;
 uniform sampler2D u_color_texture;
 uniform sampler2D u_depth_texture;
-uniform int u_depth_mode;
-uniform bool u_has_depth_texture;
+uniform vec2 u_depth_range;
 out vec4 out_color;
 
 void main() {
@@ -36,7 +35,8 @@ void main() {
   //   discard;
   // }
 
-  float depth = u_has_depth_texture ? mix(0.94, 0.944244384765625, texture(u_depth_texture, v_uv).r) : 1.0 - color.a;
+  float bevyDepth = texture(u_depth_texture, v_uv).r;
+  float depth = mix(u_depth_range.x, u_depth_range.y, 1.0 - bevyDepth);
   // if (u_depth_mode == 1) {
   //   depth = 0.0;
   // } else if (u_depth_mode == 2) {
@@ -44,7 +44,7 @@ void main() {
   // }
 
   gl_FragDepth = clamp(depth, 0.0, 1.0);
-  out_color = vec4(vec3(depth), 1.0);
+  out_color = color;
 }
 `
 
@@ -60,9 +60,7 @@ export class TextureLayer implements CustomLayerInterface {
   private aPos = -1
   private uColorTexture: WebGLUniformLocation | null = null
   private uDepthTexture: WebGLUniformLocation | null = null
-  private uDepthMode: WebGLUniformLocation | null = null
-  private uHasDepthTexture: WebGLUniformLocation | null = null
-  private readonly depthMode: TextureLayerDepthMode
+  private uDepthRange: WebGLUniformLocation | null = null
   private readonly depthTextureProvider: TextureProvider | undefined
 
   constructor(
@@ -71,7 +69,6 @@ export class TextureLayer implements CustomLayerInterface {
   ) {
     this.id = options.id ?? 'texture-layer'
     this.renderingMode = '3d'
-    this.depthMode = options.depthMode ?? 'texture'
     this.depthTextureProvider = options.depthTexture
   }
 
@@ -82,8 +79,7 @@ export class TextureLayer implements CustomLayerInterface {
     this.aPos = gl.getAttribLocation(this.program, 'a_pos')
     this.uColorTexture = gl.getUniformLocation(this.program, 'u_color_texture')
     this.uDepthTexture = gl.getUniformLocation(this.program, 'u_depth_texture')
-    this.uDepthMode = gl.getUniformLocation(this.program, 'u_depth_mode')
-    this.uHasDepthTexture = gl.getUniformLocation(this.program, 'u_has_depth_texture')
+    this.uDepthRange = gl.getUniformLocation(this.program, 'u_depth_range')
 
     this.vertexBuffer = gl.createBuffer()!
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer)
@@ -118,6 +114,10 @@ export class TextureLayer implements CustomLayerInterface {
     const depthTexture = this.depthTextureProvider
       ? this.getTexture(this.depthTextureProvider)
       : undefined
+    if (!depthTexture) {
+      this.map.triggerRepaint()
+      return
+    }
 
     gl.enable(gl.BLEND)
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
@@ -140,11 +140,16 @@ export class TextureLayer implements CustomLayerInterface {
     gl.uniform1i(this.uColorTexture, 0)
 
     gl.activeTexture(gl.TEXTURE1)
-    gl.bindTexture(gl.TEXTURE_2D, depthTexture ?? null)
+    gl.bindTexture(gl.TEXTURE_2D, depthTexture)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
     gl.uniform1i(this.uDepthTexture, 1)
-    gl.uniform1i(this.uHasDepthTexture, depthTexture ? 1 : 0)
+    gl.uniform2f(
+      this.uDepthRange,
+      this.map.painter.depthRangeFor3D[0],
+      this.map.painter.depthRangeFor3D[1],
+    )
 
-    gl.uniform1i(this.uDepthMode, depthModeToUniform(this.depthMode))
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
     this.map.triggerRepaint()

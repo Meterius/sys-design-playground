@@ -1,8 +1,8 @@
 use crate::app::map::camera::MapViewCamera;
 use crate::app::map::core::{MAP_VIEW_COLOR_RENDER_LAYER, MapViewSettings};
 use crate::app::map::feature_plane_mesh::{
-    FeatureMeshAltitudeConfig, FeaturePlaneMeshTileBucket, setup_feature_plane_mesh_tile_bucket,
-    tile_flat_bounds_world,
+    FeatureMeshAltitudeConfig, FeatureTileBucket, FeatureTileBucketPlaneMesh,
+    handle_removed_features, setup_feature_tile_bucket_plane_mesh, tile_flat_bounds_world,
 };
 use crate::app::maplibre_gl_js::integration::MaplibreMapIntegration;
 use crate::app::maplibre_gl_js::types::CanonicalTileId;
@@ -51,7 +51,7 @@ pub struct SpawnedBuildingSource {
 #[derive(Component)]
 struct BuildingTileBucket;
 
-#[derive(Resource)]
+#[derive(Resource, Reflect)]
 struct BuildingMaterial(Handle<StandardMaterial>);
 
 impl FromWorld for BuildingMaterial {
@@ -69,7 +69,10 @@ fn sync_spawned_building_buckets(
     map_view_settings: Res<MapViewSettings>,
     map_ints: Query<&MaplibreMapIntegration>,
     mut managers: Query<(Entity, &Grid, &mut BuildingManager)>,
-    mut buckets: Query<&mut FeaturePlaneMeshTileBucket, With<BuildingTileBucket>>,
+    mut buckets: Query<
+        (&FeatureTileBucket, Option<&mut FeatureTileBucketPlaneMesh>),
+        With<BuildingTileBucket>,
+    >,
 ) {
     for (manager_id, grid, mut manager) in managers.iter_mut() {
         let maplibre_int_id = manager.maplibre_int_id;
@@ -121,7 +124,10 @@ fn remove_stale_building_buckets(
     commands: &mut Commands,
     map_int: &MaplibreMapIntegration,
     spawned_buildings: &mut HashMap<String, SpawnedBuildingSource>,
-    buckets: &mut Query<&mut FeaturePlaneMeshTileBucket, With<BuildingTileBucket>>,
+    buckets: &mut Query<
+        (&FeatureTileBucket, Option<&mut FeatureTileBucketPlaneMesh>),
+        With<BuildingTileBucket>,
+    >,
     remove_all: bool,
 ) {
     spawned_buildings.retain(|source_id, spawned_source| {
@@ -134,19 +140,24 @@ fn remove_stale_building_buckets(
         });
 
         spawned_source.tiles.retain(|tile_id, bucket_entity| {
-            let Some(current_features) = building_layer.and_then(|layer| layer.tiles.get(tile_id))
-            else {
+            if building_layer
+                .and_then(|layer| layer.tiles.get(tile_id))
+                .is_none()
+            {
                 commands.entity(*bucket_entity).despawn();
                 return false;
-            };
+            }
 
-            let Ok(mut bucket) = buckets.get_mut(*bucket_entity) else {
+            let Ok((bucket, mut plane_mesh)) = buckets.get_mut(*bucket_entity) else {
                 return true;
             };
 
-            bucket.handle_removed_features(current_features);
-
-            true
+            handle_removed_features(
+                (!remove_all).then_some(map_int),
+                bucket,
+                plane_mesh.as_deref_mut(),
+                None,
+            )
         });
 
         !spawned_source.tiles.is_empty()
@@ -176,13 +187,14 @@ fn spawn_building_bucket(
                 flat_half_extents,
             },
             BuildingTileBucket,
-            FeaturePlaneMeshTileBucket::new(
+            FeatureTileBucket::new(
                 maplibre_int_id,
                 source_id,
                 BUILDING_SOURCE_LAYER,
                 tile_id,
                 center,
             ),
+            FeatureTileBucketPlaneMesh::default(),
         ))
         .id();
 
@@ -240,13 +252,18 @@ fn setup_visible_building_bucket_meshes(
     mut commands: Commands,
     map_ints: Query<&MaplibreMapIntegration>,
     mut buckets: Query<
-        (Entity, &mut FeaturePlaneMeshTileBucket, &Visibility),
+        (
+            Entity,
+            &FeatureTileBucket,
+            &mut FeatureTileBucketPlaneMesh,
+            &Visibility,
+        ),
         With<BuildingTileBucket>,
     >,
     mut meshes: ResMut<Assets<Mesh>>,
     material: Res<BuildingMaterial>,
 ) {
-    for (bucket_entity, mut bucket, visibility) in buckets.iter_mut() {
+    for (bucket_entity, bucket, mut plane_mesh, visibility) in buckets.iter_mut() {
         if matches!(*visibility, Visibility::Hidden) {
             continue;
         }
@@ -254,11 +271,12 @@ fn setup_visible_building_bucket_meshes(
         let Some(map_int) = map_ints.get(bucket.maplibre_int_id).ok() else {
             continue;
         };
-        setup_feature_plane_mesh_tile_bucket(
+        setup_feature_tile_bucket_plane_mesh(
             &mut commands,
             map_int,
             bucket_entity,
-            &mut bucket,
+            bucket,
+            &mut plane_mesh,
             &mut meshes,
             material.0.clone(),
             FeatureMeshAltitudeConfig {

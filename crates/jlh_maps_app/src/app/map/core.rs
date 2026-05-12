@@ -142,7 +142,7 @@ pub fn spawn_map_view(
 
     commands.entity(map_view_id).with_child((
         DirectionalLight {
-            color: Color::srgb(0.98, 0.95, 0.82),
+            color: Color::WHITE, // Color::srgb(0.98, 0.95, 0.82),
             shadows_enabled: true,
             shadow_depth_bias: 0.02,
             shadow_normal_bias: 1.8,

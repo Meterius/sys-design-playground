@@ -6,34 +6,30 @@ use crate::app::maplibre_gl_js::types::{
 use crate::app::maplibre_gl_js::utils::mercator_coordinate::{LngLat, MercatorCoordinate};
 use crate::app::maplibre_gl_js::utils::terrain::get_dem_elevation;
 use crate::app::maplibre_gl_js::utils::tile::get_tile_lnglat_bounds;
+use crate::utils::edge_distance::update_edge_distance_texture;
 use bevy::asset::RenderAssetUsages;
+use bevy::image::ImageSampler;
 use bevy::math::{DVec3, dvec2};
 use bevy::mesh::{Indices, PrimitiveTopology};
+use bevy::pbr::Material;
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use geojson::Value;
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
 
+const EDGE_DISTANCE_MAX_UV: f32 = 0.01;
+
 #[derive(Component)]
-pub struct FeaturePlaneMeshTileBucket {
+pub struct FeatureTileBucket {
     pub maplibre_int_id: Entity,
     pub source_id: String,
     pub source_layer_id: String,
     pub tile_id: CanonicalTileId,
     pub center: DVec3,
-    mesh_handle: Option<Handle<Mesh>>,
-    mesh_dirty: bool,
-    terrain_hash: Option<String>,
-    meshed_feature_ids: HashSet<String>,
-    buffers: FeaturePlaneMeshBuffers,
 }
 
-pub struct FeatureMeshAltitudeConfig<'a> {
-    pub base_property_keys: Option<&'a [&'a str]>,
-    pub top_property_keys: Option<&'a [&'a str]>,
-}
-
-impl FeaturePlaneMeshTileBucket {
+impl FeatureTileBucket {
     pub fn new(
         maplibre_int_id: Entity,
         source_id: &str,
@@ -47,14 +43,34 @@ impl FeaturePlaneMeshTileBucket {
             source_layer_id: source_layer_id.to_owned(),
             tile_id,
             center,
+        }
+    }
+}
+
+// Mesh
+
+#[derive(Component)]
+pub struct FeatureTileBucketPlaneMesh {
+    mesh_handle: Option<Handle<Mesh>>,
+    mesh_dirty: bool,
+    terrain_hash: Option<String>,
+    meshed_feature_ids: HashSet<String>,
+    buffers: FeaturePlaneMeshBuffers,
+}
+
+impl Default for FeatureTileBucketPlaneMesh {
+    fn default() -> Self {
+        Self {
             mesh_handle: None,
-            mesh_dirty: false,
+            mesh_dirty: true,
             terrain_hash: None,
             meshed_feature_ids: HashSet::default(),
             buffers: FeaturePlaneMeshBuffers::default(),
         }
     }
+}
 
+impl FeatureTileBucketPlaneMesh {
     pub fn handle_removed_features(
         &mut self,
         current_features: &HashMap<String, SourceLayerFeature>,
@@ -74,6 +90,58 @@ impl FeaturePlaneMeshTileBucket {
         self.mesh_dirty = true;
         self.meshed_feature_ids.clear();
     }
+}
+
+// Edge distance texture
+
+#[derive(Component)]
+pub struct FeatureTileBucketEdgeDistanceTexture {
+    pub texture: Handle<Image>,
+    resolution: UVec2,
+    data: Vec<f32>,
+    dirty: bool,
+    rasterized_feature_ids: HashSet<String>,
+}
+
+impl FeatureTileBucketEdgeDistanceTexture {
+    pub fn new(resolution: UVec2, images: &mut Assets<Image>) -> Self {
+        let resolution = resolution.max(UVec2::ONE);
+        let data = vec![0.0; (resolution.x * resolution.y) as usize];
+        let texture = images.add(edge_distance_image(resolution, &data));
+
+        Self {
+            texture,
+            resolution,
+            data,
+            dirty: true,
+            rasterized_feature_ids: HashSet::default(),
+        }
+    }
+
+    pub fn handle_removed_features(
+        &mut self,
+        current_features: &HashMap<String, SourceLayerFeature>,
+    ) {
+        let removed_rasterized_feature = self
+            .rasterized_feature_ids
+            .iter()
+            .any(|feature_id| !current_features.contains_key(feature_id));
+
+        if removed_rasterized_feature {
+            self.clear_raster_data();
+        }
+    }
+
+    fn clear_raster_data(&mut self) {
+        self.data.fill(0.0);
+        self.dirty = true;
+        self.rasterized_feature_ids.clear();
+    }
+}
+
+pub struct FeatureMeshAltitudeConfig<'a> {
+    pub base_property_keys: Option<&'a [&'a str]>,
+    pub top_property_keys: Option<&'a [&'a str]>,
 }
 
 #[derive(Default)]
@@ -109,42 +177,38 @@ impl FeaturePlaneMeshBuffers {
     }
 }
 
-pub fn setup_feature_plane_mesh_tile_bucket(
+pub fn setup_feature_tile_bucket_plane_mesh<M: Material>(
     commands: &mut Commands,
     map_int: &MaplibreMapIntegration,
     bucket_entity: Entity,
-    bucket: &mut FeaturePlaneMeshTileBucket,
+    bucket: &FeatureTileBucket,
+    plane_mesh: &mut FeatureTileBucketPlaneMesh,
     meshes: &mut Assets<Mesh>,
-    material: Handle<StandardMaterial>,
+    material: Handle<M>,
     altitude_config: FeatureMeshAltitudeConfig,
 ) {
-    let Some(features) = map_int
-        .features
-        .sources
-        .get(&bucket.source_id)
-        .and_then(|source| source.source_layers.get(&bucket.source_layer_id))
-        .and_then(|layer| layer.tiles.get(&bucket.tile_id))
-    else {
+    let Some(features) = feature_tile_features(map_int, bucket) else {
         return;
     };
 
     let terrain_data = map_int.terrain.tiles.get(&bucket.tile_id);
     let terrain_hash = terrain_data.map(|terrain_data| terrain_data.hash.clone());
-    if terrain_hash != bucket.terrain_hash {
-        bucket.clear_mesh_data();
-        bucket.terrain_hash = terrain_hash;
+    if terrain_hash != plane_mesh.terrain_hash {
+        plane_mesh.clear_mesh_data();
+        plane_mesh.terrain_hash = terrain_hash;
     }
 
     let new_feature_ids = features
         .keys()
-        .filter(|feature_id| !bucket.meshed_feature_ids.contains(*feature_id))
+        .filter(|feature_id| !plane_mesh.meshed_feature_ids.contains(*feature_id))
         .cloned()
         .collect::<Vec<_>>();
 
-    if new_feature_ids.is_empty() && !bucket.mesh_dirty {
+    if new_feature_ids.is_empty() && !plane_mesh.mesh_dirty {
         return;
     }
 
+    let bounds = get_tile_lnglat_bounds(bucket.tile_id);
     for feature_id in new_feature_ids {
         let Some(feature) = features.get(&feature_id) else {
             continue;
@@ -153,45 +217,109 @@ pub fn setup_feature_plane_mesh_tile_bucket(
             feature,
             bucket.tile_id,
             bucket.center,
+            bounds,
             terrain_data,
             &altitude_config,
-            &mut bucket.buffers,
+            &mut plane_mesh.buffers,
         ) {
-            bucket.mesh_dirty = true;
-            bucket.meshed_feature_ids.insert(feature_id);
+            plane_mesh.mesh_dirty = true;
+            plane_mesh.meshed_feature_ids.insert(feature_id);
         }
     }
 
-    if bucket.buffers.is_empty() {
-        if bucket.mesh_dirty {
+    if plane_mesh.buffers.is_empty() {
+        if plane_mesh.mesh_dirty {
             commands
                 .entity(bucket_entity)
-                .remove::<(Mesh3d, MeshMaterial3d<StandardMaterial>)>();
-            bucket.mesh_handle = None;
-            bucket.mesh_dirty = false;
+                .remove::<(Mesh3d, MeshMaterial3d<M>)>();
+            plane_mesh.mesh_handle = None;
+            plane_mesh.mesh_dirty = false;
         }
         return;
     }
 
-    let mesh = bucket.buffers.to_mesh();
-    if let Some(mesh_handle) = &bucket.mesh_handle {
+    let mesh = plane_mesh.buffers.to_mesh();
+    if let Some(mesh_handle) = &plane_mesh.mesh_handle {
         if let Some(existing_mesh) = meshes.get_mut(mesh_handle) {
             *existing_mesh = mesh;
         }
     } else {
         let mesh_handle = meshes.add(mesh);
-        bucket.mesh_handle = Some(mesh_handle.clone());
+        plane_mesh.mesh_handle = Some(mesh_handle.clone());
         commands
             .entity(bucket_entity)
             .insert((Mesh3d(mesh_handle), MeshMaterial3d(material)));
     }
-    bucket.mesh_dirty = false;
+    plane_mesh.mesh_dirty = false;
+}
+
+pub fn setup_feature_tile_bucket_edge_distance_texture(
+    map_int: &MaplibreMapIntegration,
+    bucket: &FeatureTileBucket,
+    edge_texture: &mut FeatureTileBucketEdgeDistanceTexture,
+    images: &mut Assets<Image>,
+) {
+    let Some(features) = feature_tile_features(map_int, bucket) else {
+        return;
+    };
+
+    let new_feature_ids = features
+        .keys()
+        .filter(|feature_id| !edge_texture.rasterized_feature_ids.contains(*feature_id))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if new_feature_ids.is_empty() && !edge_texture.dirty {
+        return;
+    }
+
+    let bounds = get_tile_lnglat_bounds(bucket.tile_id);
+    calculate_edge_distance_texture(bounds, features, edge_texture);
+    if let Some(image) = images.get_mut(&edge_texture.texture) {
+        *image = edge_distance_image(edge_texture.resolution, &edge_texture.data);
+    }
+    edge_texture.dirty = false;
+}
+
+pub fn handle_removed_features(
+    map_int: Option<&MaplibreMapIntegration>,
+    bucket: &FeatureTileBucket,
+    plane_mesh: Option<&mut FeatureTileBucketPlaneMesh>,
+    edge_texture: Option<&mut FeatureTileBucketEdgeDistanceTexture>,
+) -> bool {
+    let Some(map_int) = map_int else {
+        return false;
+    };
+    let Some(current_features) = feature_tile_features(map_int, bucket) else {
+        return false;
+    };
+
+    if let Some(plane_mesh) = plane_mesh {
+        plane_mesh.handle_removed_features(current_features);
+    }
+    if let Some(edge_texture) = edge_texture {
+        edge_texture.handle_removed_features(current_features);
+    }
+    true
+}
+
+fn feature_tile_features<'a>(
+    map_int: &'a MaplibreMapIntegration,
+    bucket: &FeatureTileBucket,
+) -> Option<&'a HashMap<String, SourceLayerFeature>> {
+    map_int
+        .features
+        .sources
+        .get(&bucket.source_id)
+        .and_then(|source| source.source_layers.get(&bucket.source_layer_id))
+        .and_then(|layer| layer.tiles.get(&bucket.tile_id))
 }
 
 fn append_feature_plane_mesh(
     feature: &SourceLayerFeature,
     tile_id: CanonicalTileId,
     center: DVec3,
+    bounds: (bevy::math::DVec2, bevy::math::DVec2),
     terrain_data: Option<&MaplibreTerrainTileData>,
     altitude_config: &FeatureMeshAltitudeConfig,
     buffers: &mut FeaturePlaneMeshBuffers,
@@ -214,6 +342,7 @@ fn append_feature_plane_mesh(
             polygon,
             center,
             tile_id,
+            bounds,
             base_altitude,
             top_altitude,
             terrain_data,
@@ -228,6 +357,7 @@ fn append_feature_plane_mesh(
                     polygon,
                     center,
                     tile_id,
+                    bounds,
                     base_altitude,
                     top_altitude,
                     terrain_data,
@@ -313,6 +443,16 @@ fn lng_lat_alt_to_world(lng: f64, lat: f64, alt: f64) -> DVec3 {
     DVec3::new(coords.x, -coords.y, coords.z) * MERCATOR_WORLD_SIZE
 }
 
+fn tile_uv(bounds: (bevy::math::DVec2, bevy::math::DVec2), lnglat: bevy::math::DVec2) -> Vec2 {
+    let bounds_size = bounds.1 - bounds.0;
+    if bounds_size.x == 0.0 || bounds_size.y == 0.0 {
+        return Vec2::ZERO;
+    }
+
+    let uv = ((lnglat - bounds.0) / bounds_size).as_vec2();
+    vec2(uv.x, 1.0 - uv.y)
+}
+
 pub fn tile_flat_center_world(tile_id: CanonicalTileId) -> DVec3 {
     tile_flat_bounds_world(tile_id).0
 }
@@ -332,6 +472,7 @@ fn push_polygon_mesh(
     polygon: &[Vec<Vec<f64>>],
     center: DVec3,
     tile_id: CanonicalTileId,
+    bounds: (bevy::math::DVec2, bevy::math::DVec2),
     base_altitude: f64,
     top_altitude: Option<f64>,
     terrain_data: Option<&MaplibreTerrainTileData>,
@@ -384,8 +525,8 @@ fn push_polygon_mesh(
             flat_coords.push(world.y);
             positions.push(world.as_vec3().to_array());
             normals.push([0.0, 0.0, 1.0]);
-            uvs.push([world.x as f32, world.y as f32]);
-            if let Some(_top_altitude) = top_altitude {
+            uvs.push(tile_uv(bounds, lnglat).to_array());
+            if top_altitude.is_some() {
                 ring_world_positions.push(ExtrusionVertex {
                     top: world,
                     base: lng_lat_alt_to_world(
@@ -514,6 +655,93 @@ fn signed_area_xy(positions: &[ExtrusionVertex]) -> f64 {
         .map(|(left, right)| left.top.x * right.top.y - right.top.x * left.top.y)
         .sum::<f64>()
         * 0.5
+}
+
+fn edge_distance_image(resolution: UVec2, data: &[f32]) -> Image {
+    let format = TextureFormat::R32Float;
+    let mut bytes = Vec::with_capacity(std::mem::size_of_val(data));
+    for value in data {
+        bytes.extend_from_slice(&value.to_ne_bytes());
+    }
+
+    let mut image = Image::new(
+        Extent3d {
+            width: resolution.x,
+            height: resolution.y,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        bytes,
+        format,
+        RenderAssetUsages::default(),
+    );
+    image.sampler = ImageSampler::linear();
+    image
+}
+
+fn calculate_edge_distance_texture(
+    bounds: (bevy::math::DVec2, bevy::math::DVec2),
+    features: &HashMap<String, SourceLayerFeature>,
+    edge_texture: &mut FeatureTileBucketEdgeDistanceTexture,
+) {
+    edge_texture.rasterized_feature_ids.clear();
+    edge_texture
+        .rasterized_feature_ids
+        .extend(features.keys().cloned());
+
+    let edges = edge_segments_uv(bounds, features);
+    update_edge_distance_texture(
+        &edges,
+        &mut edge_texture.data,
+        edge_texture.resolution.x as usize,
+        edge_texture.resolution.y as usize,
+        EDGE_DISTANCE_MAX_UV,
+    );
+}
+
+fn edge_segments_uv(
+    bounds: (bevy::math::DVec2, bevy::math::DVec2),
+    features: &HashMap<String, SourceLayerFeature>,
+) -> Vec<f32> {
+    let mut edges = Vec::new();
+    for feature in features.values() {
+        match &feature.geometry.value {
+            Value::Polygon(polygon) => append_polygon_edge_segments_uv(bounds, polygon, &mut edges),
+            Value::MultiPolygon(polygons) => {
+                for polygon in polygons {
+                    append_polygon_edge_segments_uv(bounds, polygon, &mut edges);
+                }
+            }
+            _ => {}
+        }
+    }
+    edges
+}
+
+fn append_polygon_edge_segments_uv(
+    bounds: (bevy::math::DVec2, bevy::math::DVec2),
+    polygon: &[Vec<Vec<f64>>],
+    edges: &mut Vec<f32>,
+) {
+    for ring in polygon {
+        let ring_positions = ring_without_closing_position(ring);
+        let uvs = ring_positions
+            .iter()
+            .filter_map(|position| {
+                (position.len() >= 2).then(|| tile_uv(bounds, dvec2(position[0], position[1])))
+            })
+            .collect::<Vec<_>>();
+
+        if uvs.len() < 2 {
+            continue;
+        }
+
+        for index in 0..uvs.len() {
+            let a = uvs[index];
+            let b = uvs[(index + 1) % uvs.len()];
+            edges.extend([a.x, a.y, b.x, b.y]);
+        }
+    }
 }
 
 fn ring_without_closing_position(ring: &[Vec<f64>]) -> &[Vec<f64>] {

@@ -1,3 +1,4 @@
+use crate::app::common::editor::GameViewCamera;
 use crate::app::common::external_render_target::EXTERNAL_COLOR_TARGET_HANDLE;
 use crate::app::map::buildings::BuildingManager;
 use crate::app::map::camera::MapViewCamera;
@@ -6,7 +7,6 @@ use crate::app::map::transform::MERCATOR_WORLD_SIZE;
 use crate::app::map::waters::WaterManager;
 use crate::app::maplibre_gl_js::utils::mercator_coordinate::{LngLat, MercatorCoordinate};
 use bevy::camera::RenderTarget;
-use bevy::camera::visibility::RenderLayers;
 use bevy::light::CascadeShadowConfigBuilder;
 use bevy::prelude::*;
 use big_space::bundles::BigSpaceRootBundle;
@@ -49,7 +49,7 @@ pub struct MapViewSettings {
 
 fn sync_window_cameras(
     mv_settings: Res<MapViewSettings>,
-    mut cams: Query<(&mut Camera, &RenderTarget)>,
+    mut cams: Query<(&mut Camera, &RenderTarget), With<MapViewCamera>>,
 ) {
     for (mut cam, cam_target) in cams.iter_mut() {
         if matches!(cam_target, RenderTarget::Window(_)) {
@@ -143,6 +143,7 @@ pub fn spawn_map_view(
     commands.entity(map_view_id).with_child((
         DirectionalLight {
             color: Color::WHITE, // Color::srgb(0.98, 0.95, 0.82),
+            illuminance: 64_000.0,
             shadows_enabled: true,
             shadow_depth_bias: 0.02,
             shadow_normal_bias: 1.8,
@@ -169,10 +170,10 @@ pub fn spawn_map_view(
             clear_color: ClearColorConfig::Custom(Color::NONE),
             ..default()
         },
+        GameViewCamera,
         MapViewCamera {
             maplibre_int_id: maplibre_integration_id,
         },
-        RenderLayers::layer(MAP_VIEW_COLOR_RENDER_LAYER),
     ));
 
     commands.entity(map_view_id).with_child((
@@ -187,7 +188,6 @@ pub fn spawn_map_view(
             ..default()
         },
         RenderTarget::TextureView(EXTERNAL_COLOR_TARGET_HANDLE),
-        RenderLayers::layer(MAP_VIEW_COLOR_RENDER_LAYER),
         MapViewCamera {
             maplibre_int_id: maplibre_integration_id,
         },

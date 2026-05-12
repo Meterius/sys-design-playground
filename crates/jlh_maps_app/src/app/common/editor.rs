@@ -1,4 +1,4 @@
-use bevy::camera::{RenderTarget, Viewport, visibility::RenderLayers};
+use bevy::camera::{Viewport, visibility::RenderLayers};
 use bevy::input::ButtonState;
 use bevy::input::keyboard::KeyboardInput;
 use bevy::reflect::TypeRegistry;
@@ -22,6 +22,9 @@ use std::any::TypeId;
 
 pub struct EditorPlugin;
 
+#[derive(Component)]
+pub struct GameViewCamera;
+
 impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(DefaultInspectorConfigPlugin)
@@ -32,7 +35,13 @@ impl Plugin for EditorPlugin {
                 EguiPrimaryContextPass,
                 show_ui_system.run_if(|state: Res<UiState>| state.editor_active),
             )
-            .add_systems(PostUpdate, set_camera_viewport.after(show_ui_system));
+            .add_systems(
+                PostUpdate,
+                (
+                    sync_egui_camera_active,
+                    set_camera_viewport.after(show_ui_system),
+                ),
+            );
     }
 }
 
@@ -44,6 +53,19 @@ fn handle_keyboard_input(mut state: ResMut<UiState>, mut keyboard: MessageReader
                 state.pointer_in_viewport = true;
             }
         }
+    }
+}
+
+fn sync_egui_camera_active(
+    ui_state: Res<UiState>,
+    game_view_cams: Query<&Camera, (With<GameViewCamera>, Without<PrimaryEguiContext>)>,
+    mut cams: Query<&mut Camera, With<PrimaryEguiContext>>,
+) {
+    let game_view_active = game_view_cams.iter().any(|cam| cam.is_active);
+    let is_active = game_view_active && ui_state.editor_active;
+
+    for mut cam in cams.iter_mut() {
+        cam.is_active = is_active;
     }
 }
 
@@ -64,14 +86,10 @@ fn show_ui_system(world: &mut World) {
 fn set_camera_viewport(
     ui_state: Res<UiState>,
     window: Single<&Window, With<PrimaryWindow>>,
-    mut cams: Query<(&RenderTarget, &mut Camera), Without<PrimaryEguiContext>>,
+    mut cams: Query<&mut Camera, (With<GameViewCamera>, Without<PrimaryEguiContext>)>,
     egui_settings: Single<&EguiContextSettings>,
 ) {
-    for (cam_rt, mut cam) in cams.iter_mut() {
-        if !matches!(cam_rt, RenderTarget::Window(_)) {
-            continue;
-        }
-
+    for mut cam in cams.iter_mut() {
         if ui_state.editor_active {
             let scale_factor = window.scale_factor() * egui_settings.scale_factor;
 
@@ -314,7 +332,8 @@ fn setup(mut commands: Commands, mut egui_global_settings: ResMut<EguiGlobalSett
         RenderLayers::none(),
         Camera {
             order: 1,
-            clear_color: ClearColorConfig::None,
+            is_active: false,
+            clear_color: ClearColorConfig::Custom(Color::NONE),
             ..default()
         },
     ));

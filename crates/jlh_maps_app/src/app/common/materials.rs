@@ -1,8 +1,9 @@
 use bevy::app::{App, Plugin};
 use bevy::asset::{Asset, Handle, load_internal_asset, uuid_handle};
 use bevy::pbr::{Material, MaterialPlugin};
-use bevy::prelude::{Shader, TypePath};
+use bevy::prelude::{Shader, TypePath, Vec4};
 use bevy::render::render_resource::AsBindGroup;
+use bevy::render::render_resource::ShaderType;
 use bevy::shader::ShaderRef;
 
 const DEPTH_TEXTURE_MATERIAL_SHADER_HANDLE: Handle<Shader> =
@@ -42,8 +43,26 @@ impl Material for DepthTextureMaterial {
     }
 }
 
-#[derive(Asset, TypePath, AsBindGroup, Debug, Clone, Default)]
-pub struct TransparentOverwriteMaterial {}
+#[derive(ShaderType, Debug, Clone, Copy)]
+pub struct TransparentOverwriteMaterialUniform {
+    pub max_shadow_alpha: Vec4,
+}
+
+#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
+pub struct TransparentOverwriteMaterial {
+    #[uniform(0)]
+    pub uniform: TransparentOverwriteMaterialUniform,
+}
+
+impl TransparentOverwriteMaterial {
+    pub fn new(max_shadow_alpha: f32) -> Self {
+        Self {
+            uniform: TransparentOverwriteMaterialUniform {
+                max_shadow_alpha: Vec4::new(max_shadow_alpha, 0.0, 0.0, 0.0),
+            },
+        }
+    }
+}
 
 impl Material for TransparentOverwriteMaterial {
     fn fragment_shader() -> ShaderRef {

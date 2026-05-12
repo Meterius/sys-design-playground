@@ -6,6 +6,12 @@
 }
 #import bevy_render::view
 
+struct TransparentOverwriteMaterial {
+    max_shadow_alpha: vec4<f32>,
+}
+
+@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> material: TransparentOverwriteMaterial;
+
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let view_position = view::position_world_to_view(
@@ -25,6 +31,6 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         }
     }
 
-    let shadow_alpha = 1.0 - shadow;
+    let shadow_alpha = min(1.0 - shadow, material.max_shadow_alpha.x);
     return vec4<f32>(0.0, 0.0, 0.0, shadow_alpha);
 }

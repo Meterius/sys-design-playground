@@ -24,7 +24,18 @@ pub struct TerrainPlugin;
 
 impl Plugin for TerrainPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (sync_spawned_tiles, sync_tiles).chain());
+        app.init_resource::<TerrainMaterial>()
+            .add_systems(Update, (sync_spawned_tiles, sync_tiles).chain());
+    }
+}
+
+#[derive(Resource)]
+struct TerrainMaterial(Handle<TransparentOverwriteMaterial>);
+
+impl FromWorld for TerrainMaterial {
+    fn from_world(world: &mut World) -> Self {
+        let mut materials = world.resource_mut::<Assets<TransparentOverwriteMaterial>>();
+        Self(materials.add(TransparentOverwriteMaterial::new(0.8)))
     }
 }
 
@@ -38,8 +49,8 @@ fn sync_spawned_tiles(
     mut commands: Commands,
     map_ints: Query<&MaplibreMapIntegration>,
     mut managers: Query<(Entity, &mut TerrainTileManager)>,
-    mut materials: ResMut<Assets<TransparentOverwriteMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
+    material: Res<TerrainMaterial>,
 ) {
     for (manager_id, mut manager) in managers.iter_mut() {
         let maplibre_int_id = manager.maplibre_int_id;
@@ -63,7 +74,7 @@ fn sync_spawned_tiles(
                         Transform::default(),
                         CellCoord::default(),
                         Mesh3d(meshes.add(Mesh::from(Plane3d::new(Vec3::Z, Vec2::ONE / 2.0)))),
-                        MeshMaterial3d(materials.add(TransparentOverwriteMaterial::default())),
+                        MeshMaterial3d(material.0.clone()),
                         DebugAabbGizmo,
                         TerrainTile {
                             maplibre_int_id,

@@ -94,6 +94,7 @@ pub fn mount(
             })
             .disable::<WinitPlugin>()
             .disable::<TransformPlugin>(),
+        MaterialsPlugin,
         BigSpaceDefaultPlugins,
         EguiPlugin::default(),
         SettingsPlugin {},
@@ -101,7 +102,6 @@ pub fn mount(
         EditorPlugin {},
         MaplibreGlJsPlugin,
         MapPlugin,
-        MaterialsPlugin,
         InstanceManagementPlugin {
             id: instance_id.clone(),
         },

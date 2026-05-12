@@ -37,6 +37,10 @@
             <span>Water</span>
           </label>
           <label class="debug-toggle">
+            <input v-model="enableShadows" type="checkbox" />
+            <span>Shadows</span>
+          </label>
+          <label class="debug-toggle">
             <input v-model="enableWindowCameras" type="checkbox" />
             <span>Debug canvas</span>
           </label>
@@ -109,6 +113,14 @@ const enableWaters = computed({
   set: (value: boolean) => {
     // eslint-disable-next-line vue/no-mutating-props
     props.bevySettings.enable_waters = value
+  },
+})
+
+const enableShadows = computed({
+  get: () => props.bevySettings.enable_shadows,
+  set: (value: boolean) => {
+    // eslint-disable-next-line vue/no-mutating-props
+    props.bevySettings.enable_shadows = value
   },
 })
 

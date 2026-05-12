@@ -36,9 +36,10 @@ impl Plugin for CorePlugin {
             enable_window_cameras: false,
             enable_waters: true,
             enable_buildings: true,
+            enable_shadows: true,
         });
 
-        app.add_systems(PreUpdate, sync_window_cameras);
+        app.add_systems(PreUpdate, (sync_window_cameras, sync_map_shadows));
     }
 }
 
@@ -47,7 +48,11 @@ pub struct MapViewSettings {
     pub enable_window_cameras: bool,
     pub enable_buildings: bool,
     pub enable_waters: bool,
+    pub enable_shadows: bool,
 }
+
+#[derive(Debug, Reflect, Component)]
+struct MapViewShadowLight;
 
 fn sync_window_cameras(
     mv_settings: Res<MapViewSettings>,
@@ -57,6 +62,15 @@ fn sync_window_cameras(
         if matches!(cam_target, RenderTarget::Window(_)) {
             cam.is_active = mv_settings.enable_window_cameras;
         }
+    }
+}
+
+fn sync_map_shadows(
+    mv_settings: Res<MapViewSettings>,
+    mut lights: Query<&mut DirectionalLight, With<MapViewShadowLight>>,
+) {
+    for mut light in lights.iter_mut() {
+        light.shadows_enabled = mv_settings.enable_shadows;
     }
 }
 
@@ -161,6 +175,7 @@ pub fn spawn_map_view(
         .build(),
         Transform::default().looking_to(Vec3::new(1.0, 0.2, -0.65), Vec3::Z),
         CellCoord::default(),
+        MapViewShadowLight,
     ));
 
     let tonemapping = Tonemapping::None;

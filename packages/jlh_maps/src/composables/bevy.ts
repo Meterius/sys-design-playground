@@ -45,7 +45,7 @@ export function useBevy(bevyCanvasSelector: string, textureCanvasSelector: strin
 
   const onBeforeUnmountCallbacks: (() => void)[] = []
 
-  const mapViewSettings = reactive(new MapViewSettingsBevy(false, true, true))
+  const mapViewSettings = reactive(new MapViewSettingsBevy(false, true, true, true))
 
   onMounted(() => {
     const textureCanvas = document.querySelector<HTMLCanvasElement>(textureCanvasSelector)
@@ -88,6 +88,7 @@ export function useBevy(bevyCanvasSelector: string, textureCanvasSelector: strin
               settings.enable_window_cameras,
               settings.enable_buildings,
               settings.enable_waters,
+              settings.enable_shadows,
             ),
           )
         },

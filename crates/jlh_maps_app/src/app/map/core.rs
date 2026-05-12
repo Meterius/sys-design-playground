@@ -32,6 +32,8 @@ impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(MapViewSettings {
             enable_window_cameras: false,
+            enable_waters: true,
+            enable_buildings: true,
         });
 
         app.add_systems(PreUpdate, sync_window_cameras);
@@ -41,6 +43,8 @@ impl Plugin for CorePlugin {
 #[derive(Debug, Reflect, Resource)]
 pub struct MapViewSettings {
     pub enable_window_cameras: bool,
+    pub enable_buildings: bool,
+    pub enable_waters: bool,
 }
 
 fn sync_window_cameras(

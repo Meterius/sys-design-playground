@@ -26,6 +26,26 @@
     <div class="row">
       <USeparator />
       <div class="row p-4">
+        <h5 class="pb-2">Bevy</h5>
+        <div class="grid gap-2">
+          <label class="debug-toggle">
+            <input v-model="enableBuildings" type="checkbox" />
+            <span>Buildings</span>
+          </label>
+          <label class="debug-toggle">
+            <input v-model="enableWaters" type="checkbox" />
+            <span>Water</span>
+          </label>
+          <label class="debug-toggle">
+            <input v-model="enableWindowCameras" type="checkbox" />
+            <span>Debug canvas</span>
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="row">
+      <USeparator />
+      <div class="row p-4">
         <h5 class="pb-2">Layers</h5>
         <UTree
           ref="layerTree"
@@ -45,9 +65,11 @@ import { MapLibreMap } from 'maplibre-gl'
 import { computed, shallowRef, useTemplateRef, watch } from 'vue'
 import type { TreeItem } from '@nuxt/ui'
 import { useSortable } from '@vueuse/integrations/useSortable'
+import type { MapViewSettings as MapViewSettingsBevy } from 'jlh_maps_app'
 
 const props = defineProps<{
   map: MapLibreMap
+  bevySettings: MapViewSettingsBevy
 }>()
 
 const showTileBoundaries = computed({
@@ -71,6 +93,30 @@ const showPadding = computed({
   set: (value: boolean) => {
     // eslint-disable-next-line vue/no-mutating-props
     props.map.showPadding = value
+  },
+})
+
+const enableBuildings = computed({
+  get: () => props.bevySettings.enable_buildings,
+  set: (value: boolean) => {
+    // eslint-disable-next-line vue/no-mutating-props
+    props.bevySettings.enable_buildings = value
+  },
+})
+
+const enableWaters = computed({
+  get: () => props.bevySettings.enable_waters,
+  set: (value: boolean) => {
+    // eslint-disable-next-line vue/no-mutating-props
+    props.bevySettings.enable_waters = value
+  },
+})
+
+const enableWindowCameras = computed({
+  get: () => props.bevySettings.enable_window_cameras,
+  set: (value: boolean) => {
+    // eslint-disable-next-line vue/no-mutating-props
+    props.bevySettings.enable_window_cameras = value
   },
 })
 

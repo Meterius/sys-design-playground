@@ -1,8 +1,9 @@
-import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, shallowRef, watch } from 'vue'
 import {
+  MapViewSettings as MapViewSettingsBevy,
   mount,
   resize_external_targets,
-  set_map_view_enable_window_cameras,
+  set_map_view_settings,
   tick,
   unmount,
 } from 'jlh_maps_app'
@@ -42,9 +43,9 @@ export function useBevy(bevyCanvasSelector: string, textureCanvasSelector: strin
   let resizeObserver: ResizeObserver | undefined
   let resizeHandler: (() => void) | undefined
 
-  const onBeforeUnmountCallbacks = []
+  const onBeforeUnmountCallbacks: (() => void)[] = []
 
-  const enableWindowCameras = ref(false)
+  const mapViewSettings = reactive(new MapViewSettingsBevy(false, true, true))
 
   onMounted(() => {
     const textureCanvas = document.querySelector<HTMLCanvasElement>(textureCanvasSelector)
@@ -79,11 +80,18 @@ export function useBevy(bevyCanvasSelector: string, textureCanvasSelector: strin
 
     onBeforeUnmountCallbacks.push(
       watch(
-        enableWindowCameras,
-        (value) => {
-          set_map_view_enable_window_cameras(instanceId, value)
+        mapViewSettings,
+        (settings) => {
+          set_map_view_settings(
+            instanceId,
+            new MapViewSettingsBevy(
+              settings.enable_window_cameras,
+              settings.enable_buildings,
+              settings.enable_waters,
+            ),
+          )
         },
-        { immediate: true },
+        { deep: true, immediate: true },
       ).stop,
     )
 
@@ -110,6 +118,7 @@ export function useBevy(bevyCanvasSelector: string, textureCanvasSelector: strin
     if (resizeHandler) {
       window.removeEventListener('resize', resizeHandler)
     }
+    onBeforeUnmountCallbacks.splice(0).forEach((callback) => callback())
     resizeObserver = undefined
     resizeHandler = undefined
     unmount(instanceId)
@@ -124,7 +133,7 @@ export function useBevy(bevyCanvasSelector: string, textureCanvasSelector: strin
     instanceId,
     renderTexture,
     depthTexture,
-    enableWindowCameras,
+    mapViewSettings,
     tick: () => tick(instanceId),
   }
 }

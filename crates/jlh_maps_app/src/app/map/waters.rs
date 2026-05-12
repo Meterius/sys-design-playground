@@ -1,4 +1,4 @@
-use crate::app::map::core::MAP_VIEW_COLOR_RENDER_LAYER;
+use crate::app::map::core::{MAP_VIEW_COLOR_RENDER_LAYER, MapViewSettings};
 use crate::app::map::feature_plane_mesh::{
     FeatureMeshAltitudeConfig, FeaturePlaneMeshTileBucket, setup_feature_plane_mesh_tile_bucket,
     tile_flat_center_world,
@@ -53,6 +53,7 @@ impl FromWorld for WaterMaterial {
 
 fn sync_spawned_water_buckets(
     mut commands: Commands,
+    map_view_settings: Res<MapViewSettings>,
     map_ints: Query<&MaplibreMapIntegration>,
     mut managers: Query<(Entity, &Grid, &mut WaterManager)>,
     mut buckets: Query<&mut FeaturePlaneMeshTileBucket, With<WaterTileBucket>>,
@@ -68,7 +69,12 @@ fn sync_spawned_water_buckets(
             map_int,
             &mut manager.spawned_waters,
             &mut buckets,
+            !map_view_settings.enable_waters,
         );
+
+        if !map_view_settings.enable_waters {
+            continue;
+        }
 
         for (source_id, source) in &map_int.features.sources {
             let Some(water_layer) = source.source_layers.get(WATER_SOURCE_LAYER) else {
@@ -100,13 +106,16 @@ fn remove_stale_water_buckets(
     map_int: &MaplibreMapIntegration,
     spawned_waters: &mut HashMap<String, SpawnedWaterSource>,
     buckets: &mut Query<&mut FeaturePlaneMeshTileBucket, With<WaterTileBucket>>,
+    remove_all: bool,
 ) {
     spawned_waters.retain(|source_id, spawned_source| {
-        let water_layer = map_int
-            .features
-            .sources
-            .get(source_id)
-            .and_then(|source| source.source_layers.get(WATER_SOURCE_LAYER));
+        let water_layer = (!remove_all).then_some(map_int).and_then(|map_int| {
+            map_int
+                .features
+                .sources
+                .get(source_id)
+                .and_then(|source| source.source_layers.get(WATER_SOURCE_LAYER))
+        });
 
         spawned_source.tiles.retain(|tile_id, bucket_entity| {
             let Some(current_features) = water_layer.and_then(|layer| layer.tiles.get(tile_id))
@@ -137,7 +146,7 @@ fn spawn_water_bucket(
     tile_id: CanonicalTileId,
 ) -> Entity {
     let center = tile_flat_center_world(tile_id);
-    let (cell, translation) = grid.translation_to_grid(center.with_z(center.z + 0.0001));
+    let (cell, translation) = grid.translation_to_grid(center.with_z(center.z + 0.00001));
 
     let bucket_id = commands
         .spawn((

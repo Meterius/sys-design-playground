@@ -93,6 +93,7 @@
         <map-settings
           v-if="slideoverOpen === SlideoverTab.Settings && mapInstance.map"
           :map="mapInstance.map"
+          :bevy-settings="mapViewSettings"
         />
       </template>
     </USlideover>
@@ -123,7 +124,7 @@ const mapKey = makeUniqueMapKey()
 
 const bevyCanvasId = `bevy-canvas-${mapKey}`
 
-const { depthTexture, instanceId, renderTexture, tick, enableWindowCameras } = useBevy(
+const { depthTexture, instanceId, mapViewSettings, renderTexture, tick } = useBevy(
   `#${bevyCanvasId}`,
   '.maplibregl-canvas',
 )
@@ -187,7 +188,7 @@ const showBevyCanvas = ref(false)
 watch(
   showBevyCanvas,
   (value) => {
-    enableWindowCameras.value = value
+    mapViewSettings.enable_window_cameras = value
   },
   { immediate: true },
 )

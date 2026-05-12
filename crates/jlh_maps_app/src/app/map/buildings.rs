@@ -1,5 +1,5 @@
 use crate::app::map::camera::MapViewCamera;
-use crate::app::map::core::MAP_VIEW_COLOR_RENDER_LAYER;
+use crate::app::map::core::{MAP_VIEW_COLOR_RENDER_LAYER, MapViewSettings};
 use crate::app::map::feature_plane_mesh::{
     FeatureMeshAltitudeConfig, FeaturePlaneMeshTileBucket, setup_feature_plane_mesh_tile_bucket,
     tile_flat_bounds_world,
@@ -66,6 +66,7 @@ impl FromWorld for BuildingMaterial {
 
 fn sync_spawned_building_buckets(
     mut commands: Commands,
+    map_view_settings: Res<MapViewSettings>,
     map_ints: Query<&MaplibreMapIntegration>,
     mut managers: Query<(Entity, &Grid, &mut BuildingManager)>,
     mut buckets: Query<&mut FeaturePlaneMeshTileBucket, With<BuildingTileBucket>>,
@@ -81,7 +82,12 @@ fn sync_spawned_building_buckets(
             map_int,
             &mut manager.spawned_buildings,
             &mut buckets,
+            !map_view_settings.enable_buildings,
         );
+
+        if !map_view_settings.enable_buildings {
+            continue;
+        }
 
         for (source_id, source) in &map_int.features.sources {
             let Some(building_layer) = source.source_layers.get(BUILDING_SOURCE_LAYER) else {
@@ -116,13 +122,16 @@ fn remove_stale_building_buckets(
     map_int: &MaplibreMapIntegration,
     spawned_buildings: &mut HashMap<String, SpawnedBuildingSource>,
     buckets: &mut Query<&mut FeaturePlaneMeshTileBucket, With<BuildingTileBucket>>,
+    remove_all: bool,
 ) {
     spawned_buildings.retain(|source_id, spawned_source| {
-        let building_layer = map_int
-            .features
-            .sources
-            .get(source_id)
-            .and_then(|source| source.source_layers.get(BUILDING_SOURCE_LAYER));
+        let building_layer = (!remove_all).then_some(map_int).and_then(|map_int| {
+            map_int
+                .features
+                .sources
+                .get(source_id)
+                .and_then(|source| source.source_layers.get(BUILDING_SOURCE_LAYER))
+        });
 
         spawned_source.tiles.retain(|tile_id, bucket_entity| {
             let Some(current_features) = building_layer.and_then(|layer| layer.tiles.get(tile_id))

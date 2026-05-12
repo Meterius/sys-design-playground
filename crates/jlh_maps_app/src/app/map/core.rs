@@ -7,8 +7,10 @@ use crate::app::map::transform::MERCATOR_WORLD_SIZE;
 use crate::app::map::waters::WaterManager;
 use crate::app::maplibre_gl_js::utils::mercator_coordinate::{LngLat, MercatorCoordinate};
 use bevy::camera::RenderTarget;
+use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::light::CascadeShadowConfigBuilder;
 use bevy::prelude::*;
+use bevy::render::view::ColorGrading;
 use big_space::bundles::BigSpaceRootBundle;
 use big_space::prelude::{CellCoord, FloatingOrigin};
 use serde::Serialize;
@@ -142,8 +144,8 @@ pub fn spawn_map_view(
 
     commands.entity(map_view_id).with_child((
         DirectionalLight {
-            color: Color::WHITE, // Color::srgb(0.98, 0.95, 0.82),
-            illuminance: 64_000.0,
+            color: Color::WHITE,
+            illuminance: 4000.,
             shadows_enabled: true,
             shadow_depth_bias: 0.02,
             shadow_normal_bias: 1.8,
@@ -157,19 +159,31 @@ pub fn spawn_map_view(
             ..default()
         }
         .build(),
-        Transform::from_xyz(0.0, 0.0, 0.0).looking_to(Vec3::new(1.0, 0.2, -0.35), Vec3::Z),
+        Transform::default().looking_to(Vec3::new(1.0, 0.2, -0.65), Vec3::Z),
         CellCoord::default(),
     ));
+
+    let tonemapping = Tonemapping::None;
+    let msaa = Msaa::Sample8;
+    let color_grading = ColorGrading { ..default() };
+    let ambient_light = AmbientLight {
+        color: Color::WHITE,
+        brightness: 1100.0,
+        ..default()
+    };
 
     commands.entity(map_view_id).with_child((
         Transform::default(),
         CellCoord::default(),
-        Msaa::Sample8,
         Camera3d::default(),
         Camera {
             clear_color: ClearColorConfig::Custom(Color::NONE),
             ..default()
         },
+        tonemapping.clone(),
+        msaa.clone(),
+        color_grading.clone(),
+        ambient_light.clone(),
         GameViewCamera,
         MapViewCamera {
             maplibre_int_id: maplibre_integration_id,
@@ -180,13 +194,16 @@ pub fn spawn_map_view(
         Name::new("External Color Camera"),
         Transform::default(),
         CellCoord::default(),
-        Msaa::Sample8,
         FloatingOrigin,
         Camera3d::default(),
         Camera {
             clear_color: ClearColorConfig::Custom(Color::NONE),
             ..default()
         },
+        tonemapping,
+        msaa,
+        color_grading,
+        ambient_light,
         RenderTarget::TextureView(EXTERNAL_COLOR_TARGET_HANDLE),
         MapViewCamera {
             maplibre_int_id: maplibre_integration_id,

@@ -35,7 +35,7 @@ struct TerrainMaterial(Handle<TransparentOverwriteMaterial>);
 impl FromWorld for TerrainMaterial {
     fn from_world(world: &mut World) -> Self {
         let mut materials = world.resource_mut::<Assets<TransparentOverwriteMaterial>>();
-        Self(materials.add(TransparentOverwriteMaterial::new(0.8)))
+        Self(materials.add(TransparentOverwriteMaterial::new(0.4)))
     }
 }
 

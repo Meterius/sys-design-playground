@@ -29,6 +29,8 @@ const DEFAULT_BUILDING_VISIBILITY_DISTANCE: f32 = 10.0;
 const BUILDING_SOURCE_LAYER: &str = "building";
 const BUILDING_BASE_ALTITUDE_PROPERTY_KEYS: &[&str] = &["render_min_height", "min_height"];
 const BUILDING_TOP_ALTITUDE_PROPERTY_KEYS: &[&str] = &["render_height", "height"];
+const BUILDING_HEIGHT_COLOR_GRADIENT_STRENGTH: f32 = 0.5;
+const BUILDING_HEIGHT_COLOR_GRADIENT_UPPER_ALTITUDE: f64 = 100.0;
 
 #[derive(Component)]
 pub struct BuildingManager {
@@ -51,7 +53,9 @@ impl FromWorld for GlobalBuildingMaterial {
     fn from_world(world: &mut World) -> Self {
         let mut materials = world.resource_mut::<Assets<StandardMaterial>>();
         Self(materials.add(StandardMaterial {
-            base_color: Color::WHITE, // Color::srgb(0.8, 0.2, 0.2),
+            base_color: Color::hsv(20., 0.06, 0.76),
+            perceptual_roughness: 0.95,
+            reflectance: 0.05,
             ..default()
         }))
     }
@@ -180,6 +184,8 @@ fn spawn_building_bucket(
             FeatureTileBucketPlaneMeshConfig {
                 base_property_keys: Some(BUILDING_BASE_ALTITUDE_PROPERTY_KEYS),
                 top_property_keys: Some(BUILDING_TOP_ALTITUDE_PROPERTY_KEYS),
+                height_color_gradient_strength: BUILDING_HEIGHT_COLOR_GRADIENT_STRENGTH,
+                height_color_gradient_upper_altitude: BUILDING_HEIGHT_COLOR_GRADIENT_UPPER_ALTITUDE,
             },
             MeshMaterial3d(material),
         ))

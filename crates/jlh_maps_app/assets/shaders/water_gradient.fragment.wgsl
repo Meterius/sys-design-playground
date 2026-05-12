@@ -1,15 +1,22 @@
 #import bevy_pbr::{
-    decal::clustered::apply_decals,
-    forward_io::{FragmentOutput, VertexOutput},
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions::{
         alpha_discard,
-        apply_pbr_lighting,
-        main_pass_post_lighting_processing,
     },
     pbr_types,
-    pbr_types::STANDARD_MATERIAL_FLAGS_UNLIT_BIT,
 }
+
+#ifdef PREPASS_PIPELINE
+#import bevy_pbr::{
+    prepass_io::{VertexOutput, FragmentOutput},
+    pbr_deferred_functions::deferred_output,
+}
+#else
+#import bevy_pbr::{
+    forward_io::{VertexOutput, FragmentOutput},
+    pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing},
+}
+#endif
 
 struct WaterMaterial {
     params: vec4<f32>,
@@ -21,9 +28,16 @@ struct WaterMaterial {
 
 const WATER_COL: vec3<f32> = vec3<f32>(0.6666667, 0.8235294, 0.9529412);
 const WATER2_COL: vec3<f32> = vec3<f32>(0.5647059, 0.7764706, 0.9215686);
-const FOAM_COL: vec3<f32> = vec3<f32>(0.9568627, 0.96862745, 0.99215686);
+const FOAM_COL: vec3<f32> = vec3<f32>(0.99, 0.99, 1.0);
 const M_2PI: f32 = 6.283185307;
 const M_6PI: f32 = 18.84955592;
+
+fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
+    let cutoff = c <= vec3<f32>(0.04045);
+    let lower = c / 12.92;
+    let higher = pow((c + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4));
+    return select(higher, lower, cutoff);
+}
 
 fn circ(pos: vec2<f32>, c: vec2<f32>, s: f32) -> f32 {
     var d = abs(pos - c);
@@ -160,7 +174,7 @@ fn shore_surf(uv: vec2<f32>, edge_distance: f32, time: f32) -> f32 {
     return clamp(max(shore_line, stripes), 0.0, 1.0);
 }
 
-fn dyn_water_color(in: VertexOutput) -> vec3<f32> {
+fn dyn_water_color_and_foam(in: VertexOutput) -> vec4<f32> {
     let time = water_material.params.x;
     let tile_uv = clamp(in.uv, vec2<f32>(0.0), vec2<f32>(1.0));
     let edge_distance = clamp(textureSample(edge_distance_texture, edge_distance_sampler, tile_uv).r, 0.0, 1.0);
@@ -174,7 +188,7 @@ fn dyn_water_color(in: VertexOutput) -> vec3<f32> {
 
     let surf = shore_surf(uv, clamp(2.0 * edge_distance, 0.0, 1.0), time);
     let toon_water = mix(WATER_COL, water_col, 0.55);
-    return mix(toon_water, FOAM_COL, surf);
+    return vec4<f32>(mix(toon_water, FOAM_COL, surf), surf);
 }
 
 @fragment
@@ -187,18 +201,30 @@ fn fragment(
     }
 
     var pbr_input = pbr_input_from_standard_material(vertex_output, is_front);
-    pbr_input.material.base_color = vec4<f32>(dyn_water_color(vertex_output), 1.0);
+
+    let water = dyn_water_color_and_foam(vertex_output);
+    let foam = smoothstep(0.35, 1.0, water.a);
+    pbr_input.material.base_color = vec4<f32>(srgb_to_linear(water.rgb), 1.0);
+    pbr_input.material.emissive = vec4<f32>(
+        pbr_input.material.emissive.rgb + srgb_to_linear(FOAM_COL) * foam * 0.18,
+        pbr_input.material.emissive.a,
+    );
+
     pbr_input.material.base_color = alpha_discard(pbr_input.material, pbr_input.material.base_color);
 
-    apply_decals(&pbr_input);
-
+#ifdef PREPASS_PIPELINE
+    // in deferred mode we can't modify anything after that, as lighting is run in a separate fullscreen shader.
+    let out = deferred_output(vertex_output, pbr_input);
+#else
     var out: FragmentOutput;
-    if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) == 0u {
-        out.color = apply_pbr_lighting(pbr_input);
-    } else {
-        out.color = pbr_input.material.base_color;
-    }
 
-    // out.color = main_pass_post_lighting_processing(pbr_input, out.color);
+    // apply lighting
+    out.color = apply_pbr_lighting(pbr_input);
+
+    // apply in-shader post processing (fog, alpha-premultiply, and also tonemapping, debanding if the camera is non-hdr)
+    // note this does not include fullscreen postprocessing effects like bloom.
+    out.color = main_pass_post_lighting_processing(pbr_input, out.color);
+#endif
+
     return out;
 }

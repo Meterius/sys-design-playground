@@ -1,16 +1,14 @@
 use crate::app::map::core::{MAP_VIEW_COLOR_RENDER_LAYER, MapViewSettings};
 use crate::app::map::feature_plane_mesh::{
-    FeatureMeshAltitudeConfig, FeatureTileBucket, FeatureTileBucketEdgeDistanceTexture,
-    FeatureTileBucketPlaneMesh, handle_removed_features,
-    setup_feature_tile_bucket_edge_distance_texture, setup_feature_tile_bucket_plane_mesh,
-    tile_flat_center_world,
+    FeatureTileBucket, FeatureTileBucketEdgeDistanceTexture, FeatureTileBucketPlaneMesh,
+    FeatureTileBucketPlaneMeshConfig, tile_flat_center_world,
 };
 use crate::app::maplibre_gl_js::integration::MaplibreMapIntegration;
 use crate::app::maplibre_gl_js::types::CanonicalTileId;
 use crate::utils::debug::SoftExpect;
 use bevy::asset::{Asset, Handle, load_internal_asset, uuid_handle};
 use bevy::camera::visibility::RenderLayers;
-use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin, OpaqueRendererMethod};
+use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin};
 use bevy::prelude::*;
 use bevy::render::render_resource::AsBindGroup;
 use bevy::shader::ShaderRef;
@@ -30,12 +28,7 @@ impl Plugin for WatersPlugin {
         app.add_plugins(MaterialPlugin::<WaterMaterial>::default())
             .add_systems(
                 Update,
-                (
-                    sync_spawned_water_buckets,
-                    setup_water_bucket_meshes,
-                    update_water_material_time,
-                )
-                    .chain(),
+                (sync_spawned_water_buckets, update_water_material_time).chain(),
             );
     }
 }
@@ -57,9 +50,7 @@ pub struct SpawnedWaterSource {
 }
 
 #[derive(Component)]
-struct WaterTileBucket {
-    material: Option<Handle<WaterMaterial>>,
-}
+struct WaterTileBucket;
 
 type WaterMaterial = ExtendedMaterial<StandardMaterial, WaterMaterialExtension>;
 
@@ -84,15 +75,9 @@ fn sync_spawned_water_buckets(
     map_view_settings: Res<MapViewSettings>,
     map_ints: Query<&MaplibreMapIntegration>,
     mut managers: Query<(Entity, &Grid, &mut WaterManager)>,
-    mut buckets: Query<
-        (
-            &FeatureTileBucket,
-            Option<&mut FeatureTileBucketPlaneMesh>,
-            Option<&mut FeatureTileBucketEdgeDistanceTexture>,
-        ),
-        With<WaterTileBucket>,
-    >,
+    buckets: Query<(), With<WaterTileBucket>>,
     mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<WaterMaterial>>,
 ) {
     for (manager_id, grid, mut manager) in managers.iter_mut() {
         let maplibre_int_id = manager.maplibre_int_id;
@@ -104,7 +89,7 @@ fn sync_spawned_water_buckets(
             &mut commands,
             map_int,
             &mut manager.spawned_waters,
-            &mut buckets,
+            &buckets,
             !map_view_settings.enable_waters,
         );
 
@@ -129,6 +114,7 @@ fn sync_spawned_water_buckets(
                     maplibre_int_id,
                     grid,
                     &mut images,
+                    &mut materials,
                     source_id,
                     *tile_id,
                 );
@@ -142,14 +128,7 @@ fn remove_stale_water_buckets(
     commands: &mut Commands,
     map_int: &MaplibreMapIntegration,
     spawned_waters: &mut HashMap<String, SpawnedWaterSource>,
-    buckets: &mut Query<
-        (
-            &FeatureTileBucket,
-            Option<&mut FeatureTileBucketPlaneMesh>,
-            Option<&mut FeatureTileBucketEdgeDistanceTexture>,
-        ),
-        With<WaterTileBucket>,
-    >,
+    buckets: &Query<(), With<WaterTileBucket>>,
     remove_all: bool,
 ) {
     spawned_waters.retain(|source_id, spawned_source| {
@@ -170,17 +149,7 @@ fn remove_stale_water_buckets(
                 return false;
             }
 
-            let Ok((bucket, mut plane_mesh, mut edge_texture)) = buckets.get_mut(*bucket_entity)
-            else {
-                return true;
-            };
-
-            handle_removed_features(
-                (!remove_all).then_some(map_int),
-                bucket,
-                plane_mesh.as_deref_mut(),
-                edge_texture.as_deref_mut(),
-            )
+            buckets.get(*bucket_entity).is_ok()
         });
 
         !spawned_source.tiles.is_empty()
@@ -193,11 +162,25 @@ fn spawn_water_bucket(
     maplibre_int_id: Entity,
     grid: &Grid,
     images: &mut Assets<Image>,
+    materials: &mut Assets<WaterMaterial>,
     source_id: &str,
     tile_id: CanonicalTileId,
 ) -> Entity {
     let center = tile_flat_center_world(tile_id);
     let (cell, translation) = grid.translation_to_grid(center.with_z(center.z));
+    let edge_distance_texture =
+        FeatureTileBucketEdgeDistanceTexture::new(WATER_EDGE_DISTANCE_TEXTURE_RESOLUTION, images);
+    let material = materials.add(ExtendedMaterial {
+        base: StandardMaterial {
+            base_color: Color::WHITE,
+            depth_bias: 40000.0,
+            ..default()
+        },
+        extension: WaterMaterialExtension {
+            edge_distance_texture: edge_distance_texture.texture.clone(),
+            params: Vec4::ZERO,
+        },
+    });
 
     let bucket_id = commands
         .spawn((
@@ -205,7 +188,8 @@ fn spawn_water_bucket(
             cell,
             Transform::from_translation(translation),
             RenderLayers::layer(MAP_VIEW_COLOR_RENDER_LAYER),
-            WaterTileBucket { material: None },
+            MeshMaterial3d(material.clone()),
+            WaterTileBucket,
             FeatureTileBucket::new(
                 maplibre_int_id,
                 source_id,
@@ -214,78 +198,13 @@ fn spawn_water_bucket(
                 center,
             ),
             FeatureTileBucketPlaneMesh::default(),
-            FeatureTileBucketEdgeDistanceTexture::new(
-                WATER_EDGE_DISTANCE_TEXTURE_RESOLUTION,
-                images,
-            ),
+            FeatureTileBucketPlaneMeshConfig::default(),
+            edge_distance_texture,
         ))
         .id();
 
     commands.entity(manager_id).add_child(bucket_id);
     bucket_id
-}
-
-fn setup_water_bucket_meshes(
-    mut commands: Commands,
-    map_ints: Query<&MaplibreMapIntegration>,
-    mut buckets: Query<
-        (
-            Entity,
-            &mut WaterTileBucket,
-            &FeatureTileBucket,
-            &mut FeatureTileBucketPlaneMesh,
-            &mut FeatureTileBucketEdgeDistanceTexture,
-        ),
-        With<WaterTileBucket>,
-    >,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut images: ResMut<Assets<Image>>,
-    mut materials: ResMut<Assets<WaterMaterial>>,
-) {
-    for (bucket_entity, mut water_bucket, bucket, mut plane_mesh, mut edge_texture) in
-        buckets.iter_mut()
-    {
-        let Some(map_int) = map_ints.get(bucket.maplibre_int_id).ok() else {
-            continue;
-        };
-
-        setup_feature_tile_bucket_edge_distance_texture(
-            map_int,
-            bucket,
-            &mut edge_texture,
-            &mut images,
-        );
-        let material = water_bucket
-            .material
-            .get_or_insert_with(|| {
-                materials.add(ExtendedMaterial {
-                    base: StandardMaterial {
-                        base_color: Color::WHITE,
-                        depth_bias: 40000.0,
-                        ..default()
-                    },
-                    extension: WaterMaterialExtension {
-                        edge_distance_texture: edge_texture.texture.clone(),
-                        params: Vec4::ZERO,
-                    },
-                })
-            })
-            .clone();
-
-        setup_feature_tile_bucket_plane_mesh(
-            &mut commands,
-            map_int,
-            bucket_entity,
-            bucket,
-            &mut plane_mesh,
-            &mut meshes,
-            material,
-            FeatureMeshAltitudeConfig {
-                base_property_keys: None,
-                top_property_keys: None,
-            },
-        );
-    }
 }
 
 fn update_water_material_time(time: Res<Time>, mut materials: ResMut<Assets<WaterMaterial>>) {

@@ -17,6 +17,7 @@ impl Plugin for MapPlugin {
             camera::CameraPlugin,
             core::CorePlugin,
             terrain::TerrainPlugin,
+            feature_plane_mesh::FeaturePlaneMeshPlugin,
             buildings::BuildingsPlugin,
             waters::WatersPlugin,
         ));

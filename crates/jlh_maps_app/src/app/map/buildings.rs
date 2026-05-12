@@ -1,8 +1,8 @@
 use crate::app::map::camera::MapViewCamera;
 use crate::app::map::core::{MAP_VIEW_COLOR_RENDER_LAYER, MapViewSettings};
 use crate::app::map::feature_plane_mesh::{
-    FeatureMeshAltitudeConfig, FeatureTileBucket, FeatureTileBucketPlaneMesh,
-    handle_removed_features, setup_feature_tile_bucket_plane_mesh, tile_flat_bounds_world,
+    FeatureTileBucket, FeatureTileBucketPlaneMesh, FeatureTileBucketPlaneMeshConfig,
+    tile_flat_bounds_world,
 };
 use crate::app::maplibre_gl_js::integration::MaplibreMapIntegration;
 use crate::app::maplibre_gl_js::types::CanonicalTileId;
@@ -16,15 +16,8 @@ pub struct BuildingsPlugin;
 
 impl Plugin for BuildingsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<BuildingMaterial>()
-            .add_systems(
-                Update,
-                (
-                    sync_spawned_building_buckets,
-                    setup_visible_building_bucket_meshes,
-                )
-                    .chain(),
-            )
+        app.init_resource::<GlobalBuildingMaterial>()
+            .add_systems(Update, (sync_spawned_building_buckets,).chain())
             .add_systems(
                 PostUpdate,
                 sync_distance_visibility.after(TransformSystems::Propagate),
@@ -52,13 +45,13 @@ pub struct SpawnedBuildingSource {
 struct BuildingTileBucket;
 
 #[derive(Resource, Reflect)]
-struct BuildingMaterial(Handle<StandardMaterial>);
+struct GlobalBuildingMaterial(Handle<StandardMaterial>);
 
-impl FromWorld for BuildingMaterial {
+impl FromWorld for GlobalBuildingMaterial {
     fn from_world(world: &mut World) -> Self {
         let mut materials = world.resource_mut::<Assets<StandardMaterial>>();
         Self(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.8, 0.2, 0.2),
+            base_color: Color::WHITE, // Color::srgb(0.8, 0.2, 0.2),
             ..default()
         }))
     }
@@ -69,10 +62,8 @@ fn sync_spawned_building_buckets(
     map_view_settings: Res<MapViewSettings>,
     map_ints: Query<&MaplibreMapIntegration>,
     mut managers: Query<(Entity, &Grid, &mut BuildingManager)>,
-    mut buckets: Query<
-        (&FeatureTileBucket, Option<&mut FeatureTileBucketPlaneMesh>),
-        With<BuildingTileBucket>,
-    >,
+    buckets: Query<(), With<BuildingTileBucket>>,
+    material: Res<GlobalBuildingMaterial>,
 ) {
     for (manager_id, grid, mut manager) in managers.iter_mut() {
         let maplibre_int_id = manager.maplibre_int_id;
@@ -84,7 +75,7 @@ fn sync_spawned_building_buckets(
             &mut commands,
             map_int,
             &mut manager.spawned_buildings,
-            &mut buckets,
+            &buckets,
             !map_view_settings.enable_buildings,
         );
 
@@ -113,7 +104,9 @@ fn sync_spawned_building_buckets(
                     grid,
                     source_id,
                     *tile_id,
+                    material.0.clone(),
                 );
+
                 spawned_source.tiles.insert(*tile_id, bucket_id);
             }
         }
@@ -124,10 +117,7 @@ fn remove_stale_building_buckets(
     commands: &mut Commands,
     map_int: &MaplibreMapIntegration,
     spawned_buildings: &mut HashMap<String, SpawnedBuildingSource>,
-    buckets: &mut Query<
-        (&FeatureTileBucket, Option<&mut FeatureTileBucketPlaneMesh>),
-        With<BuildingTileBucket>,
-    >,
+    buckets: &Query<(), With<BuildingTileBucket>>,
     remove_all: bool,
 ) {
     spawned_buildings.retain(|source_id, spawned_source| {
@@ -148,16 +138,7 @@ fn remove_stale_building_buckets(
                 return false;
             }
 
-            let Ok((bucket, mut plane_mesh)) = buckets.get_mut(*bucket_entity) else {
-                return true;
-            };
-
-            handle_removed_features(
-                (!remove_all).then_some(map_int),
-                bucket,
-                plane_mesh.as_deref_mut(),
-                None,
-            )
+            buckets.get(*bucket_entity).is_ok()
         });
 
         !spawned_source.tiles.is_empty()
@@ -171,6 +152,7 @@ fn spawn_building_bucket(
     grid: &Grid,
     source_id: &str,
     tile_id: CanonicalTileId,
+    material: Handle<StandardMaterial>,
 ) -> Entity {
     let (center, flat_half_extents) = tile_flat_bounds_world(tile_id);
     let (cell, translation) = grid.translation_to_grid(center);
@@ -195,6 +177,11 @@ fn spawn_building_bucket(
                 center,
             ),
             FeatureTileBucketPlaneMesh::default(),
+            FeatureTileBucketPlaneMeshConfig {
+                base_property_keys: Some(BUILDING_BASE_ALTITUDE_PROPERTY_KEYS),
+                top_property_keys: Some(BUILDING_TOP_ALTITUDE_PROPERTY_KEYS),
+            },
+            MeshMaterial3d(material),
         ))
         .id();
 
@@ -245,45 +232,6 @@ fn sync_distance_visibility(
         } else {
             Visibility::Hidden
         };
-    }
-}
-
-fn setup_visible_building_bucket_meshes(
-    mut commands: Commands,
-    map_ints: Query<&MaplibreMapIntegration>,
-    mut buckets: Query<
-        (
-            Entity,
-            &FeatureTileBucket,
-            &mut FeatureTileBucketPlaneMesh,
-            &Visibility,
-        ),
-        With<BuildingTileBucket>,
-    >,
-    mut meshes: ResMut<Assets<Mesh>>,
-    material: Res<BuildingMaterial>,
-) {
-    for (bucket_entity, bucket, mut plane_mesh, visibility) in buckets.iter_mut() {
-        if matches!(*visibility, Visibility::Hidden) {
-            continue;
-        }
-
-        let Some(map_int) = map_ints.get(bucket.maplibre_int_id).ok() else {
-            continue;
-        };
-        setup_feature_tile_bucket_plane_mesh(
-            &mut commands,
-            map_int,
-            bucket_entity,
-            bucket,
-            &mut plane_mesh,
-            &mut meshes,
-            material.0.clone(),
-            FeatureMeshAltitudeConfig {
-                base_property_keys: Some(BUILDING_BASE_ALTITUDE_PROPERTY_KEYS),
-                top_property_keys: Some(BUILDING_TOP_ALTITUDE_PROPERTY_KEYS),
-            },
-        );
     }
 }
 

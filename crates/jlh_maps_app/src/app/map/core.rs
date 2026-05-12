@@ -3,6 +3,7 @@ use crate::app::map::buildings::BuildingManager;
 use crate::app::map::camera::MapViewCamera;
 use crate::app::map::terrain::TerrainTileManager;
 use crate::app::map::transform::MERCATOR_WORLD_SIZE;
+use crate::app::map::waters::WaterManager;
 use crate::app::maplibre_gl_js::utils::mercator_coordinate::{LngLat, MercatorCoordinate};
 use bevy::camera::RenderTarget;
 use bevy::camera::visibility::RenderLayers;
@@ -120,6 +121,10 @@ pub fn spawn_map_view(
             BuildingManager {
                 maplibre_int_id: maplibre_integration_id,
                 spawned_buildings: HashMap::default(),
+            },
+            WaterManager {
+                maplibre_int_id: maplibre_integration_id,
+                spawned_waters: HashMap::default(),
             },
         ))
         .id();

@@ -131,7 +131,10 @@ const { depthTexture, instanceId, renderTexture, tick, enableWindowCameras } = u
 const { mapInstance, loaded, zoom } = useMapExtended(mapKey)
 
 const { syncOnRender } = useMaplibreGlJsIntegration(() => instanceId, mapKey, {
-  featureSourceLayers: [{ sourceId: 'openmaptiles', sourceLayer: 'building' }],
+  featureSourceLayers: [
+    { sourceId: 'openmaptiles', sourceLayer: 'building' },
+    { sourceId: 'openmaptiles', sourceLayer: 'water' }
+  ],
 })
 
 const tilejsonUrl = TILESERVER_OMT_DEFAULT_STYLE_TILEJSON_URL.toString()

@@ -40,7 +40,7 @@ void main() {
 }
 `
 
-export class TextureLayer implements CustomLayerInterface {
+export class BevyLayer implements CustomLayerInterface {
   id: string
   type = 'custom' as const
   renderingMode: '2d' | '3d'
@@ -55,6 +55,7 @@ export class TextureLayer implements CustomLayerInterface {
   private uDepthRange: WebGLUniformLocation | null = null
   private readonly depthTextureProvider: TextureProvider | undefined
   private readonly tickCallback: (() => void) | undefined
+  private tickFailed = false
 
   constructor(
     private readonly colorTextureProvider: TextureProvider,
@@ -96,9 +97,12 @@ export class TextureLayer implements CustomLayerInterface {
 
   render(gl: WebGL2RenderingContext | WebGLRenderingContext): void {
     try {
-      this.tickCallback?.()
+      if (!this.tickFailed) {
+        this.tickCallback?.()
+      }
     } catch (err) {
       console.error('Error in texture layer tick callback:', err)
+      this.tickFailed = true
     }
 
     if (!this.program || !this.vertexBuffer) {

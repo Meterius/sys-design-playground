@@ -53,7 +53,7 @@
             @click="showBevyCanvas = !showBevyCanvas"
           >
             <UIcon
-              name="material-symbols:elevation-outline-rounded"
+              name="material-symbols:bug-report-outline-rounded"
               :class="['size-6', ...[showBevyCanvas ? ['text-secondary'] : []]]"
               style="margin: auto"
             />
@@ -117,7 +117,7 @@ import { makeUniqueMapKey, useMapExtended, useMapSelection } from '@/composables
 import { watchDefinedOnce } from '@/composables/helper.ts'
 import { useMaplibreGlJsIntegration } from '@/composables/bevy-maplibre-integration.ts'
 import { useBevy } from '@/composables/bevy.ts'
-import { TextureLayer } from '../maplibre-layers/texture-layer.ts'
+import { BevyLayer } from '../maplibre-layers/bevy-layer.ts'
 
 const mapKey = makeUniqueMapKey()
 
@@ -479,7 +479,7 @@ watchDefinedOnce(
     )
 
     map.addLayer(
-      new TextureLayer(() => renderTexture.value?.texture, {
+      new BevyLayer(() => renderTexture.value?.texture, {
         id: 'bevy-texture',
         depthMode: 'texture',
         depthTexture: () => depthTexture.value,

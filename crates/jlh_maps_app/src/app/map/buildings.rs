@@ -23,15 +23,19 @@ pub struct BuildingsPlugin;
 
 impl Plugin for BuildingsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<BuildingMaterial>().add_systems(
-            Update,
-            (
-                sync_spawned_building_buckets,
-                sync_distance_visibility,
-                setup_visible_building_bucket_meshes,
+        app.init_resource::<BuildingMaterial>()
+            .add_systems(
+                Update,
+                (
+                    sync_spawned_building_buckets,
+                    setup_visible_building_bucket_meshes,
+                )
+                    .chain(),
             )
-                .chain(),
-        );
+            .add_systems(
+                PostUpdate,
+                sync_distance_visibility.after(TransformSystems::Propagate),
+            );
     }
 }
 
@@ -379,8 +383,9 @@ fn append_building_feature_mesh(
     let base_altitude =
         building_altitude_property(&feature.properties, ["render_min_height", "min_height"])
             .unwrap_or(0.0);
-    let top_altitude =
-        building_altitude_property(&feature.properties, ["render_height", "height"]).unwrap_or(0.0);
+    let top_altitude = building_altitude_property(&feature.properties, ["render_height", "height"])
+        .unwrap_or(5.0)
+        .max(1.0);
     let top_altitude = top_altitude.max(base_altitude);
     let start_position_count = buffers.positions.len();
     let start_index_count = buffers.indices.len();
@@ -568,7 +573,7 @@ fn push_polygon_mesh(
 
         let ring_vertex_count = positions.len() - ring_first_vertex;
         if ring_vertex_count >= 3 {
-            rings.push(ring_world_positions);
+            rings.push((ring_world_positions, ring_index > 0));
         }
     }
 
@@ -593,8 +598,15 @@ fn push_polygon_mesh(
             .map(|index| first_vertex + index),
     );
 
-    for ring_world_positions in rings {
-        push_extrusion_wall_mesh(&ring_world_positions, positions, normals, uvs, indices);
+    for (ring_world_positions, is_hole) in rings {
+        push_extrusion_wall_mesh(
+            &ring_world_positions,
+            is_hole,
+            positions,
+            normals,
+            uvs,
+            indices,
+        );
     }
 }
 
@@ -605,6 +617,7 @@ struct ExtrusionVertex {
 
 fn push_extrusion_wall_mesh(
     ring_positions: &[ExtrusionVertex],
+    is_hole: bool,
     positions: &mut Vec<[f32; 3]>,
     normals: &mut Vec<[f32; 3]>,
     uvs: &mut Vec<[f32; 2]>,
@@ -616,12 +629,13 @@ fn push_extrusion_wall_mesh(
     }
 
     let ring_area = signed_area_xy(ring_positions);
+    let outward_right = (ring_area >= 0.0) != is_hole;
     for edge_index in 0..ring_len {
         let next_edge_index = (edge_index + 1) % ring_len;
         let top_left = ring_positions[edge_index].top;
         let top_right = ring_positions[next_edge_index].top;
         let edge = top_right - top_left;
-        let normal = if ring_area >= 0.0 {
+        let normal = if outward_right {
             DVec3::new(edge.y, -edge.x, 0.0)
         } else {
             DVec3::new(-edge.y, edge.x, 0.0)
@@ -644,7 +658,7 @@ fn push_extrusion_wall_mesh(
         uvs.push([next_edge_index as f32, 0.0]);
         uvs.push([edge_index as f32, 0.0]);
 
-        if ring_area >= 0.0 {
+        if outward_right {
             indices.extend([
                 first_wall_vertex,
                 first_wall_vertex + 2,

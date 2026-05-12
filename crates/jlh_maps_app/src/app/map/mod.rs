@@ -1,6 +1,7 @@
 pub mod buildings;
 pub mod camera;
 pub mod core;
+pub mod feature_plane_mesh;
 pub mod interop;
 pub mod terrain;
 pub mod transform;

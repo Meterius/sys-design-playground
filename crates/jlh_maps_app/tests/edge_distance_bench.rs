@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use jlh_maps_frontend::update_edge_distance_texture;
+use jlh_maps_app::utils::edge_distance::update_edge_distance_texture;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -93,6 +93,7 @@ fn benchmark_sample(sample: &EdgeTileSample, repeat_count: usize) -> BenchResult
         update_edge_distance_texture(
             &sample.edges,
             &mut out,
+            sample.texture_size,
             sample.texture_size,
             sample.max_distance,
         );

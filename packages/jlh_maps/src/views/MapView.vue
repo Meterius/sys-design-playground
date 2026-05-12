@@ -112,7 +112,6 @@ import {
 } from '@/external/endpoints.ts'
 import MapDetails from '@/components/MapDetails.vue'
 import MapSettings from '@/components/MapSettings.vue'
-import { DynWaterLayer } from '../maplibre-layers/dyn-water-layer.ts'
 import { TreeMeshLayer } from '../maplibre-layers/tree-mesh-layer.ts'
 import { makeUniqueMapKey, useMapExtended, useMapSelection } from '@/composables/maplibre.ts'
 import { watchDefinedOnce } from '@/composables/helper.ts'
@@ -199,7 +198,6 @@ const useRasterOnly = false
 const useRaster = false
 
 const enableTrees = false
-const enableDynWater = false
 
 watchDefinedOnce(
   () => mapInstance.map,
@@ -451,21 +449,6 @@ watchDefinedOnce(
           },
           { immediate: true },
         ).stop,
-      )
-    }
-
-    // Dyn Water Layer
-
-    if (enableDynWater) {
-      const dynWaterLayer = new DynWaterLayer(map.getLayer('Water')!)
-      map.addLayer(dynWaterLayer, 'Landcover patterns')
-      map.setLayoutProperty(dynWaterLayer.id, 'visibility', useRaster ? 'none' : 'visible')
-
-      onCleanupCallbacks.push(
-        watch(zoom, (value) => {
-          const visible = value >= 14 && !useRaster
-          map.setLayoutProperty(dynWaterLayer.id, 'visibility', visible ? 'visible' : 'none')
-        }).stop,
       )
     }
 

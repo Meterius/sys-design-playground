@@ -10,13 +10,13 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/osm/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/jlh_maps_core_service/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/jlh_maps_frontend/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/crates/jlh_maps_frontend/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/sat_ingest/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/sat_ingest/vendor/irox-carto/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/geo_app/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/geo_app/vendor/bevy_vello/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/geo_app/vendor/bevy_vello/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/jlh_maps_app/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/jlh_maps_app/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/crates/backend/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/datasets/sat" />

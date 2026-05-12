@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use jlh_maps_frontend::update_edge_distance_texture;
+use jlh_maps_app::utils::edge_distance::update_edge_distance_texture;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -69,6 +69,7 @@ fn main() {
             update_edge_distance_texture(
                 black_box(&sample.edges),
                 black_box(&mut out),
+                black_box(sample.texture_size),
                 black_box(sample.texture_size),
                 black_box(sample.max_distance),
             );

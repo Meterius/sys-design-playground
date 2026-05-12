@@ -1,11 +1,21 @@
 build-dev:
-    wasm-pack build --mode no-install --dev --target web -- --target wasm32-unknown-unknown
+    wasm-pack build --dev --target web -- --target wasm32-unknown-unknown
 
 build-dev-watch:
     cargo watch --why -s "just build-dev"
 
-build-release:
-    wasm-pack build --release --target web -- --target wasm32-unknown-unknown
+bench-edge-distance:
+    cargo test -p jlh_maps_app --release --test edge_distance_bench -- --ignored --nocapture
+
+profile-build-edge-distance:
+    cargo build -p jlh_maps_frontend --release --bin edge_distance_profile
+
+profile-run-edge-distance: profile-build-edge-distance
+    ..\..\target\release\edge_distance_profile.exe
+
+profile-vtune-edge-distance: profile-build-edge-distance
+    if exist vtune-results\edge-distance rmdir /s /q vtune-results\edge-distance
+    vtune -collect hotspots -result-dir vtune-results\edge-distance -- ..\..\target\release\edge_distance_profile.exe
 
 clean:
     cargo clean -p jlh_maps_app

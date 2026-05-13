@@ -1,7 +1,7 @@
 use bevy::app::{App, Plugin};
 use bevy::asset::{Asset, Handle, load_internal_asset, uuid_handle};
 use bevy::pbr::{Material, MaterialPlugin};
-use bevy::prelude::{Shader, TypePath, Vec4};
+use bevy::prelude::{Reflect, Shader};
 use bevy::render::render_resource::AsBindGroup;
 use bevy::render::render_resource::ShaderType;
 use bevy::shader::ShaderRef;
@@ -34,7 +34,7 @@ impl Plugin for MaterialsPlugin {
     }
 }
 
-#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
+#[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
 pub struct DepthTextureMaterial {}
 
 impl Material for DepthTextureMaterial {
@@ -43,12 +43,15 @@ impl Material for DepthTextureMaterial {
     }
 }
 
-#[derive(ShaderType, Debug, Clone, Copy)]
+#[derive(ShaderType, Reflect, Debug, Clone, Copy)]
 pub struct TransparentOverwriteMaterialUniform {
-    pub max_shadow_alpha: Vec4,
+    pub max_shadow_alpha: f32,
+    _webgl2_padding_8b: u32,
+    _webgl2_padding_12b: u32,
+    _webgl2_padding_16b: u32,
 }
 
-#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
+#[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
 pub struct TransparentOverwriteMaterial {
     #[uniform(0)]
     pub uniform: TransparentOverwriteMaterialUniform,
@@ -58,7 +61,10 @@ impl TransparentOverwriteMaterial {
     pub fn new(max_shadow_alpha: f32) -> Self {
         Self {
             uniform: TransparentOverwriteMaterialUniform {
-                max_shadow_alpha: Vec4::new(max_shadow_alpha, 0.0, 0.0, 0.0),
+                max_shadow_alpha,
+                _webgl2_padding_8b: 0,
+                _webgl2_padding_12b: 0,
+                _webgl2_padding_16b: 0,
             },
         }
     }

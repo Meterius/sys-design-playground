@@ -7,7 +7,10 @@
 #import bevy_render::view
 
 struct TransparentOverwriteMaterial {
-    max_shadow_alpha: vec4<f32>,
+    max_shadow_alpha: f32,
+    _webgl2_padding_8b: u32,
+    _webgl2_padding_12b: u32,
+    _webgl2_padding_16b: u32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> material: TransparentOverwriteMaterial;
@@ -31,6 +34,6 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         }
     }
 
-    let shadow_alpha = min(1.0 - shadow, material.max_shadow_alpha.x);
+    let shadow_alpha = min(1.0 - shadow, material.max_shadow_alpha);
     return vec4<f32>(0.0, 0.0, 0.0, shadow_alpha);
 }

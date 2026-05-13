@@ -195,8 +195,8 @@ pub fn spawn_map_view(
             clear_color: ClearColorConfig::Custom(Color::NONE),
             ..default()
         },
-        tonemapping.clone(),
-        msaa.clone(),
+        tonemapping,
+        msaa,
         color_grading.clone(),
         ambient_light.clone(),
         GameViewCamera,

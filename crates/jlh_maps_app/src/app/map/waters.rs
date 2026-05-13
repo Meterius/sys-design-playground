@@ -6,11 +6,11 @@ use crate::app::map::feature_plane_mesh::{
 use crate::app::maplibre_gl_js::integration::MaplibreMapIntegration;
 use crate::app::maplibre_gl_js::types::CanonicalTileId;
 use crate::utils::debug::SoftExpect;
-use bevy::asset::{Asset, Handle, load_internal_asset, uuid_handle};
+use bevy::asset::{Asset, AssetApp, Handle, load_internal_asset, uuid_handle};
 use bevy::camera::visibility::RenderLayers;
 use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin};
 use bevy::prelude::*;
-use bevy::render::render_resource::AsBindGroup;
+use bevy::render::render_resource::{AsBindGroup, ShaderType};
 use bevy::shader::ShaderRef;
 use big_space::grid::Grid;
 use std::collections::HashMap;
@@ -25,7 +25,10 @@ impl Plugin for WatersPlugin {
             "../../../assets/shaders/water_gradient.fragment.wgsl",
             Shader::from_wgsl
         );
-        app.add_plugins(MaterialPlugin::<WaterMaterial>::default())
+        app.register_type::<WaterMaterialUniform>()
+            .register_type::<WaterMaterialExtension>()
+            .register_asset_reflect::<WaterMaterial>()
+            .add_plugins(MaterialPlugin::<WaterMaterial>::default())
             .add_systems(
                 Update,
                 (sync_spawned_water_buckets, update_water_material_time).chain(),
@@ -37,6 +40,10 @@ const WATER_GRADIENT_MATERIAL_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("7b3c87e1-6c8c-4ae6-9c9f-9e3e271d8b90");
 const WATER_SOURCE_LAYER: &str = "water";
 const WATER_EDGE_DISTANCE_TEXTURE_RESOLUTION: UVec2 = UVec2::new(512, 512);
+
+const WATER_COLOR: Hsva = Hsva::hsv(213., 0.4, 0.95);
+const WATER2_COLOR: Hsva = Hsva::hsv(216., 0.5, 0.92);
+
 
 #[derive(Component)]
 pub struct WaterManager {
@@ -52,16 +59,26 @@ pub struct SpawnedWaterSource {
 #[derive(Component)]
 struct WaterTileBucket;
 
-type WaterMaterial = ExtendedMaterial<StandardMaterial, WaterMaterialExtension>;
+pub type WaterMaterial = ExtendedMaterial<StandardMaterial, WaterMaterialExtension>;
 
-#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
+#[derive(ShaderType, Reflect, Debug, Clone, Copy)]
+pub struct WaterMaterialUniform {
+    pub water_color: Vec4,
+    pub water2_color: Vec4,
+    pub time: f32,
+    _webgl2_padding_8b: u32,
+    _webgl2_padding_12b: u32,
+    _webgl2_padding_16b: u32,
+}
+
+#[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
 pub struct WaterMaterialExtension {
     #[texture(100)]
     #[sampler(101)]
     pub edge_distance_texture: Handle<Image>,
 
     #[uniform(102)]
-    pub params: Vec4,
+    pub uniform: WaterMaterialUniform,
 }
 
 impl MaterialExtension for WaterMaterialExtension {
@@ -178,7 +195,14 @@ fn spawn_water_bucket(
         },
         extension: WaterMaterialExtension {
             edge_distance_texture: edge_distance_texture.texture.clone(),
-            params: Vec4::ZERO,
+            uniform: WaterMaterialUniform {
+                water_color: Srgba::from(WATER_COLOR).to_vec4(),
+                water2_color: Srgba::from(WATER2_COLOR).to_vec4(),
+                time: 0.,
+                _webgl2_padding_8b: 0,
+                _webgl2_padding_12b: 0,
+                _webgl2_padding_16b: 0,
+            },
         },
     });
 
@@ -210,6 +234,6 @@ fn spawn_water_bucket(
 fn update_water_material_time(time: Res<Time>, mut materials: ResMut<Assets<WaterMaterial>>) {
     let elapsed = time.elapsed_secs();
     for (_, material) in materials.iter_mut() {
-        material.extension.params.x = elapsed;
+        material.extension.uniform.time = elapsed;
     }
 }

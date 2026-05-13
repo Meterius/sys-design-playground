@@ -19,15 +19,18 @@
 #endif
 
 struct WaterMaterial {
-    params: vec4<f32>,
+    water_color: vec4<f32>,
+    water2_color: vec4<f32>,
+    time: f32,
+    _webgl2_padding_8b: u32,
+    _webgl2_padding_12b: u32,
+    _webgl2_padding_16b: u32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var edge_distance_texture: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(101) var edge_distance_sampler: sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(102) var<uniform> water_material: WaterMaterial;
 
-const WATER_COL: vec3<f32> = vec3<f32>(0.6666667, 0.8235294, 0.9529412);
-const WATER2_COL: vec3<f32> = vec3<f32>(0.5647059, 0.7764706, 0.9215686);
 const FOAM_COL: vec3<f32> = vec3<f32>(0.99, 0.99, 1.0);
 const M_2PI: f32 = 6.283185307;
 const M_6PI: f32 = 18.84955592;
@@ -149,7 +152,11 @@ fn water_color(input_uv: vec2<f32>, time: f32) -> vec3<f32> {
         cos(d1) * 0.15 + cos(d2) * 0.05,
     );
 
-    var ret = mix(WATER_COL, WATER2_COL, waterlayer(uv + dist.xy));
+    var ret = mix(
+        water_material.water_color.rgb,
+        water_material.water2_color.rgb,
+        waterlayer(uv + dist.xy),
+    );
     ret = mix(ret, FOAM_COL, waterlayer(vec2<f32>(1.0) - uv - dist.yx));
     return ret;
 }
@@ -175,7 +182,7 @@ fn shore_surf(uv: vec2<f32>, edge_distance: f32, time: f32) -> f32 {
 }
 
 fn dyn_water_color_and_foam(in: VertexOutput) -> vec4<f32> {
-    let time = water_material.params.x;
+    let time = water_material.time;
     let tile_uv = clamp(in.uv, vec2<f32>(0.0), vec2<f32>(1.0));
     let edge_distance = clamp(textureSample(edge_distance_texture, edge_distance_sampler, tile_uv).r, 0.0, 1.0);
     let uv = in.uv * 500.0;
@@ -187,7 +194,7 @@ fn dyn_water_color_and_foam(in: VertexOutput) -> vec4<f32> {
     let water_col = water_color(uv + 5.0 * dst * edge_distance, time);
 
     let surf = shore_surf(uv, clamp(2.0 * edge_distance, 0.0, 1.0), time);
-    let toon_water = mix(WATER_COL, water_col, 0.55);
+    let toon_water = mix(water_material.water_color.rgb, water_col, 0.55);
     return vec4<f32>(mix(toon_water, FOAM_COL, surf), surf);
 }
 
@@ -206,7 +213,7 @@ fn fragment(
     let foam = smoothstep(0.35, 1.0, water.a);
     pbr_input.material.base_color = vec4<f32>(srgb_to_linear(water.rgb), 1.0);
     pbr_input.material.emissive = vec4<f32>(
-        pbr_input.material.emissive.rgb + srgb_to_linear(FOAM_COL) * foam * 0.18,
+        pbr_input.material.emissive.rgb + srgb_to_linear(FOAM_COL) * foam * 0.01,
         pbr_input.material.emissive.a,
     );
 

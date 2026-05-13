@@ -123,7 +123,7 @@ const mapKey = makeUniqueMapKey()
 
 const bevyCanvasId = `bevy-canvas-${mapKey}`
 
-const { depthTexture, instanceId, mapViewSettings, renderTexture, tick } = useBevy(
+const { instanceId, mapViewSettings, tick, mapTextureOffscreenCanvas } = useBevy(
   `#${bevyCanvasId}`,
   '.maplibregl-canvas',
 )
@@ -133,7 +133,7 @@ const { mapInstance, loaded, zoom } = useMapExtended(mapKey)
 const { syncOnRender } = useMaplibreGlJsIntegration(() => instanceId, mapKey, {
   featureSourceLayers: [
     { sourceId: 'openmaptiles', sourceLayer: 'building' },
-    { sourceId: 'openmaptiles', sourceLayer: 'water' }
+    { sourceId: 'openmaptiles', sourceLayer: 'water' },
   ],
 })
 
@@ -187,7 +187,7 @@ const showBevyCanvas = ref(false)
 watch(
   showBevyCanvas,
   (value) => {
-    mapViewSettings.enable_window_cameras = value
+     mapViewSettings.enable_window_cameras = value
   },
   { immediate: true },
 )
@@ -423,10 +423,8 @@ watchDefinedOnce(
     )
 
     map.addLayer(
-      new BevyLayer(() => renderTexture.value?.texture, {
+      new BevyLayer(mapTextureOffscreenCanvas, {
         id: 'bevy-texture',
-        depthMode: 'texture',
-        depthTexture: () => depthTexture.value,
         tick: () => {
           syncOnRender()
           tick()
@@ -450,6 +448,10 @@ watchDefinedOnce(
     selectableLayers.value = map
       .getLayersOrder()
       .filter((layer) => map.getLayer(layer)?.type === 'symbol')
+
+    // map.addLayer(new OffscreenCanvasTestLayer({
+    //   mode: 'worker-webgl-imagebitmap',
+    // }))
 
     // Clean-Up
 

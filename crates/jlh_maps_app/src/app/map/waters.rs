@@ -44,7 +44,6 @@ const WATER_EDGE_DISTANCE_TEXTURE_RESOLUTION: UVec2 = UVec2::new(512, 512);
 const WATER_COLOR: Hsva = Hsva::hsv(213., 0.4, 0.95);
 const WATER2_COLOR: Hsva = Hsva::hsv(216., 0.5, 0.92);
 
-
 #[derive(Component)]
 pub struct WaterManager {
     pub maplibre_int_id: Entity,

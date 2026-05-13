@@ -1,4 +1,4 @@
-use bevy::camera::{Viewport, visibility::RenderLayers};
+use bevy::camera::{RenderTarget, Viewport, visibility::RenderLayers};
 use bevy::input::ButtonState;
 use bevy::input::keyboard::KeyboardInput;
 use bevy::reflect::TypeRegistry;
@@ -22,7 +22,7 @@ use std::any::TypeId;
 
 pub struct EditorPlugin;
 
-#[derive(Component)]
+#[derive(Debug, Reflect, Component)]
 pub struct GameViewCamera;
 
 impl Plugin for EditorPlugin {
@@ -58,14 +58,20 @@ fn handle_keyboard_input(mut state: ResMut<UiState>, mut keyboard: MessageReader
 
 fn sync_egui_camera_active(
     ui_state: Res<UiState>,
-    game_view_cams: Query<&Camera, (With<GameViewCamera>, Without<PrimaryEguiContext>)>,
-    mut cams: Query<&mut Camera, With<PrimaryEguiContext>>,
+    game_view_cams: Query<
+        (&Camera, &RenderTarget),
+        (With<GameViewCamera>, Without<PrimaryEguiContext>),
+    >,
+    mut cams: Query<(&mut Camera, &mut RenderTarget), With<PrimaryEguiContext>>,
 ) {
-    let game_view_active = game_view_cams.iter().any(|cam| cam.is_active);
-    let is_active = game_view_active && ui_state.editor_active;
+    let game_view_cam = game_view_cams.iter().find(|(cam, _)| cam.is_active);
+    let is_active = game_view_cam.is_some() && ui_state.editor_active;
 
-    for mut cam in cams.iter_mut() {
+    for (mut cam, mut cam_target) in cams.iter_mut() {
         cam.is_active = is_active;
+        if let Some((_, gv_target)) = game_view_cam {
+            *cam_target = gv_target.clone();
+        }
     }
 }
 
@@ -154,7 +160,7 @@ impl UiState {
             selection: InspectorSelection::Entities,
             viewport_rect: egui::Rect::NOTHING,
             pointer_in_viewport: true,
-            editor_active: false,
+            editor_active: true,
         }
     }
 

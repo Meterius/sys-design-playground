@@ -56,6 +56,7 @@ fn sync_camera(
             &map_int.view.main_matrix,
             semantic_camera.world_from_view,
         ) else {
+            warn!("Failed to create projection from main matrix");
             continue;
         };
 

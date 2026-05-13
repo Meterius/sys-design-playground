@@ -1,5 +1,5 @@
 use crate::app::common::editor::GameViewCamera;
-use crate::app::common::external_render_target::EXTERNAL_COLOR_TARGET_HANDLE;
+use crate::app::main::AppWindows;
 use crate::app::map::buildings::BuildingManager;
 use crate::app::map::camera::MapViewCamera;
 use crate::app::map::terrain::TerrainTileManager;
@@ -11,22 +11,16 @@ use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::light::CascadeShadowConfigBuilder;
 use bevy::prelude::*;
 use bevy::render::view::ColorGrading;
+use bevy::window::WindowRef;
 use big_space::bundles::BigSpaceRootBundle;
 use big_space::prelude::{CellCoord, FloatingOrigin};
-use serde::Serialize;
-use std::cell::RefCell;
 use std::collections::HashMap;
-use wasm_bindgen::prelude::wasm_bindgen;
 
 const FIRST_CASCADE_FAR_METERS: f64 = 3_000.0;
 const SHADOW_MAX_DISTANCE_METERS: f64 = 3_000.0;
 const SHADOW_MIN_DISTANCE_METERS: f64 = 1.0;
 pub const MAP_VIEW_COLOR_RENDER_LAYER: usize = 0;
 pub const MAP_VIEW_DEPTH_RENDER_LAYER: usize = 1;
-
-thread_local! {
-    static RENDER_TEXTURE_REFERENCES: RefCell<HashMap<(String, u32), MapViewRenderTextureReference>> = RefCell::new(HashMap::new());
-}
 
 pub(super) struct CorePlugin;
 
@@ -56,12 +50,10 @@ struct MapViewShadowLight;
 
 fn sync_window_cameras(
     mv_settings: Res<MapViewSettings>,
-    mut cams: Query<(&mut Camera, &RenderTarget), With<MapViewCamera>>,
+    mut cams: Query<&mut Camera, With<GameViewCamera>>,
 ) {
-    for (mut cam, cam_target) in cams.iter_mut() {
-        if matches!(cam_target, RenderTarget::Window(_)) {
-            cam.is_active = mv_settings.enable_window_cameras;
-        }
+    for mut cam in cams.iter_mut() {
+        cam.is_active = mv_settings.enable_window_cameras;
     }
 }
 
@@ -79,53 +71,11 @@ pub struct MapView {
     pub maplibre_int_id: Entity,
 }
 
-#[derive(Clone, Debug, Serialize)]
-pub struct MapViewRenderTextureReference {
-    pub id: u32,
-    pub width: u32,
-    pub height: u32,
-}
-
-#[derive(Component)]
-pub struct MapViewRenderTexture {
-    pub reference: MapViewRenderTextureReference,
-}
-
-#[wasm_bindgen]
-pub fn get_map_view_render_texture_reference(
-    instance_id: String,
-    integration_id: u32,
-) -> Result<wasm_bindgen::JsValue, String> {
-    RENDER_TEXTURE_REFERENCES.with(|references| {
-        references
-            .borrow()
-            .get(&(instance_id, integration_id))
-            .map(serde_wasm_bindgen::to_value)
-            .transpose()
-            .map_err(|err| err.to_string())?
-            .ok_or_else(|| {
-                format!("Missing render texture reference for integration {integration_id}")
-            })
-    })
-}
-
-pub fn register_map_view_render_texture_reference(
-    instance_id: String,
-    integration_id: u32,
-    reference: MapViewRenderTextureReference,
-) {
-    RENDER_TEXTURE_REFERENCES.with(|references| {
-        references
-            .borrow_mut()
-            .insert((instance_id, integration_id), reference);
-    });
-}
-
 pub fn spawn_map_view(
     commands: &mut Commands,
     maplibre_integration_id: Entity,
-    render_texture_reference: MapViewRenderTextureReference,
-) -> MapViewRenderTextureReference {
+    app_windows: &AppWindows,
+) {
     let map_view_id = commands
         .spawn((
             Name::new("Map View"),
@@ -179,7 +129,7 @@ pub fn spawn_map_view(
     ));
 
     let tonemapping = Tonemapping::None;
-    let msaa = Msaa::Sample8;
+    let _msaa = Msaa::Sample8;
     let color_grading = ColorGrading { ..default() };
     let ambient_light = AmbientLight {
         color: Color::WHITE,
@@ -196,9 +146,12 @@ pub fn spawn_map_view(
             ..default()
         },
         tonemapping,
-        msaa,
+        // msaa,
         color_grading.clone(),
         ambient_light.clone(),
+        RenderTarget::Window(WindowRef::Entity(
+            app_windows.debug.expect("debug offscreen window to be set"),
+        )),
         GameViewCamera,
         MapViewCamera {
             maplibre_int_id: maplibre_integration_id,
@@ -206,24 +159,25 @@ pub fn spawn_map_view(
     ));
 
     commands.entity(map_view_id).with_child((
-        Name::new("External Color Camera"),
+        Name::new("MapLibre Texture Camera"),
         Transform::default(),
         CellCoord::default(),
-        FloatingOrigin,
         Camera3d::default(),
+        FloatingOrigin,
         Camera {
             clear_color: ClearColorConfig::Custom(Color::NONE),
             ..default()
         },
+        RenderTarget::Window(WindowRef::Entity(
+            app_windows
+                .texture
+                .expect("map texture offscreen window to be set"),
+        )),
         tonemapping,
-        msaa,
         color_grading,
         ambient_light,
-        RenderTarget::TextureView(EXTERNAL_COLOR_TARGET_HANDLE),
         MapViewCamera {
             maplibre_int_id: maplibre_integration_id,
         },
     ));
-
-    render_texture_reference
 }

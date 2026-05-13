@@ -1,5 +1,5 @@
 import './assets/main.css'
-import './utils/virtual-webgl2'
+// import './utils/virtual-webgl2'
 
 import initApp, { initialize } from 'jlh_maps_app'
 

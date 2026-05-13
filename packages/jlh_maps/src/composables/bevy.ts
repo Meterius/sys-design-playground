@@ -1,45 +1,25 @@
 import { onBeforeUnmount, onMounted, reactive, shallowRef, watch } from 'vue'
 import {
   MapViewSettings as MapViewSettingsBevy,
+  forward_cursor_entered,
+  forward_cursor_left,
+  forward_cursor_moved,
+  forward_focus,
+  forward_keyboard_input,
+  forward_mouse_button,
+  forward_mouse_wheel,
   mount,
-  resize_external_targets,
+  resize,
   set_map_view_settings,
   tick,
   unmount,
 } from 'jlh_maps_app'
 
-interface BevyRenderTexture {
-  id: number
-  width: number
-  height: number
-  texture: WebGLTexture
-  depthTexture: WebGLTexture | null
-  framebuffer: WebGLFramebuffer
-  resize: (width: number, height: number) => void
-  dispose: () => void
-}
+export function useBevy(debugCanvasSelector: string, textureCanvasSelector: string) {
+  const instanceId = debugCanvasSelector
 
-declare global {
-  interface Window {
-    virtualWebGL?: {
-      createRenderTexture?: (options?: { width?: number; height?: number }) => BevyRenderTexture
-      createR32fRenderTexture?: (options?: { width?: number; height?: number }) => BevyRenderTexture
-      createRenderTextureForCanvas?: (
-        canvasOrSelector: HTMLCanvasElement | string,
-        options?: { width?: number; height?: number },
-      ) => BevyRenderTexture
-      getRenderTexture?: (id: number) => BevyRenderTexture | undefined
-    }
-  }
-}
-
-export function useBevy(bevyCanvasSelector: string, textureCanvasSelector: string) {
-  const instanceId = bevyCanvasSelector
-
-  const renderTexture = shallowRef<BevyRenderTexture>()
-  const depthRenderTexture = shallowRef<BevyRenderTexture>()
-  const depthTexture = shallowRef<WebGLTexture | null>()
-
+  const debugOffscreenCanvas = shallowRef<OffscreenCanvas | null>(null)
+  const textureOffscreenCanvas = shallowRef<OffscreenCanvas | null>(null)
   let resizeObserver: ResizeObserver | undefined
   let resizeHandler: (() => void) | undefined
 
@@ -53,30 +33,20 @@ export function useBevy(bevyCanvasSelector: string, textureCanvasSelector: strin
       throw new Error(`No texture canvas found for selector ${textureCanvasSelector}`)
     }
 
-    const { height, width } = canvasRenderSize(textureCanvas)
-    textureCanvas.width = width
-    textureCanvas.height = height
-
-    const texture = window.virtualWebGL?.createRenderTexture?.({ width, height })
-    const r32fTexture = window.virtualWebGL?.createR32fRenderTexture?.({ width, height })
-    if (!texture) {
-      throw new Error('virtualWebGL.createRenderTexture is not available')
+    const debugCanvas = document.querySelector<HTMLCanvasElement>(debugCanvasSelector)
+    if (!debugCanvas) {
+      throw new Error(`No Bevy canvas found for selector ${debugCanvasSelector}`)
     }
-    if (!r32fTexture) {
-      throw new Error('virtualWebGL.createR32fRenderTexture is not available')
-    }
+    debugCanvas.tabIndex = 0
 
-    renderTexture.value = texture
-    depthRenderTexture.value = r32fTexture
-    depthTexture.value = r32fTexture.texture
-    mount(
-      bevyCanvasSelector,
-      texture.id,
-      texture.width,
-      texture.height,
-      texture.framebuffer,
-      r32fTexture.framebuffer,
-    )
+    const initialSize = canvasRenderSize(textureCanvas)
+    debugCanvas.width = initialSize.width
+    debugCanvas.height = initialSize.height
+    debugOffscreenCanvas.value = debugCanvas.transferControlToOffscreen()
+    textureOffscreenCanvas.value = new OffscreenCanvas(initialSize.width, initialSize.height)
+
+    mount(instanceId, debugOffscreenCanvas.value, textureOffscreenCanvas.value)
+    resize(instanceId, initialSize.width, initialSize.height, initialSize.width, initialSize.height, devicePixelRatio)
 
     onBeforeUnmountCallbacks.push(
       watch(
@@ -97,20 +67,24 @@ export function useBevy(bevyCanvasSelector: string, textureCanvasSelector: strin
     )
 
     resizeHandler = () => {
-      const { height: nextHeight, width: nextWidth } = canvasRenderSize(textureCanvas)
-      if (nextWidth === texture.width && nextHeight === texture.height) {
-        return
+      const { width, height } = canvasRenderSize(textureCanvas)
+      if (debugOffscreenCanvas.value) {
+        debugOffscreenCanvas.value.width = width
+        debugOffscreenCanvas.value.height = height
       }
-
-      textureCanvas.width = nextWidth
-      textureCanvas.height = nextHeight
-      texture.resize(nextWidth, nextHeight)
-      r32fTexture.resize(nextWidth, nextHeight)
-      resize_external_targets(instanceId, nextWidth, nextHeight)
+      if (textureOffscreenCanvas.value) {
+        textureOffscreenCanvas.value.width = width
+        textureOffscreenCanvas.value.height = height
+      }
+      resize(instanceId, width, height, width, height, devicePixelRatio)
     }
+
+    const removeEventForwarding = forwardDebugCanvasEvents(debugCanvas, instanceId)
+    onBeforeUnmountCallbacks.push(removeEventForwarding)
 
     resizeObserver = new ResizeObserver(resizeHandler)
     resizeObserver.observe(textureCanvas)
+    resizeObserver.observe(debugCanvas)
     window.addEventListener('resize', resizeHandler)
   })
 
@@ -122,20 +96,90 @@ export function useBevy(bevyCanvasSelector: string, textureCanvasSelector: strin
     onBeforeUnmountCallbacks.splice(0).forEach((callback) => callback())
     resizeObserver = undefined
     resizeHandler = undefined
+    debugOffscreenCanvas.value = null
+    textureOffscreenCanvas.value = null
     unmount(instanceId)
-    renderTexture.value?.dispose()
-    depthRenderTexture.value?.dispose()
-    renderTexture.value = undefined
-    depthRenderTexture.value = undefined
-    depthTexture.value = undefined
   })
 
   return {
     instanceId,
-    renderTexture,
-    depthTexture,
     mapViewSettings,
-    tick: () => tick(instanceId),
+    tick: () => {
+      tick(instanceId)
+    },
+    mapTextureOffscreenCanvas: textureOffscreenCanvas,
+  }
+}
+
+function forwardDebugCanvasEvents(canvas: HTMLCanvasElement, instanceId: string) {
+  const canvasPosition = (event: MouseEvent | PointerEvent) => {
+    const rect = canvas.getBoundingClientRect()
+    return {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    }
+  }
+
+  const onPointerEnter = () => {
+    forward_cursor_entered(instanceId)
+  }
+  const onPointerLeave = () => {
+    forward_cursor_left(instanceId)
+  }
+  const onPointerMove = (event: PointerEvent) => {
+    const position = canvasPosition(event)
+    forward_cursor_moved(instanceId, position.x, position.y, event.movementX, event.movementY)
+  }
+  const onPointerDown = (event: PointerEvent) => {
+    canvas.focus()
+    canvas.setPointerCapture(event.pointerId)
+    forward_mouse_button(instanceId, event.button, true)
+  }
+  const onPointerUp = (event: PointerEvent) => {
+    if (canvas.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId)
+    }
+    forward_mouse_button(instanceId, event.button, false)
+  }
+  const onWheel = (event: WheelEvent) => {
+    event.preventDefault()
+    forward_mouse_wheel(instanceId, event.deltaX, event.deltaY, event.deltaMode)
+  }
+  const onFocus = () => {
+    forward_focus(instanceId, true)
+  }
+  const onBlur = () => {
+    forward_focus(instanceId, false)
+  }
+  const onKeyDown = (event: KeyboardEvent) => {
+    forward_keyboard_input(instanceId, event.code, event.key, true, event.repeat)
+  }
+  const onKeyUp = (event: KeyboardEvent) => {
+    forward_keyboard_input(instanceId, event.code, event.key, false, event.repeat)
+  }
+
+  canvas.addEventListener('pointerenter', onPointerEnter)
+  canvas.addEventListener('pointerleave', onPointerLeave)
+  canvas.addEventListener('pointermove', onPointerMove)
+  canvas.addEventListener('pointerdown', onPointerDown)
+  canvas.addEventListener('pointerup', onPointerUp)
+  canvas.addEventListener('wheel', onWheel, { passive: false })
+  canvas.addEventListener('focus', onFocus)
+  canvas.addEventListener('blur', onBlur)
+  canvas.addEventListener('keydown', onKeyDown)
+  canvas.addEventListener('keyup', onKeyUp)
+
+  return () => {
+    canvas.removeEventListener('pointerenter', onPointerEnter)
+    canvas.removeEventListener('pointerleave', onPointerLeave)
+    canvas.removeEventListener('pointermove', onPointerMove)
+    canvas.removeEventListener('pointerdown', onPointerDown)
+    canvas.removeEventListener('pointerup', onPointerUp)
+    canvas.removeEventListener('wheel', onWheel)
+    canvas.removeEventListener('focus', onFocus)
+    canvas.removeEventListener('blur', onBlur)
+    canvas.removeEventListener('keydown', onKeyDown)
+    canvas.removeEventListener('keyup', onKeyUp)
   }
 }
 

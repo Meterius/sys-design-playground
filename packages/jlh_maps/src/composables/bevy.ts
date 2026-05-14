@@ -141,19 +141,29 @@ function forwardDebugCanvasEvents(canvas: HTMLCanvasElement, instanceId: string)
     forward_cursor_left(instanceId)
   }
   const onPointerMove = (event: PointerEvent) => {
+    event.preventDefault()
     const position = canvasPosition(event)
     forward_cursor_moved(instanceId, position.x, position.y, event.movementX, event.movementY)
   }
   const onPointerDown = (event: PointerEvent) => {
-    canvas.focus()
-    canvas.setPointerCapture(event.pointerId)
+    event.preventDefault()
+    canvas.focus({ preventScroll: true })
+    if (!canvas.hasPointerCapture(event.pointerId)) {
+      canvas.setPointerCapture(event.pointerId)
+    }
     forward_mouse_button(instanceId, event.button, true)
   }
   const onPointerUp = (event: PointerEvent) => {
+    event.preventDefault()
     if (canvas.hasPointerCapture(event.pointerId)) {
       canvas.releasePointerCapture(event.pointerId)
     }
     forward_mouse_button(instanceId, event.button, false)
+  }
+  const onPointerCancel = (event: PointerEvent) => {
+    if (canvas.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId)
+    }
   }
   const onWheel = (event: WheelEvent) => {
     event.preventDefault()
@@ -177,6 +187,7 @@ function forwardDebugCanvasEvents(canvas: HTMLCanvasElement, instanceId: string)
   canvas.addEventListener('pointermove', onPointerMove)
   canvas.addEventListener('pointerdown', onPointerDown)
   canvas.addEventListener('pointerup', onPointerUp)
+  canvas.addEventListener('pointercancel', onPointerCancel)
   canvas.addEventListener('wheel', onWheel, { passive: false })
   canvas.addEventListener('focus', onFocus)
   canvas.addEventListener('blur', onBlur)
@@ -189,6 +200,7 @@ function forwardDebugCanvasEvents(canvas: HTMLCanvasElement, instanceId: string)
     canvas.removeEventListener('pointermove', onPointerMove)
     canvas.removeEventListener('pointerdown', onPointerDown)
     canvas.removeEventListener('pointerup', onPointerUp)
+    canvas.removeEventListener('pointercancel', onPointerCancel)
     canvas.removeEventListener('wheel', onWheel)
     canvas.removeEventListener('focus', onFocus)
     canvas.removeEventListener('blur', onBlur)

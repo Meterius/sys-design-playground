@@ -67,12 +67,6 @@ impl ExtractResource for AppWindows {
     }
 }
 
-#[derive(Component)]
-struct DebugOffscreenWindow;
-
-#[derive(Component)]
-struct TextureOffscreenWindow;
-
 #[wasm_bindgen]
 pub fn initialize() {
     console_error_panic_hook::set_once();
@@ -89,14 +83,10 @@ pub fn mount(instance_id: String, debug_canvas: OffscreenCanvas, texture_canvas:
             .set(WindowPlugin {
                 primary_window: Some(Window {
                     canvas: None,
-                    title: "Map Texture Offscreen Window".to_string(),
-                    resolution: WindowResolution::new(
-                        texture_canvas.width(),
-                        texture_canvas.height(),
-                    ),
-                    present_mode: PresentMode::Fifo,
+                    title: "Debug Offscreen Window".to_string(),
+                    resolution: WindowResolution::new(debug_canvas.width(), debug_canvas.height()),
+                    present_mode: PresentMode::AutoNoVsync,
                     transparent: true,
-                    composite_alpha_mode: CompositeAlphaMode::PreMultiplied,
                     ..default()
                 }),
                 exit_condition: ExitCondition::DontExit,
@@ -180,33 +170,32 @@ fn setup_offscreen_windows(
     mut app_windows: ResMut<AppWindows>,
     primary_windows: Query<Entity, (Added<Window>, With<PrimaryWindow>)>,
 ) {
-    if app_windows.texture.is_none()
+    if app_windows.debug.is_none()
         && let Some(entity) = primary_windows.iter().next()
     {
-        commands
-            .entity(entity)
-            .insert((raw_handle(&canvases.texture), TextureOffscreenWindow));
-        app_windows.texture = Some(entity);
+        commands.entity(entity).insert(raw_handle(&canvases.debug));
+        app_windows.debug = Some(entity);
     }
 
-    if app_windows.debug.is_none() {
+    if app_windows.texture.is_none() {
         let entity = commands
             .spawn((
                 Window {
                     canvas: None,
-                    title: "Debug Offscreen Window".to_string(),
+                    title: "Map Texture Offscreen Window".to_string(),
                     resolution: WindowResolution::new(
-                        canvases.debug.width(),
-                        canvases.debug.height(),
+                        canvases.texture.width(),
+                        canvases.texture.height(),
                     ),
-                    present_mode: PresentMode::AutoNoVsync,
+                    present_mode: PresentMode::Fifo,
+                    transparent: true,
+                    composite_alpha_mode: CompositeAlphaMode::PreMultiplied,
                     ..default()
                 },
-                raw_handle(&canvases.debug),
-                DebugOffscreenWindow,
+                raw_handle(&canvases.texture),
             ))
             .id();
-        app_windows.debug = Some(entity);
+        app_windows.texture = Some(entity);
     }
 
     info!("Setup offscreen Bevy windows");
@@ -296,6 +285,10 @@ pub fn forward_cursor_entered(instance_id: String) -> Result<(), String> {
 #[wasm_bindgen]
 pub fn forward_cursor_left(instance_id: String) -> Result<(), String> {
     with_debug_window(&instance_id, |world, window| {
+        if let Some(mut window_component) = world.get_mut::<Window>(window) {
+            window_component.set_cursor_position(None);
+        }
+
         let event = CursorLeft { window };
         world.write_message(event.clone());
         world.write_message(BevyWindowEvent::CursorLeft(event));
@@ -311,10 +304,16 @@ pub fn forward_cursor_moved(
     delta_y: f32,
 ) -> Result<(), String> {
     with_debug_window(&instance_id, |world, window| {
+        let position = Vec2::new(x, y);
         let delta = Vec2::new(delta_x, delta_y);
+
+        if let Some(mut window_component) = world.get_mut::<Window>(window) {
+            window_component.set_cursor_position(Some(position));
+        }
+
         let event = CursorMoved {
             window,
-            position: Vec2::new(x, y),
+            position,
             delta: Some(delta),
         };
         world.write_message(event.clone());

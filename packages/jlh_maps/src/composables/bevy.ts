@@ -46,7 +46,14 @@ export function useBevy(debugCanvasSelector: string, textureCanvasSelector: stri
     textureOffscreenCanvas.value = new OffscreenCanvas(initialSize.width, initialSize.height)
 
     mount(instanceId, debugOffscreenCanvas.value, textureOffscreenCanvas.value)
-    resize(instanceId, initialSize.width, initialSize.height, initialSize.width, initialSize.height, devicePixelRatio)
+    resize(
+      instanceId,
+      initialSize.width,
+      initialSize.height,
+      initialSize.width,
+      initialSize.height,
+      initialSize.scaleFactor,
+    )
 
     onBeforeUnmountCallbacks.push(
       watch(
@@ -67,16 +74,23 @@ export function useBevy(debugCanvasSelector: string, textureCanvasSelector: stri
     )
 
     resizeHandler = () => {
-      const { width, height } = canvasRenderSize(textureCanvas)
-      if (debugOffscreenCanvas.value) {
+      const { width, height, scaleFactor } = canvasRenderSize(textureCanvas)
+      if (
+        debugOffscreenCanvas.value &&
+        (debugOffscreenCanvas.value.width !== width || debugOffscreenCanvas.value.height !== height)
+      ) {
         debugOffscreenCanvas.value.width = width
         debugOffscreenCanvas.value.height = height
       }
-      if (textureOffscreenCanvas.value) {
+      if (
+        textureOffscreenCanvas.value &&
+        (textureOffscreenCanvas.value.width !== width ||
+          textureOffscreenCanvas.value.height !== height)
+      ) {
         textureOffscreenCanvas.value.width = width
         textureOffscreenCanvas.value.height = height
       }
-      resize(instanceId, width, height, width, height, devicePixelRatio)
+      resize(instanceId, width, height, width, height, scaleFactor)
     }
 
     const removeEventForwarding = forwardDebugCanvasEvents(debugCanvas, instanceId)
@@ -184,8 +198,16 @@ function forwardDebugCanvasEvents(canvas: HTMLCanvasElement, instanceId: string)
 }
 
 function canvasRenderSize(canvas: HTMLCanvasElement) {
+  const width = Math.max(1, canvas.width || Math.round(canvas.clientWidth * devicePixelRatio))
+  const height = Math.max(1, canvas.height || Math.round(canvas.clientHeight * devicePixelRatio))
+  const scaleFactor = Math.max(
+    1,
+    canvas.clientWidth > 0 ? width / canvas.clientWidth : devicePixelRatio,
+  )
+
   return {
-    width: Math.max(1, Math.round(canvas.clientWidth * devicePixelRatio)),
-    height: Math.max(1, Math.round(canvas.clientHeight * devicePixelRatio)),
+    width,
+    height,
+    scaleFactor,
   }
 }

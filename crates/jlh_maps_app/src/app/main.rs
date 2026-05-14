@@ -24,7 +24,7 @@ use bevy::render::{RenderPlugin, RenderSystems};
 use bevy::window::{
     CompositeAlphaMode, CursorEntered, CursorLeft, CursorMoved, ExitCondition, PresentMode,
     PrimaryWindow, RawHandleWrapper, Window, WindowEvent as BevyWindowEvent, WindowFocused,
-    WindowPlugin, WindowResized, WindowResolution, WindowWrapper,
+    WindowPlugin, WindowResized, WindowResolution, WindowScaleFactorChanged, WindowWrapper,
 };
 use bevy_inspector_egui::bevy_egui::{EguiGlobalSettings, EguiPlugin};
 use bevy_winit::WinitPlugin;
@@ -462,14 +462,41 @@ fn with_debug_window(instance_id: &str, f: impl FnOnce(&mut World, Entity)) -> R
 }
 
 fn resize_window(world: &mut World, entity: Entity, width: u32, height: u32, scale_factor: f32) {
-    if let Some(mut window) = world.get_mut::<Window>(entity) {
-        window.resolution.set_scale_factor(scale_factor);
-        window.resolution.set_physical_resolution(width, height);
-        let event = WindowResized {
+    let Some((scale_factor_changed, resized)) =
+        world.get_mut::<Window>(entity).map(|mut window| {
+            let scale_factor = scale_factor.max(1.0);
+            let scale_factor_changed = (window.scale_factor() - scale_factor).abs() > f32::EPSILON;
+            let size_changed =
+                window.physical_width() != width || window.physical_height() != height;
+
+            if !scale_factor_changed && !size_changed {
+                return (false, None);
+            }
+
+            window.resolution.set_scale_factor(scale_factor);
+            window.resolution.set_physical_resolution(width, height);
+
+            let resized = WindowResized {
+                window: entity,
+                width: window.width(),
+                height: window.height(),
+            };
+            (scale_factor_changed, Some(resized))
+        })
+    else {
+        return;
+    };
+
+    if scale_factor_changed {
+        let event = WindowScaleFactorChanged {
             window: entity,
-            width: window.width(),
-            height: window.height(),
+            scale_factor: scale_factor.max(1.0) as f64,
         };
+        world.write_message(event.clone());
+        world.write_message(BevyWindowEvent::WindowScaleFactorChanged(event));
+    }
+
+    if let Some(event) = resized {
         world.write_message(event.clone());
         world.write_message(BevyWindowEvent::WindowResized(event));
     }

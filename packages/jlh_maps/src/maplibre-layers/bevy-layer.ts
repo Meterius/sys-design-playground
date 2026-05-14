@@ -52,6 +52,9 @@ export class BevyLayer implements CustomLayerInterface {
   private readonly tickCallback: (() => void) | undefined
   private tickFailed = false
 
+  private textureWidth = 0
+  private textureHeight = 0
+
   constructor(
     private readonly textureCanvas: WatchSource<OffscreenCanvas | null>,
     options: BevyLayerOptions = {},
@@ -67,13 +70,7 @@ export class BevyLayer implements CustomLayerInterface {
     this.uColorTexture = gl.getUniformLocation(this.program, 'u_color_texture')
     this.uDepthRange = gl.getUniformLocation(this.program, 'u_depth_range')
 
-    this.texture = gl.createTexture() ?? undefined
-    gl.bindTexture(gl.TEXTURE_2D, this.texture ?? null)
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-    gl.bindTexture(gl.TEXTURE_2D, null)
+    this.texture = createTexture(gl)
 
     this.vertexBuffer = gl.createBuffer()!
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer)
@@ -115,7 +112,43 @@ export class BevyLayer implements CustomLayerInterface {
     if (textureCanvas !== null) {
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
       gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, textureCanvas)
+      gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE)
+
+      if (
+        textureCanvas.width !== this.textureWidth ||
+        textureCanvas.height !== this.textureHeight
+      ) {
+        this.textureWidth = textureCanvas.width
+        this.textureHeight = textureCanvas.height
+
+        if (isWebGL2(gl)) {
+          gl.deleteTexture(this.texture)
+          this.texture = createTexture(gl)
+          if (!this.texture) {
+            this.map.triggerRepaint()
+            return
+          }
+          gl.bindTexture(gl.TEXTURE_2D, this.texture)
+          gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, this.textureWidth, this.textureHeight)
+        } else {
+          gl.texImage2D(
+            gl.TEXTURE_2D,
+            0,
+            gl.RGBA,
+            this.textureWidth,
+            this.textureHeight,
+            0,
+            gl.RGBA,
+            gl.UNSIGNED_BYTE,
+            null,
+          )
+        }
+      }
+
+      // On chrome this happens < 1ms, likely the current setup is handled as gpu-gpu copy,
+      // while on firefox this can take ~20-40ms and incurs a cpu copy
+      // TODO: investigate firefox performance bottleneck of texture transfer
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, textureCanvas)
     } else {
       console.warn('Missing texture canvas')
     }
@@ -166,6 +199,19 @@ function isWebGL2(
   gl: WebGLRenderingContext | WebGL2RenderingContext,
 ): gl is WebGL2RenderingContext {
   return 'createVertexArray' in gl
+}
+
+function createTexture(
+  gl: WebGLRenderingContext | WebGL2RenderingContext,
+): WebGLTexture | undefined {
+  const texture = gl.createTexture() ?? undefined
+  gl.bindTexture(gl.TEXTURE_2D, texture ?? null)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+  gl.bindTexture(gl.TEXTURE_2D, null)
+  return texture
 }
 
 function createProgram(

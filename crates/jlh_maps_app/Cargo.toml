@@ -10,27 +10,20 @@ wasm-opt = ["-O1"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-bevy = { version = "0.18.1", features = ["webgl2"] }
+bevy = { version = "0.18.1", features = ["webgpu"] }
 bevy_winit = "0.18.1"
-winit = "0.30.13"
 big_space = "0.12.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 smallvec = "1.15.1"
 wasm-bindgen = "0.2.118"
 web-sys = { version = "0.3.95", features = ["OffscreenCanvas", "WebGlFramebuffer"] }
-wgpu = { version = "27", features = ["webgl"] }
 console_error_panic_hook = "0.1.7"
 egui = "0.33.3"
 egui_dock = { git = "https://github.com/Avarel/egui_dock", branch = "egui_0.33" }
 bevy-inspector-egui = "0.36.0"
-bevy_rich_text3d = "0.6.0"
-serde-wasm-bindgen = "0.6.5"
-bevy_heightmap = { git = "https://github.com/Sofianel5/bevy_heightmap", rev = "d7a7824d960a44b84a7e3ac8393dce1570d2c050" }
 tracing = "0.1.44"
 geojson = "0.24.2"
 earcutr = "0.4.3"
 anyhow = "1.0.102"
-uuid = { version = "1.23.0", features = ["v4"] }
-app-surface = { version = "1.11.0", features = ["web_rwh"] }
 raw-window-handle = "0.6.2"

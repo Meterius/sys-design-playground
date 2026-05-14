@@ -16,9 +16,11 @@ use big_space::bundles::BigSpaceRootBundle;
 use big_space::prelude::{CellCoord, FloatingOrigin};
 use std::collections::HashMap;
 
-const FIRST_CASCADE_FAR_METERS: f64 = 3_000.0;
-const SHADOW_MAX_DISTANCE_METERS: f64 = 3_000.0;
+const FIRST_CASCADE_FAR_METERS: f64 = 2_000.0;
+const SHADOW_MAX_DISTANCE_METERS: f64 = 10_000.0;
 const SHADOW_MIN_DISTANCE_METERS: f64 = 1.0;
+const SHADOW_DEPTH_BIAS: f32 = 0.05;
+const SHADOW_NORMAL_BIAS: f32 = 1.8;
 pub const MAP_VIEW_COLOR_RENDER_LAYER: usize = 0;
 pub const MAP_VIEW_DEPTH_RENDER_LAYER: usize = 1;
 
@@ -111,12 +113,12 @@ pub fn spawn_map_view(
             color: Color::WHITE,
             illuminance: 4000.,
             shadows_enabled: true,
-            shadow_depth_bias: 0.02,
-            shadow_normal_bias: 1.8,
+            shadow_depth_bias: SHADOW_DEPTH_BIAS,
+            shadow_normal_bias: SHADOW_NORMAL_BIAS,
             ..default()
         },
         CascadeShadowConfigBuilder {
-            num_cascades: 1,
+            num_cascades: 3,
             first_cascade_far_bound,
             maximum_distance,
             minimum_distance,
@@ -129,7 +131,7 @@ pub fn spawn_map_view(
     ));
 
     let tonemapping = Tonemapping::None;
-    let _msaa = Msaa::Sample8;
+    let msaa = Msaa::Sample4;
     let color_grading = ColorGrading { ..default() };
     let ambient_light = AmbientLight {
         color: Color::WHITE,
@@ -146,7 +148,7 @@ pub fn spawn_map_view(
             ..default()
         },
         tonemapping,
-        // msaa,
+        msaa,
         color_grading.clone(),
         ambient_light.clone(),
         RenderTarget::Window(WindowRef::Entity(
@@ -173,6 +175,7 @@ pub fn spawn_map_view(
                 .texture
                 .expect("map texture offscreen window to be set"),
         )),
+        msaa,
         tonemapping,
         color_grading,
         ambient_light,

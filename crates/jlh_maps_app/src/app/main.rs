@@ -87,6 +87,7 @@ pub fn mount(instance_id: String, debug_canvas: OffscreenCanvas, texture_canvas:
                     resolution: WindowResolution::new(debug_canvas.width(), debug_canvas.height()),
                     present_mode: PresentMode::AutoNoVsync,
                     transparent: true,
+                    composite_alpha_mode: CompositeAlphaMode::PreMultiplied,
                     ..default()
                 }),
                 exit_condition: ExitCondition::DontExit,
@@ -187,7 +188,7 @@ fn setup_offscreen_windows(
                         canvases.texture.width(),
                         canvases.texture.height(),
                     ),
-                    present_mode: PresentMode::Fifo,
+                    present_mode: PresentMode::AutoNoVsync,
                     transparent: true,
                     composite_alpha_mode: CompositeAlphaMode::PreMultiplied,
                     ..default()

@@ -27,10 +27,6 @@ out vec4 out_color;
 void main() {
   vec4 color = texture(u_color_texture, v_uv);
 
-  if (color.a <= 0.000001) {
-    discard;
-  }
-
   gl_FragDepth = u_depth_range.x;
   out_color = color;
 }
@@ -154,7 +150,7 @@ export class BevyLayer implements CustomLayerInterface {
     }
 
     gl.enable(gl.BLEND)
-    gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
     gl.enable(gl.DEPTH_TEST)
     gl.depthFunc(gl.LEQUAL)
     gl.depthMask(true)
@@ -206,8 +202,8 @@ function createTexture(
 ): WebGLTexture | undefined {
   const texture = gl.createTexture() ?? undefined
   gl.bindTexture(gl.TEXTURE_2D, texture ?? null)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
   gl.bindTexture(gl.TEXTURE_2D, null)

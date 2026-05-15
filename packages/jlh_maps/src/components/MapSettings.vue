@@ -50,6 +50,34 @@
     <div class="row">
       <USeparator />
       <div class="row p-4">
+        <h5 class="pb-2">Camera</h5>
+        <div class="grid gap-2">
+          <label class="debug-toggle">
+            <input v-model="enableColorGrading" type="checkbox" />
+            <span>Color grading</span>
+          </label>
+          <label class="debug-toggle">
+            <input v-model="enableTonemapping" type="checkbox" />
+            <span>Tonemapping</span>
+          </label>
+          <label class="debug-toggle">
+            <input v-model="enableMsaa" type="checkbox" />
+            <span>MSAA</span>
+          </label>
+          <label class="debug-toggle">
+            <input v-model="enableSsao" type="checkbox" />
+            <span>SSAO</span>
+          </label>
+          <label class="debug-toggle">
+            <input v-model="enableTaa" type="checkbox" />
+            <span>TAA</span>
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="row">
+      <USeparator />
+      <div class="row p-4">
         <h5 class="pb-2">Layers</h5>
         <UTree
           ref="layerTree"
@@ -69,11 +97,15 @@ import { MapLibreMap } from 'maplibre-gl'
 import { computed, shallowRef, useTemplateRef, watch } from 'vue'
 import type { TreeItem } from '@nuxt/ui'
 import { useSortable } from '@vueuse/integrations/useSortable'
-import type { MapViewSettings as MapViewSettingsBevy } from 'jlh_maps_app'
+import type {
+  MapViewCameraSettings as MapViewCameraSettingsBevy,
+  MapViewSettings as MapViewSettingsBevy,
+} from 'jlh_maps_app'
 
 const props = defineProps<{
   map: MapLibreMap
   bevySettings: MapViewSettingsBevy
+  bevyCameraSettings: MapViewCameraSettingsBevy
 }>()
 
 const showTileBoundaries = computed({
@@ -129,6 +161,46 @@ const enableWindowCameras = computed({
   set: (value: boolean) => {
     // eslint-disable-next-line vue/no-mutating-props
     props.bevySettings.enable_window_cameras = value
+  },
+})
+
+const enableColorGrading = computed({
+  get: () => props.bevyCameraSettings.enable_color_grading,
+  set: (value: boolean) => {
+    // eslint-disable-next-line vue/no-mutating-props
+    props.bevyCameraSettings.enable_color_grading = value
+  },
+})
+
+const enableTonemapping = computed({
+  get: () => props.bevyCameraSettings.enable_tonemapping,
+  set: (value: boolean) => {
+    // eslint-disable-next-line vue/no-mutating-props
+    props.bevyCameraSettings.enable_tonemapping = value
+  },
+})
+
+const enableSsao = computed({
+  get: () => props.bevyCameraSettings.enable_ssao,
+  set: (value: boolean) => {
+    // eslint-disable-next-line vue/no-mutating-props
+    props.bevyCameraSettings.enable_ssao = value
+  },
+})
+
+const enableTaa = computed({
+  get: () => props.bevyCameraSettings.enable_taa,
+  set: (value: boolean) => {
+    // eslint-disable-next-line vue/no-mutating-props
+    props.bevyCameraSettings.enable_taa = value
+  },
+})
+
+const enableMsaa = computed({
+  get: () => props.bevyCameraSettings.enable_msaa,
+  set: (value: boolean) => {
+    // eslint-disable-next-line vue/no-mutating-props
+    props.bevyCameraSettings.enable_msaa = value
   },
 })
 

@@ -3,9 +3,15 @@ use crate::app::map::transform::MERCATOR_WORLD_SIZE;
 use crate::app::maplibre_gl_js::integration::MaplibreMapIntegration;
 use crate::app::maplibre_gl_js::types::MaplibreMapViewData;
 use crate::utils::debug::SoftExpect;
+use bevy::anti_alias::taa::TemporalAntiAliasing;
 use bevy::camera::CameraProjection;
+use bevy::core_pipeline::prepass::{DeferredPrepass, DepthPrepass, MotionVectorPrepass, NormalPrepass};
+use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::math::{DMat4, DQuat, DVec3, DVec4};
+use bevy::pbr::{DefaultOpaqueRendererMethod, ScreenSpaceAmbientOcclusion, ScreenSpaceAmbientOcclusionQualityLevel};
 use bevy::prelude::*;
+use bevy::render::camera::{MipBias, TemporalJitter};
+use bevy::render::view::ColorGrading;
 use big_space::prelude::{CellCoord, Grid};
 
 const MAPLIBRE_DEFAULT_FOV_RADIANS: f64 = 0.643_501_108_793_284_4;
@@ -15,9 +21,14 @@ pub(super) struct CameraPlugin;
 
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
+        app.insert_resource(MapViewCameraSettings::default());
+        app.register_type::<MapViewCameraSettings>();
+        app.add_systems(PreUpdate, sync_map_view_camera_settings);
         app.add_systems(Update, (sync_camera,).chain());
     }
 }
+
+// Projection
 
 #[derive(Debug, Reflect, Component)]
 pub struct MapViewCamera {
@@ -222,4 +233,88 @@ fn opengl_to_wgpu_clip_matrix() -> DMat4 {
         DVec4::new(0.0, 0.0, -0.5, 0.0),
         DVec4::new(0.0, 0.0, 0.5, 1.0),
     )
+}
+
+// Effects
+
+#[derive(Clone, Debug, Reflect, Resource)]
+#[reflect(Resource, Default)]
+pub struct MapViewCameraSettings {
+    pub enable_color_grading: bool,
+    pub enable_tonemapping: bool,
+    pub enable_msaa: bool,
+    pub enable_ssao: bool,
+    pub enable_taa: bool,
+}
+
+impl Default for MapViewCameraSettings {
+    fn default() -> Self {
+        Self {
+            enable_color_grading: true,
+            enable_tonemapping: false,
+            enable_msaa: false,
+            enable_ssao: true,
+            enable_taa: true,
+        }
+    }
+}
+
+fn sync_map_view_camera_settings(
+    settings: Res<MapViewCameraSettings>,
+    mut commands: Commands,
+    cameras: Query<Entity, With<MapViewCamera>>,
+    added_cameras: Query<(), Added<MapViewCamera>>,
+) {
+    if !settings.is_changed() && added_cameras.is_empty() {
+        return;
+    }
+
+    for entity in &cameras {
+        let mut entity_commands = commands.entity(entity);
+
+        entity_commands.remove::<(
+            ColorGrading,
+            Tonemapping,
+            Msaa,
+            ScreenSpaceAmbientOcclusion,
+            TemporalAntiAliasing,
+
+            // Auto-inserted components by other effect components
+            TemporalJitter,
+            MipBias,
+            MotionVectorPrepass,
+            DeferredPrepass,
+            DepthPrepass,
+            NormalPrepass,
+        )>();
+
+        if settings.enable_color_grading {
+            entity_commands.insert(ColorGrading::default());
+        }
+
+        entity_commands.insert(if settings.enable_tonemapping {
+            Tonemapping::SomewhatBoringDisplayTransform
+        } else {
+            Tonemapping::None
+        });
+
+        entity_commands.insert(if settings.enable_taa {
+            Msaa::Off
+        } else if settings.enable_msaa {
+            Msaa::Sample4
+        } else {
+            Msaa::Off
+        });
+
+        if settings.enable_ssao {
+            entity_commands.insert(ScreenSpaceAmbientOcclusion {
+                quality_level: ScreenSpaceAmbientOcclusionQualityLevel::Ultra,
+                ..default()
+            });
+        }
+
+        if settings.enable_taa {
+            entity_commands.insert(TemporalAntiAliasing::default());
+        }
+    }
 }

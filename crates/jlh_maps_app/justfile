@@ -1,6 +1,9 @@
 build-dev:
     wasm-pack build --dev --target web -- --target wasm32-unknown-unknown
 
+build-release:
+    wasm-pack build --release --target web -- --target wasm32-unknown-unknown
+
 build-dev-watch:
     cargo watch --why -s "just build-dev"
 

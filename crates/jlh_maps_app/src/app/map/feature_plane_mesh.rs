@@ -415,7 +415,7 @@ fn append_feature_plane_mesh(
     let top_altitude = altitude_config
         .top_property_keys
         .and_then(|keys| feature_altitude_property(&feature.properties, keys))
-        .filter(|top_altitude| *top_altitude > base_altitude);
+        .map(|top_altitude| top_altitude.max(base_altitude + 0.1));
 
     let start_position_count = buffers.positions.len();
     let start_index_count = buffers.indices.len();

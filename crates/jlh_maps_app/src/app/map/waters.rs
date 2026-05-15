@@ -8,7 +8,8 @@ use crate::app::maplibre_gl_js::types::CanonicalTileId;
 use crate::utils::debug::SoftExpect;
 use bevy::asset::{Asset, AssetApp, Handle, load_internal_asset, uuid_handle};
 use bevy::camera::visibility::RenderLayers;
-use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin};
+use bevy::light::NotShadowCaster;
+use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin, OpaqueRendererMethod};
 use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, ShaderType};
 use bevy::shader::ShaderRef;
@@ -188,6 +189,7 @@ fn spawn_water_bucket(
         FeatureTileBucketEdgeDistanceTexture::new(WATER_EDGE_DISTANCE_TEXTURE_RESOLUTION, images);
     let material = materials.add(ExtendedMaterial {
         base: StandardMaterial {
+            opaque_render_method: OpaqueRendererMethod::Forward,
             base_color: Color::WHITE,
             depth_bias: 40000.0,
             ..default()
@@ -212,6 +214,7 @@ fn spawn_water_bucket(
             Transform::from_translation(translation),
             RenderLayers::layer(MAP_VIEW_COLOR_RENDER_LAYER),
             MeshMaterial3d(material.clone()),
+            NotShadowCaster,
             WaterTileBucket,
             FeatureTileBucket::new(
                 maplibre_int_id,

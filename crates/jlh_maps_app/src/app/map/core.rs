@@ -6,20 +6,19 @@ use crate::app::map::terrain::TerrainTileManager;
 use crate::app::map::transform::MERCATOR_WORLD_SIZE;
 use crate::app::map::waters::WaterManager;
 use crate::app::maplibre_gl_js::utils::mercator_coordinate::{LngLat, MercatorCoordinate};
-use bevy::camera::RenderTarget;
-use bevy::core_pipeline::tonemapping::Tonemapping;
+use bevy::camera::{CameraOutputMode, RenderTarget};
 use bevy::light::CascadeShadowConfigBuilder;
 use bevy::prelude::*;
-use bevy::render::view::ColorGrading;
 use bevy::window::WindowRef;
 use big_space::bundles::BigSpaceRootBundle;
 use big_space::prelude::{CellCoord, FloatingOrigin};
 use std::collections::HashMap;
+use bevy::core_pipeline::prepass::DeferredPrepass;
 
 const FIRST_CASCADE_FAR_METERS: f64 = 2_000.0;
 const SHADOW_MAX_DISTANCE_METERS: f64 = 10_000.0;
 const SHADOW_MIN_DISTANCE_METERS: f64 = 1.0;
-const SHADOW_DEPTH_BIAS: f32 = 0.05;
+const SHADOW_DEPTH_BIAS: f32 = 0.01;
 const SHADOW_NORMAL_BIAS: f32 = 1.8;
 pub const MAP_VIEW_COLOR_RENDER_LAYER: usize = 0;
 pub const MAP_VIEW_DEPTH_RENDER_LAYER: usize = 1;
@@ -42,6 +41,7 @@ impl Plugin for CorePlugin {
 #[derive(Debug, Reflect, Resource)]
 pub struct MapViewSettings {
     pub enable_window_cameras: bool,
+
     pub enable_buildings: bool,
     pub enable_waters: bool,
     pub enable_shadows: bool,
@@ -130,57 +130,62 @@ pub fn spawn_map_view(
         MapViewShadowLight,
     ));
 
-    let tonemapping = Tonemapping::None;
-    let msaa = Msaa::Sample4;
-    let color_grading = ColorGrading { ..default() };
     let ambient_light = AmbientLight {
         color: Color::WHITE,
         brightness: 1100.0,
         ..default()
     };
 
-    commands.entity(map_view_id).with_child((
-        Transform::default(),
-        CellCoord::default(),
-        Camera3d::default(),
-        Camera {
-            clear_color: ClearColorConfig::Custom(Color::NONE),
-            ..default()
-        },
-        tonemapping,
-        msaa,
-        color_grading.clone(),
-        ambient_light.clone(),
-        RenderTarget::Window(WindowRef::Entity(
-            app_windows.debug.expect("debug offscreen window to be set"),
-        )),
-        GameViewCamera,
-        MapViewCamera {
-            maplibre_int_id: maplibre_integration_id,
-        },
-    ));
+    commands.entity(map_view_id).with_children(|parent| {
+        parent
+            .spawn((
+                Transform::default(),
+                CellCoord::default(),
+                Camera3d::default(),
+                Camera {
+                    clear_color: ClearColorConfig::Custom(Color::NONE),
+                    output_mode: CameraOutputMode::Write {
+                        clear_color: ClearColorConfig::Custom(Color::NONE),
+                        blend_state: None,
+                    },
+                    ..default()
+                },
+                ambient_light.clone(),
+                RenderTarget::Window(WindowRef::Entity(
+                    app_windows.debug.expect("debug offscreen window to be set"),
+                )),
+                GameViewCamera,
+                MapViewCamera {
+                    maplibre_int_id: maplibre_integration_id,
+                },
+            ));
+    });
 
-    commands.entity(map_view_id).with_child((
-        Name::new("MapLibre Texture Camera"),
-        Transform::default(),
-        CellCoord::default(),
-        Camera3d::default(),
-        FloatingOrigin,
-        Camera {
-            clear_color: ClearColorConfig::Custom(Color::NONE),
-            ..default()
-        },
-        RenderTarget::Window(WindowRef::Entity(
-            app_windows
-                .texture
-                .expect("map texture offscreen window to be set"),
-        )),
-        msaa,
-        tonemapping,
-        color_grading,
-        ambient_light,
-        MapViewCamera {
-            maplibre_int_id: maplibre_integration_id,
-        },
-    ));
+    commands.entity(map_view_id).with_children(|parent| {
+        parent
+            .spawn((
+                Name::new("MapLibre Texture Camera"),
+                Transform::default(),
+                CellCoord::default(),
+                Camera3d::default(),
+                FloatingOrigin,
+                Camera {
+                    clear_color: ClearColorConfig::Custom(Color::NONE),
+                    output_mode: CameraOutputMode::Write {
+                        clear_color: ClearColorConfig::Custom(Color::NONE),
+                        blend_state: None,
+                    },
+                    ..default()
+                },
+                RenderTarget::Window(WindowRef::Entity(
+                    app_windows
+                        .texture
+                        .expect("map texture offscreen window to be set"),
+                )),
+                ambient_light,
+                MapViewCamera {
+                    maplibre_int_id: maplibre_integration_id,
+                },
+            ));
+    });
 }

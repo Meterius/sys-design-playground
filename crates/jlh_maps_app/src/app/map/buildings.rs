@@ -8,6 +8,7 @@ use crate::app::maplibre_gl_js::integration::MaplibreMapIntegration;
 use crate::app::maplibre_gl_js::types::CanonicalTileId;
 use crate::utils::debug::SoftExpect;
 use bevy::camera::visibility::RenderLayers;
+use bevy::pbr::{DefaultOpaqueRendererMethod, OpaqueRendererMethod};
 use bevy::prelude::*;
 use big_space::grid::Grid;
 use std::collections::HashMap;
@@ -17,6 +18,7 @@ pub struct BuildingsPlugin;
 impl Plugin for BuildingsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GlobalBuildingMaterial>()
+            .add_systems(PreUpdate, sync_building_material_opaque_render_method)
             .add_systems(Update, (sync_spawned_building_buckets,).chain())
             .add_systems(
                 PostUpdate,
@@ -49,15 +51,34 @@ struct BuildingTileBucket;
 #[derive(Resource, Reflect)]
 struct GlobalBuildingMaterial(Handle<StandardMaterial>);
 
+impl GlobalBuildingMaterial {
+    pub fn material() -> StandardMaterial {
+        StandardMaterial {
+            base_color: Color::hsv(20., 0.08, 0.76),
+            perceptual_roughness: 0.8,
+            reflectance: 0.05,
+            opaque_render_method: OpaqueRendererMethod::Auto,
+            ..default()
+        }
+    }
+}
+
 impl FromWorld for GlobalBuildingMaterial {
     fn from_world(world: &mut World) -> Self {
         let mut materials = world.resource_mut::<Assets<StandardMaterial>>();
-        Self(materials.add(StandardMaterial {
-            base_color: Color::hsv(20., 0.06, 0.76),
-            perceptual_roughness: 0.95,
-            reflectance: 0.05,
-            ..default()
-        }))
+        Self(materials.add(GlobalBuildingMaterial::material()))
+    }
+}
+
+fn sync_building_material_opaque_render_method(
+    default_opaque_renderer_method: Res<DefaultOpaqueRendererMethod>,
+    handle: Res<GlobalBuildingMaterial>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    if default_opaque_renderer_method.is_changed() {
+        if let Some(material) = materials.get_mut(&handle.0) {
+            *material = GlobalBuildingMaterial::material();
+        }
     }
 }
 

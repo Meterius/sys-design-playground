@@ -1,6 +1,6 @@
 use bevy::app::{App, Plugin};
 use bevy::asset::{Asset, Handle, load_internal_asset, uuid_handle};
-use bevy::pbr::{Material, MaterialPlugin};
+use bevy::pbr::{Material, MaterialPlugin, OpaqueRendererMethod};
 use bevy::prelude::{Reflect, Shader};
 use bevy::render::render_resource::AsBindGroup;
 use bevy::render::render_resource::ShaderType;
@@ -71,6 +71,14 @@ impl TransparentOverwriteMaterial {
 }
 
 impl Material for TransparentOverwriteMaterial {
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn opaque_render_method(&self) -> OpaqueRendererMethod {
+        OpaqueRendererMethod::Forward
+    }
+
     fn fragment_shader() -> ShaderRef {
         TRANSPARENT_OVERWRITE_MATERIAL_SHADER_HANDLE.into()
     }

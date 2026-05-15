@@ -1,5 +1,6 @@
 import { onBeforeUnmount, onMounted, reactive, shallowRef, watch } from 'vue'
 import {
+  MapViewCameraSettings as MapViewCameraSettingsBevy,
   MapViewSettings as MapViewSettingsBevy,
   forward_cursor_entered,
   forward_cursor_left,
@@ -10,6 +11,7 @@ import {
   forward_mouse_wheel,
   mount,
   resize,
+  set_map_view_camera_settings,
   set_map_view_settings,
   tick,
   unmount,
@@ -26,6 +28,9 @@ export function useBevy(debugCanvasSelector: string, textureCanvasSelector: stri
   const onBeforeUnmountCallbacks: (() => void)[] = []
 
   const mapViewSettings = reactive(new MapViewSettingsBevy(false, true, true, true))
+  const mapViewCameraSettings = reactive(
+    new MapViewCameraSettingsBevy(true, false, true, false, false),
+  )
 
   onMounted(() => {
     const textureCanvas = document.querySelector<HTMLCanvasElement>(textureCanvasSelector)
@@ -66,6 +71,25 @@ export function useBevy(debugCanvasSelector: string, textureCanvasSelector: stri
               settings.enable_buildings,
               settings.enable_waters,
               settings.enable_shadows,
+            ),
+          )
+        },
+        { deep: true, immediate: true },
+      ).stop,
+    )
+
+    onBeforeUnmountCallbacks.push(
+      watch(
+        mapViewCameraSettings,
+        (settings) => {
+          set_map_view_camera_settings(
+            instanceId,
+            new MapViewCameraSettingsBevy(
+              settings.enable_color_grading,
+              settings.enable_tonemapping,
+              settings.enable_msaa,
+              settings.enable_ssao,
+              settings.enable_taa,
             ),
           )
         },
@@ -118,6 +142,7 @@ export function useBevy(debugCanvasSelector: string, textureCanvasSelector: stri
   return {
     instanceId,
     mapViewSettings,
+    mapViewCameraSettings,
     tick: () => {
       tick(instanceId)
     },

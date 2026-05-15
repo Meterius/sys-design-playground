@@ -389,6 +389,23 @@ watchDefinedOnce(
       ).stop,
     )
 
+    // Bevy
+
+    map.addLayer(
+      new BevyLayer(mapTextureOffscreenCanvas, {
+        id: 'bevy-texture',
+        tick: () => {
+          syncOnRender()
+          tick()
+        },
+      }), 'Water labels'
+    )
+    ;['Oneway path', 'Oneway', 'Oneway opposite'].forEach((layerId) => {
+      const layer = map.getStyle().layers.find((l) => l.id === layerId)!
+      map.removeLayer(layerId)
+      map.addLayer(layer, 'bevy-texture')
+    })
+
     // Tree Mesh Layer
 
     if (enableTrees) {
@@ -421,16 +438,6 @@ watchDefinedOnce(
       }).stop,
     )
 
-    map.addLayer(
-      new BevyLayer(mapTextureOffscreenCanvas, {
-        id: 'bevy-texture',
-        tick: () => {
-          syncOnRender()
-          tick()
-        },
-      }),
-    )
-
     map.addLayer({
       id: 'highlight',
       source: 'highlight',
@@ -447,10 +454,6 @@ watchDefinedOnce(
     selectableLayers.value = map
       .getLayersOrder()
       .filter((layer) => map.getLayer(layer)?.type === 'symbol')
-
-    // map.addLayer(new OffscreenCanvasTestLayer({
-    //   mode: 'worker-webgl-imagebitmap',
-    // }))
 
     // Clean-Up
 

@@ -138,9 +138,10 @@ fn sync_building_material_opaque_render_method(
     mut materials: ResMut<Assets<BuildingMaterial>>,
 ) {
     if default_opaque_renderer_method.is_changed()
-        && let Some(material) = materials.get_mut(&handle.0) {
-            *material = GlobalBuildingMaterial::material();
-        }
+        && let Some(material) = materials.get_mut(&handle.0)
+    {
+        *material = GlobalBuildingMaterial::material();
+    }
 }
 
 fn sync_spawned_building_buckets(
@@ -266,6 +267,7 @@ fn spawn_building_bucket(
             FeatureTileBucketPlaneMeshConfig {
                 base_property_keys: Some(BUILDING_BASE_ALTITUDE_PROPERTY_KEYS),
                 top_property_keys: Some(BUILDING_TOP_ALTITUDE_PROPERTY_KEYS),
+                wall_normal_smooth_angle: Some(35.0_f32.to_radians()),
             },
             MeshMaterial3d(material),
         ))

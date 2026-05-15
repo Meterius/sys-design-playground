@@ -68,6 +68,7 @@ impl FeatureTileBucket {
 pub struct FeatureTileBucketPlaneMeshConfig {
     pub base_property_keys: Option<&'static [&'static str]>,
     pub top_property_keys: Option<&'static [&'static str]>,
+    pub wall_normal_smooth_angle: Option<f32>,
 }
 
 #[derive(Component)]
@@ -427,6 +428,7 @@ fn append_feature_plane_mesh(
             base_altitude,
             top_altitude,
             terrain_data,
+            altitude_config.wall_normal_smooth_angle,
             &mut buffers.positions,
             &mut buffers.normals,
             &mut buffers.uvs,
@@ -443,6 +445,7 @@ fn append_feature_plane_mesh(
                     base_altitude,
                     top_altitude,
                     terrain_data,
+                    altitude_config.wall_normal_smooth_angle,
                     &mut buffers.positions,
                     &mut buffers.normals,
                     &mut buffers.uvs,
@@ -560,6 +563,7 @@ fn push_polygon_mesh(
     base_altitude: f64,
     top_altitude: Option<f64>,
     terrain_data: Option<&MaplibreTerrainTileData>,
+    wall_normal_smooth_angle: Option<f32>,
     positions: &mut Vec<[f32; 3]>,
     normals: &mut Vec<[f32; 3]>,
     uvs: &mut Vec<[f32; 2]>,
@@ -664,6 +668,7 @@ fn push_polygon_mesh(
             uvs,
             feature_data,
             indices,
+            wall_normal_smooth_angle,
         );
     }
 }
@@ -687,6 +692,7 @@ fn push_extrusion_wall_mesh(
     uvs: &mut Vec<[f32; 2]>,
     feature_data: &mut Vec<[f32; 2]>,
     indices: &mut Vec<u32>,
+    wall_normal_smooth_angle: Option<f32>,
 ) {
     let ring_len = ring_positions.len();
     if ring_len < 2 {
@@ -695,21 +701,35 @@ fn push_extrusion_wall_mesh(
 
     let ring_area = signed_area_xy(ring_positions);
     let outward_right = (ring_area >= 0.0) != is_hole;
+    let edge_normals = (0..ring_len)
+        .map(|edge_index| {
+            let next_edge_index = (edge_index + 1) % ring_len;
+            wall_edge_normal(
+                ring_positions[edge_index].top,
+                ring_positions[next_edge_index].top,
+                outward_right,
+            )
+        })
+        .collect::<Vec<_>>();
+
     for edge_index in 0..ring_len {
         let next_edge_index = (edge_index + 1) % ring_len;
         let top_left = ring_positions[edge_index].top;
         let top_right = ring_positions[next_edge_index].top;
         let top_left_altitude = ring_positions[edge_index].top_altitude;
         let top_right_altitude = ring_positions[next_edge_index].top_altitude;
-        let edge = top_right - top_left;
-        let normal = if outward_right {
-            DVec3::new(edge.y, -edge.x, 0.0)
-        } else {
-            DVec3::new(-edge.y, edge.x, 0.0)
-        }
-        .normalize_or_zero()
-        .as_vec3()
-        .to_array();
+        let top_left_normal = wall_vertex_normal(
+            &edge_normals,
+            edge_index,
+            edge_index,
+            wall_normal_smooth_angle,
+        );
+        let top_right_normal = wall_vertex_normal(
+            &edge_normals,
+            next_edge_index,
+            edge_index,
+            wall_normal_smooth_angle,
+        );
 
         let base_left = ring_positions[edge_index].base;
         let base_right = ring_positions[next_edge_index].base;
@@ -721,7 +741,12 @@ fn push_extrusion_wall_mesh(
         positions.push(top_right.as_vec3().to_array());
         positions.push(base_right.as_vec3().to_array());
         positions.push(base_left.as_vec3().to_array());
-        normals.extend([normal, normal, normal, normal]);
+        normals.extend([
+            top_left_normal,
+            top_right_normal,
+            top_right_normal,
+            top_left_normal,
+        ]);
         uvs.push([edge_index as f32, 1.0]);
         uvs.push([next_edge_index as f32, 1.0]);
         uvs.push([next_edge_index as f32, 0.0]);
@@ -753,6 +778,49 @@ fn push_extrusion_wall_mesh(
             ]);
         }
     }
+}
+
+fn wall_edge_normal(left: DVec3, right: DVec3, outward_right: bool) -> DVec3 {
+    let edge = right - left;
+    if outward_right {
+        DVec3::new(edge.y, -edge.x, 0.0)
+    } else {
+        DVec3::new(-edge.y, edge.x, 0.0)
+    }
+    .normalize_or_zero()
+}
+
+fn wall_vertex_normal(
+    edge_normals: &[DVec3],
+    vertex_index: usize,
+    current_edge_index: usize,
+    smooth_angle: Option<f32>,
+) -> [f32; 3] {
+    let current = edge_normals[current_edge_index];
+    let Some(smooth_angle) = smooth_angle else {
+        return current.as_vec3().to_array();
+    };
+    if edge_normals.len() < 3 || current.length_squared() <= f64::EPSILON {
+        return current.as_vec3().to_array();
+    }
+
+    let other_edge_index = if current_edge_index == vertex_index {
+        (vertex_index + edge_normals.len() - 1) % edge_normals.len()
+    } else {
+        vertex_index
+    };
+    let other = edge_normals[other_edge_index];
+    if other.length_squared() <= f64::EPSILON {
+        return current.as_vec3().to_array();
+    }
+
+    let cos_angle = current.dot(other).clamp(-1.0, 1.0);
+    let smooth_cos = f64::from(smooth_angle.clamp(0.0, std::f32::consts::PI).cos());
+    if cos_angle < smooth_cos {
+        return current.as_vec3().to_array();
+    }
+
+    (current + other).normalize_or_zero().as_vec3().to_array()
 }
 
 fn signed_area_xy(positions: &[ExtrusionVertex]) -> f64 {

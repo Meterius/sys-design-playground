@@ -7,9 +7,15 @@ use crate::app::map::feature_plane_mesh::{
 use crate::app::maplibre_gl_js::integration::MaplibreMapIntegration;
 use crate::app::maplibre_gl_js::types::CanonicalTileId;
 use crate::utils::debug::SoftExpect;
+use bevy::asset::{Asset, AssetApp, Handle, load_internal_asset, uuid_handle};
 use bevy::camera::visibility::RenderLayers;
-use bevy::pbr::{DefaultOpaqueRendererMethod, OpaqueRendererMethod};
+use bevy::pbr::{
+    DefaultOpaqueRendererMethod, ExtendedMaterial, MaterialExtension, MaterialPlugin,
+    OpaqueRendererMethod,
+};
 use bevy::prelude::*;
+use bevy::render::render_resource::{AsBindGroup, ShaderType};
+use bevy::shader::ShaderRef;
 use big_space::grid::Grid;
 use std::collections::HashMap;
 
@@ -17,7 +23,17 @@ pub struct BuildingsPlugin;
 
 impl Plugin for BuildingsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<GlobalBuildingMaterial>()
+        load_internal_asset!(
+            app,
+            BUILDING_MATERIAL_SHADER_HANDLE,
+            "../../../assets/shaders/building_pbr.fragment.wgsl",
+            Shader::from_wgsl
+        );
+        app.register_type::<BuildingMaterialUniform>()
+            .register_type::<BuildingMaterialExtension>()
+            .register_asset_reflect::<BuildingMaterial>()
+            .add_plugins(MaterialPlugin::<BuildingMaterial>::default())
+            .init_resource::<GlobalBuildingMaterial>()
             .add_systems(PreUpdate, sync_building_material_opaque_render_method)
             .add_systems(Update, (sync_spawned_building_buckets,).chain())
             .add_systems(
@@ -31,8 +47,8 @@ const DEFAULT_BUILDING_VISIBILITY_DISTANCE: f32 = 10.0;
 const BUILDING_SOURCE_LAYER: &str = "building";
 const BUILDING_BASE_ALTITUDE_PROPERTY_KEYS: &[&str] = &["render_min_height", "min_height"];
 const BUILDING_TOP_ALTITUDE_PROPERTY_KEYS: &[&str] = &["render_height", "height"];
-const BUILDING_HEIGHT_COLOR_GRADIENT_STRENGTH: f32 = 0.2;
-const BUILDING_HEIGHT_COLOR_GRADIENT_UPPER_ALTITUDE: f64 = 100.0;
+const BUILDING_MATERIAL_SHADER_HANDLE: Handle<Shader> =
+    uuid_handle!("6821f839-72cf-4b53-a709-d0260d921b72");
 
 #[derive(Component)]
 pub struct BuildingManager {
@@ -49,23 +65,69 @@ pub struct SpawnedBuildingSource {
 struct BuildingTileBucket;
 
 #[derive(Resource, Reflect)]
-struct GlobalBuildingMaterial(Handle<StandardMaterial>);
+struct GlobalBuildingMaterial(Handle<BuildingMaterial>);
+
+type BuildingMaterial = ExtendedMaterial<StandardMaterial, BuildingMaterialExtension>;
+
+#[derive(ShaderType, Reflect, Debug, Clone, Copy)]
+struct BuildingMaterialUniform {
+    height_gradient_strength: f32,
+    height_gradient_upper_altitude: f32,
+
+    base_shadow_strength: f32,
+    base_shadow_upper_altitude: f32,
+
+    lambert_tint_strength: f32,
+    lambert_shade_strength: f32,
+    _webgl2_padding_24b: u32,
+    _webgl2_padding_28b: u32,
+}
+
+#[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
+struct BuildingMaterialExtension {
+    #[uniform(100)]
+    uniform: BuildingMaterialUniform,
+}
+
+impl MaterialExtension for BuildingMaterialExtension {
+    fn fragment_shader() -> ShaderRef {
+        BUILDING_MATERIAL_SHADER_HANDLE.into()
+    }
+
+    fn deferred_fragment_shader() -> ShaderRef {
+        BUILDING_MATERIAL_SHADER_HANDLE.into()
+    }
+}
 
 impl GlobalBuildingMaterial {
-    pub fn material() -> StandardMaterial {
-        StandardMaterial {
-            base_color: Color::hsv(20., 0.08, 0.76),
-            perceptual_roughness: 0.8,
-            reflectance: 0.05,
-            opaque_render_method: OpaqueRendererMethod::Auto,
-            ..default()
+    fn material() -> BuildingMaterial {
+        ExtendedMaterial {
+            base: StandardMaterial {
+                base_color: Color::hsv(20., 0.08, 0.76),
+                perceptual_roughness: 0.8,
+                reflectance: 0.05,
+                opaque_render_method: OpaqueRendererMethod::Auto,
+                ..default()
+            },
+            extension: BuildingMaterialExtension {
+                uniform: BuildingMaterialUniform {
+                    height_gradient_strength: 0.25,
+                    height_gradient_upper_altitude: 40.0,
+                    base_shadow_strength: 0.1,
+                    base_shadow_upper_altitude: 3.0,
+                    lambert_tint_strength: 0.2,
+                    lambert_shade_strength: 0.1,
+                    _webgl2_padding_24b: 0,
+                    _webgl2_padding_28b: 0,
+                },
+            },
         }
     }
 }
 
 impl FromWorld for GlobalBuildingMaterial {
     fn from_world(world: &mut World) -> Self {
-        let mut materials = world.resource_mut::<Assets<StandardMaterial>>();
+        let mut materials = world.resource_mut::<Assets<BuildingMaterial>>();
         Self(materials.add(GlobalBuildingMaterial::material()))
     }
 }
@@ -73,13 +135,12 @@ impl FromWorld for GlobalBuildingMaterial {
 fn sync_building_material_opaque_render_method(
     default_opaque_renderer_method: Res<DefaultOpaqueRendererMethod>,
     handle: Res<GlobalBuildingMaterial>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<BuildingMaterial>>,
 ) {
-    if default_opaque_renderer_method.is_changed() {
-        if let Some(material) = materials.get_mut(&handle.0) {
+    if default_opaque_renderer_method.is_changed()
+        && let Some(material) = materials.get_mut(&handle.0) {
             *material = GlobalBuildingMaterial::material();
         }
-    }
 }
 
 fn sync_spawned_building_buckets(
@@ -177,7 +238,7 @@ fn spawn_building_bucket(
     grid: &Grid,
     source_id: &str,
     tile_id: CanonicalTileId,
-    material: Handle<StandardMaterial>,
+    material: Handle<BuildingMaterial>,
 ) -> Entity {
     let (center, flat_half_extents) = tile_flat_bounds_world(tile_id);
     let (cell, translation) = grid.translation_to_grid(center);
@@ -205,8 +266,6 @@ fn spawn_building_bucket(
             FeatureTileBucketPlaneMeshConfig {
                 base_property_keys: Some(BUILDING_BASE_ALTITUDE_PROPERTY_KEYS),
                 top_property_keys: Some(BUILDING_TOP_ALTITUDE_PROPERTY_KEYS),
-                height_color_gradient_strength: BUILDING_HEIGHT_COLOR_GRADIENT_STRENGTH,
-                height_color_gradient_upper_altitude: BUILDING_HEIGHT_COLOR_GRADIENT_UPPER_ALTITUDE,
             },
             MeshMaterial3d(material),
         ))

@@ -5,10 +5,12 @@ use crate::app::maplibre_gl_js::types::MaplibreMapViewData;
 use crate::utils::debug::SoftExpect;
 use bevy::anti_alias::taa::TemporalAntiAliasing;
 use bevy::camera::CameraProjection;
-use bevy::core_pipeline::prepass::{DeferredPrepass, DepthPrepass, MotionVectorPrepass, NormalPrepass};
+use bevy::core_pipeline::prepass::{
+    DeferredPrepass, DepthPrepass, MotionVectorPrepass, NormalPrepass,
+};
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::math::{DMat4, DQuat, DVec3, DVec4};
-use bevy::pbr::{DefaultOpaqueRendererMethod, ScreenSpaceAmbientOcclusion, ScreenSpaceAmbientOcclusionQualityLevel};
+use bevy::pbr::{ScreenSpaceAmbientOcclusion, ScreenSpaceAmbientOcclusionQualityLevel};
 use bevy::prelude::*;
 use bevy::render::camera::{MipBias, TemporalJitter};
 use bevy::render::view::ColorGrading;
@@ -278,7 +280,6 @@ fn sync_map_view_camera_settings(
             Msaa,
             ScreenSpaceAmbientOcclusion,
             TemporalAntiAliasing,
-
             // Auto-inserted components by other effect components
             TemporalJitter,
             MipBias,

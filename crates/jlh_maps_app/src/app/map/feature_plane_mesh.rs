@@ -68,8 +68,6 @@ impl FeatureTileBucket {
 pub struct FeatureTileBucketPlaneMeshConfig {
     pub base_property_keys: Option<&'static [&'static str]>,
     pub top_property_keys: Option<&'static [&'static str]>,
-    pub height_color_gradient_strength: f32,
-    pub height_color_gradient_upper_altitude: f64,
 }
 
 #[derive(Component)]
@@ -161,7 +159,7 @@ struct FeaturePlaneMeshBuffers {
     positions: Vec<[f32; 3]>,
     normals: Vec<[f32; 3]>,
     uvs: Vec<[f32; 2]>,
-    colors: Vec<[f32; 4]>,
+    feature_data: Vec<[f32; 2]>,
     indices: Vec<u32>,
 }
 
@@ -170,7 +168,7 @@ impl FeaturePlaneMeshBuffers {
         self.positions.clear();
         self.normals.clear();
         self.uvs.clear();
-        self.colors.clear();
+        self.feature_data.clear();
         self.indices.clear();
     }
 
@@ -186,7 +184,7 @@ impl FeaturePlaneMeshBuffers {
         mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, self.positions.clone());
         mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, self.normals.clone());
         mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, self.uvs.clone());
-        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, self.colors.clone());
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, self.feature_data.clone());
         mesh.insert_indices(Indices::U32(self.indices.clone()));
         mesh
     }
@@ -428,13 +426,11 @@ fn append_feature_plane_mesh(
             bounds,
             base_altitude,
             top_altitude,
-            altitude_config.height_color_gradient_strength,
-            altitude_config.height_color_gradient_upper_altitude,
             terrain_data,
             &mut buffers.positions,
             &mut buffers.normals,
             &mut buffers.uvs,
-            &mut buffers.colors,
+            &mut buffers.feature_data,
             &mut buffers.indices,
         ),
         Value::MultiPolygon(polygons) => {
@@ -446,13 +442,11 @@ fn append_feature_plane_mesh(
                     bounds,
                     base_altitude,
                     top_altitude,
-                    altitude_config.height_color_gradient_strength,
-                    altitude_config.height_color_gradient_upper_altitude,
                     terrain_data,
                     &mut buffers.positions,
                     &mut buffers.normals,
                     &mut buffers.uvs,
-                    &mut buffers.colors,
+                    &mut buffers.feature_data,
                     &mut buffers.indices,
                 );
             }
@@ -465,7 +459,7 @@ fn append_feature_plane_mesh(
         buffers.positions.truncate(start_position_count);
         buffers.normals.truncate(start_position_count);
         buffers.uvs.truncate(start_position_count);
-        buffers.colors.truncate(start_position_count);
+        buffers.feature_data.truncate(start_position_count);
         buffers.indices.truncate(start_index_count);
         false
     } else {
@@ -565,13 +559,11 @@ fn push_polygon_mesh(
     bounds: (bevy::math::DVec2, bevy::math::DVec2),
     base_altitude: f64,
     top_altitude: Option<f64>,
-    height_color_gradient_strength: f32,
-    height_color_gradient_upper_altitude: f64,
     terrain_data: Option<&MaplibreTerrainTileData>,
     positions: &mut Vec<[f32; 3]>,
     normals: &mut Vec<[f32; 3]>,
     uvs: &mut Vec<[f32; 2]>,
-    colors: &mut Vec<[f32; 4]>,
+    feature_data: &mut Vec<[f32; 2]>,
     indices: &mut Vec<u32>,
 ) {
     let first_vertex = positions.len() as u32;
@@ -619,11 +611,7 @@ fn push_polygon_mesh(
             positions.push(world.as_vec3().to_array());
             normals.push([0.0, 0.0, 1.0]);
             uvs.push(tile_uv(bounds, lnglat).to_array());
-            colors.push(height_gradient_color(
-                surface_altitude + terrain_altitude,
-                height_color_gradient_strength,
-                height_color_gradient_upper_altitude,
-            ));
+            feature_data.push(feature_vertex_data(surface_altitude + terrain_altitude));
             if top_altitude.is_some() {
                 ring_world_positions.push(ExtrusionVertex {
                     top: world,
@@ -648,7 +636,7 @@ fn push_polygon_mesh(
         positions.truncate(first_vertex as usize);
         normals.truncate(first_vertex as usize);
         uvs.truncate(first_vertex as usize);
-        colors.truncate(first_vertex as usize);
+        feature_data.truncate(first_vertex as usize);
         return;
     }
 
@@ -656,7 +644,7 @@ fn push_polygon_mesh(
         positions.truncate(first_vertex as usize);
         normals.truncate(first_vertex as usize);
         uvs.truncate(first_vertex as usize);
-        colors.truncate(first_vertex as usize);
+        feature_data.truncate(first_vertex as usize);
         return;
     };
 
@@ -674,18 +662,14 @@ fn push_polygon_mesh(
             positions,
             normals,
             uvs,
-            colors,
+            feature_data,
             indices,
-            height_color_gradient_strength,
-            height_color_gradient_upper_altitude,
         );
     }
 }
 
-fn height_gradient_color(altitude: f64, strength: f32, upper_altitude: f64) -> [f32; 4] {
-    let height_fraction = (altitude / upper_altitude.max(f64::EPSILON)).clamp(0.0, 1.0) as f32;
-    let value = 1.0 + strength.max(0.0) * height_fraction;
-    [value, value, value, 1.0]
+fn feature_vertex_data(altitude: f64) -> [f32; 2] {
+    [altitude as f32, 0.0]
 }
 
 struct ExtrusionVertex {
@@ -701,10 +685,8 @@ fn push_extrusion_wall_mesh(
     positions: &mut Vec<[f32; 3]>,
     normals: &mut Vec<[f32; 3]>,
     uvs: &mut Vec<[f32; 2]>,
-    colors: &mut Vec<[f32; 4]>,
+    feature_data: &mut Vec<[f32; 2]>,
     indices: &mut Vec<u32>,
-    height_color_gradient_strength: f32,
-    height_color_gradient_upper_altitude: f64,
 ) {
     let ring_len = ring_positions.len();
     if ring_len < 2 {
@@ -744,27 +726,11 @@ fn push_extrusion_wall_mesh(
         uvs.push([next_edge_index as f32, 1.0]);
         uvs.push([next_edge_index as f32, 0.0]);
         uvs.push([edge_index as f32, 0.0]);
-        colors.extend([
-            height_gradient_color(
-                top_left_altitude,
-                height_color_gradient_strength,
-                height_color_gradient_upper_altitude,
-            ),
-            height_gradient_color(
-                top_right_altitude,
-                height_color_gradient_strength,
-                height_color_gradient_upper_altitude,
-            ),
-            height_gradient_color(
-                base_right_altitude,
-                height_color_gradient_strength,
-                height_color_gradient_upper_altitude,
-            ),
-            height_gradient_color(
-                base_left_altitude,
-                height_color_gradient_strength,
-                height_color_gradient_upper_altitude,
-            ),
+        feature_data.extend([
+            feature_vertex_data(top_left_altitude),
+            feature_vertex_data(top_right_altitude),
+            feature_vertex_data(base_right_altitude),
+            feature_vertex_data(base_left_altitude),
         ]);
 
         if outward_right {

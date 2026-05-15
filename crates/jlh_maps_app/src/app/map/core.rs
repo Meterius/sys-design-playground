@@ -13,7 +13,6 @@ use bevy::window::WindowRef;
 use big_space::bundles::BigSpaceRootBundle;
 use big_space::prelude::{CellCoord, FloatingOrigin};
 use std::collections::HashMap;
-use bevy::core_pipeline::prepass::DeferredPrepass;
 
 const FIRST_CASCADE_FAR_METERS: f64 = 2_000.0;
 const SHADOW_MAX_DISTANCE_METERS: f64 = 10_000.0;
@@ -137,55 +136,53 @@ pub fn spawn_map_view(
     };
 
     commands.entity(map_view_id).with_children(|parent| {
-        parent
-            .spawn((
-                Transform::default(),
-                CellCoord::default(),
-                Camera3d::default(),
-                Camera {
+        parent.spawn((
+            Transform::default(),
+            CellCoord::default(),
+            Camera3d::default(),
+            Camera {
+                clear_color: ClearColorConfig::Custom(Color::NONE),
+                output_mode: CameraOutputMode::Write {
                     clear_color: ClearColorConfig::Custom(Color::NONE),
-                    output_mode: CameraOutputMode::Write {
-                        clear_color: ClearColorConfig::Custom(Color::NONE),
-                        blend_state: None,
-                    },
-                    ..default()
+                    blend_state: None,
                 },
-                ambient_light.clone(),
-                RenderTarget::Window(WindowRef::Entity(
-                    app_windows.debug.expect("debug offscreen window to be set"),
-                )),
-                GameViewCamera,
-                MapViewCamera {
-                    maplibre_int_id: maplibre_integration_id,
-                },
-            ));
+                ..default()
+            },
+            ambient_light.clone(),
+            RenderTarget::Window(WindowRef::Entity(
+                app_windows.debug.expect("debug offscreen window to be set"),
+            )),
+            GameViewCamera,
+            MapViewCamera {
+                maplibre_int_id: maplibre_integration_id,
+            },
+        ));
     });
 
     commands.entity(map_view_id).with_children(|parent| {
-        parent
-            .spawn((
-                Name::new("MapLibre Texture Camera"),
-                Transform::default(),
-                CellCoord::default(),
-                Camera3d::default(),
-                FloatingOrigin,
-                Camera {
+        parent.spawn((
+            Name::new("MapLibre Texture Camera"),
+            Transform::default(),
+            CellCoord::default(),
+            Camera3d::default(),
+            FloatingOrigin,
+            Camera {
+                clear_color: ClearColorConfig::Custom(Color::NONE),
+                output_mode: CameraOutputMode::Write {
                     clear_color: ClearColorConfig::Custom(Color::NONE),
-                    output_mode: CameraOutputMode::Write {
-                        clear_color: ClearColorConfig::Custom(Color::NONE),
-                        blend_state: None,
-                    },
-                    ..default()
+                    blend_state: None,
                 },
-                RenderTarget::Window(WindowRef::Entity(
-                    app_windows
-                        .texture
-                        .expect("map texture offscreen window to be set"),
-                )),
-                ambient_light,
-                MapViewCamera {
-                    maplibre_int_id: maplibre_integration_id,
-                },
-            ));
+                ..default()
+            },
+            RenderTarget::Window(WindowRef::Entity(
+                app_windows
+                    .texture
+                    .expect("map texture offscreen window to be set"),
+            )),
+            ambient_light,
+            MapViewCamera {
+                maplibre_int_id: maplibre_integration_id,
+            },
+        ));
     });
 }

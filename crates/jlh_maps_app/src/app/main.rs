@@ -130,6 +130,8 @@ pub fn mount(instance_id: String, debug_canvas: OffscreenCanvas, texture_canvas:
         );
     }
 
+    app.insert_resource(DirectionalLightShadowMap { size: 4096 });
+
     app.insert_resource(EguiGlobalSettings {
         // requires winit which is disabled as windows need manual management
         enable_ime: false,
@@ -352,7 +354,7 @@ pub fn forward_mouse_wheel(
                 MouseScrollUnit::Pixel
             },
             x: delta_x,
-            y: delta_y,
+            y: -delta_y,
             window,
         };
         world.write_message(event);

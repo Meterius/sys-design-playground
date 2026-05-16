@@ -131,6 +131,8 @@ pub fn mount(instance_id: String, debug_canvas: OffscreenCanvas, texture_canvas:
         );
     }
 
+    app.insert_resource(ClearColor(Color::NONE));
+
     app.insert_resource(DirectionalLightShadowMap { size: 4096 });
 
     app.insert_resource(EguiGlobalSettings {

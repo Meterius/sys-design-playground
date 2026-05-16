@@ -88,6 +88,8 @@ export class BevyLayer implements CustomLayerInterface {
   }
 
   render(gl: WebGL2RenderingContext | WebGLRenderingContext): void {
+    // Run bevy schedule for one frame
+
     try {
       if (!this.tickFailed) {
         this.tickCallback?.()
@@ -97,57 +99,61 @@ export class BevyLayer implements CustomLayerInterface {
       this.tickFailed = true
     }
 
-    if (!this.program || !this.vertexBuffer || !this.texture) {
+    if (this.tickFailed) { return; }
+
+    const textureCanvas = toValue(this.textureCanvas)
+
+    if (!this.program || !this.vertexBuffer || !this.texture || !textureCanvas) {
       this.map.triggerRepaint()
       return
     }
 
+    // Upload bevy render to maplibre texture
+
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, this.texture)
-    const textureCanvas = toValue(this.textureCanvas)
-    if (textureCanvas !== null) {
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
-      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
-      gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE)
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
+    gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE)
 
-      if (
-        textureCanvas.width !== this.textureWidth ||
-        textureCanvas.height !== this.textureHeight
-      ) {
-        this.textureWidth = textureCanvas.width
-        this.textureHeight = textureCanvas.height
+    // Recreate texture if dimensions have changed
+    if (
+      textureCanvas.width !== this.textureWidth ||
+      textureCanvas.height !== this.textureHeight
+    ) {
+      this.textureWidth = textureCanvas.width
+      this.textureHeight = textureCanvas.height
 
-        if (isWebGL2(gl)) {
-          gl.deleteTexture(this.texture)
-          this.texture = createTexture(gl)
-          if (!this.texture) {
-            this.map.triggerRepaint()
-            return
-          }
-          gl.bindTexture(gl.TEXTURE_2D, this.texture)
-          gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, this.textureWidth, this.textureHeight)
-        } else {
-          gl.texImage2D(
-            gl.TEXTURE_2D,
-            0,
-            gl.RGBA,
-            this.textureWidth,
-            this.textureHeight,
-            0,
-            gl.RGBA,
-            gl.UNSIGNED_BYTE,
-            null,
-          )
+      if (isWebGL2(gl)) {
+        gl.deleteTexture(this.texture)
+        this.texture = createTexture(gl)
+        if (!this.texture) {
+          this.map.triggerRepaint()
+          return
         }
+        gl.bindTexture(gl.TEXTURE_2D, this.texture)
+        gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, this.textureWidth, this.textureHeight)
+      } else {
+        gl.texImage2D(
+          gl.TEXTURE_2D,
+          0,
+          gl.RGBA,
+          this.textureWidth,
+          this.textureHeight,
+          0,
+          gl.RGBA,
+          gl.UNSIGNED_BYTE,
+          null,
+        )
       }
-
-      // On chrome this happens < 1ms, likely the current setup is handled as gpu-gpu copy,
-      // while on firefox this can take ~20-40ms and incurs a cpu copy
-      // TODO: investigate firefox performance bottleneck of texture transfer
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, textureCanvas)
-    } else {
-      console.warn('Missing texture canvas')
     }
+
+    // On chrome this happens < 1ms, likely the current setup is handled as gpu-gpu copy,
+    // while on firefox this can take ~20-40ms and incurs a cpu copy
+    // TODO: investigate firefox performance bottleneck of texture transfer
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, textureCanvas)
+
+    // Draw bevy render texture as fullscreen quad
 
     gl.enable(gl.BLEND)
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
@@ -172,6 +178,7 @@ export class BevyLayer implements CustomLayerInterface {
       this.map.painter.depthRangeFor3D[1],
     )
     gl.drawArrays(gl.TRIANGLES, 0, 6)
+
     this.map.triggerRepaint()
   }
 

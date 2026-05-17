@@ -128,6 +128,8 @@
           <map-directions
             v-show="slideoverOpen === SlideoverTab.Directions"
             v-model:stops="directionStops"
+            @update:trip-primary="directionsTripPrimary = $event"
+            @update:trip-alternates="directionsTripAlternates = $event"
           />
 
           <map-details
@@ -160,9 +162,9 @@ import {
   NavigationControl,
   type MapMouseEvent,
 } from 'maplibre-gl'
-import { center } from '@turf/turf'
+import { center, distance, point as turfPoint } from '@turf/turf'
 import mapPinIconSvg from 'lucide-static/icons/map-pin.svg?raw'
-import type { FeatureCollection, Point } from 'geojson'
+import type { FeatureCollection, LineString, Point, Position } from 'geojson'
 import {
   TILESERVER_OMT_DEFAULT_STYLE_TILEJSON_URL,
   TILESERVER_RASTER_SEN2_TILEJSON_URL,
@@ -179,6 +181,18 @@ import MapDirections from '@/components/MapDirections.vue'
 import { GeoLocationType, type GeoLocation } from '@/components/types.ts'
 import type { ContextMenuItem } from '@nuxt/ui'
 import { svgToImage } from '@/utils/svg-to-image.ts'
+import { decodePolylineToPositions, type Trip } from 'valhalla_client'
+
+const DIRECTION_TRIP_PRIMARY_SOURCE_ID = 'direction-trip-primary'
+const DIRECTION_TRIP_PRIMARY_LAYER_ID = 'direction-trip-primary'
+const DIRECTION_TRIP_PRIMARY_CONNECTOR_SOURCE_ID = 'direction-trip-primary-connector'
+const DIRECTION_TRIP_PRIMARY_CONNECTOR_LAYER_ID = 'direction-trip-primary-connector'
+const DIRECTION_TRIP_ENDPOINT_CONNECTOR_THRESHOLD_METERS = 20
+
+const DIRECTION_STOPS_SOURCE_ID = 'direction-stops'
+const DIRECTION_STOPS_SHADOW_LAYER_ID = 'direction-stops-shadow'
+const DIRECTION_STOPS_LAYER_ID = 'direction-stops'
+const DIRECTION_STOP_ICON_ID = 'lucide:map-pin'
 
 const mapKey = makeUniqueMapKey()
 
@@ -304,6 +318,39 @@ const onSlideoverClose = () => {
 
 const directionStops = shallowRef<(GeoLocation | null)[]>([null, null])
 
+const directionsTripPrimary = shallowRef<Trip | null>(null)
+const directionsTripAlternates = shallowRef<Trip[]>([])
+
+const getTripLineCoordinates = (trip: Trip | null): Position[] =>
+  trip?.legs.flatMap((leg) => {
+    const shape = leg.shape ?? leg.encoded_shape
+    return shape ? decodePolylineToPositions(shape) : []
+  }) ?? []
+
+const tripLocationToPosition = (trip: Trip | null, idx: number): Position | null => {
+  const location = trip?.locations.at(idx)
+  return location ? [location.lon, location.lat] : null
+}
+
+const distanceMeters = (left: Position, right: Position) =>
+  distance(turfPoint(left), turfPoint(right), { units: 'kilometers' }) * 1000
+
+const makeEndpointConnector = (from: Position | null, to: Position | undefined) => {
+  if (!from || !to) return []
+  if (distanceMeters(from, to) <= DIRECTION_TRIP_ENDPOINT_CONNECTOR_THRESHOLD_METERS) return []
+
+  return [
+    {
+      type: 'Feature' as const,
+      geometry: {
+        type: 'LineString' as const,
+        coordinates: [from, to],
+      },
+      properties: {},
+    },
+  ]
+}
+
 // Selection
 
 const selectableLayers = ref<string[]>([])
@@ -328,17 +375,50 @@ const highlightGeoJsonData = computed(
   }),
 )
 
-// Direction Stops Layer
+// Direction Trip Source
+
+const directionsTripPrimaryGeoJsonData = computed((): FeatureCollection<LineString> => {
+  const coordinates = getTripLineCoordinates(directionsTripPrimary.value)
+
+  return {
+    type: 'FeatureCollection',
+    features:
+      coordinates.length >= 2
+        ? [
+            {
+              type: 'Feature',
+              geometry: {
+                type: 'LineString',
+                coordinates,
+              },
+              properties: {},
+            },
+          ]
+        : [],
+  }
+})
+
+const directionsTripPrimaryConnectorGeoJsonData = computed((): FeatureCollection<LineString> => {
+  const trip = directionsTripPrimary.value
+  const coordinates = getTripLineCoordinates(trip)
+  const startLocation = tripLocationToPosition(trip, 0)
+  const endLocation = tripLocationToPosition(trip, -1)
+
+  return {
+    type: 'FeatureCollection',
+    features: [
+      ...makeEndpointConnector(startLocation, coordinates[0]),
+      ...makeEndpointConnector(coordinates.at(-1) ?? null, endLocation ?? undefined),
+    ],
+  }
+})
+
+// Direction Stops Source
 
 type DirectionStopProperties = {
   label: string
   sortKey: number
 }
-
-const DIRECTION_STOPS_SOURCE_ID = 'direction-stops'
-const DIRECTION_STOPS_SHADOW_LAYER_ID = 'direction-stops-shadow'
-const DIRECTION_STOPS_LAYER_ID = 'direction-stops'
-const DIRECTION_STOP_ICON_ID = 'lucide:map-pin'
 
 const directionStopsGeoJsonData = computed(
   (): FeatureCollection<Point, DirectionStopProperties> => {
@@ -661,9 +741,91 @@ watchDefinedOnce(
       },
     })
 
+    // Direction Trips Layers
+
+    map.addSource(DIRECTION_TRIP_PRIMARY_SOURCE_ID, {
+      type: 'geojson',
+      data: directionsTripPrimaryGeoJsonData.value,
+    })
+
+    map.addSource(DIRECTION_TRIP_PRIMARY_CONNECTOR_SOURCE_ID, {
+      type: 'geojson',
+      data: directionsTripPrimaryConnectorGeoJsonData.value,
+    })
+
+    onCleanupCallbacks.push(
+      watchEffect(() => {
+        map
+          .getSource<GeoJSONSource>(DIRECTION_TRIP_PRIMARY_SOURCE_ID)
+          ?.setData(directionsTripPrimaryGeoJsonData.value)
+      }).stop,
+      watchEffect(() => {
+        map
+          .getSource<GeoJSONSource>(DIRECTION_TRIP_PRIMARY_CONNECTOR_SOURCE_ID)
+          ?.setData(directionsTripPrimaryConnectorGeoJsonData.value)
+      }).stop,
+    )
+
+    map.addLayer(
+      {
+        id: DIRECTION_TRIP_PRIMARY_LAYER_ID,
+        source: DIRECTION_TRIP_PRIMARY_SOURCE_ID,
+        type: 'line',
+        layout: {
+          'line-cap': 'round',
+          'line-join': 'round',
+        },
+        paint: {
+          'line-color': '#2563eb',
+          'line-opacity': 0.85,
+          'line-width': 5,
+        },
+      },
+      'Other border',
+    )
+
+    onCleanupCallbacks.push(
+      watchEffect(() => {
+        map.setLayoutProperty(
+          DIRECTION_TRIP_PRIMARY_LAYER_ID,
+          'visibility',
+          slideoverOpen.value === SlideoverTab.Directions ? 'visible' : 'none',
+        )
+      }).stop,
+    )
+
+    map.addLayer(
+      {
+        id: DIRECTION_TRIP_PRIMARY_CONNECTOR_LAYER_ID,
+        source: DIRECTION_TRIP_PRIMARY_CONNECTOR_SOURCE_ID,
+        type: 'line',
+        layout: {
+          'line-cap': 'round',
+          'line-join': 'round',
+        },
+        paint: {
+          'line-color': '#2563eb',
+          'line-dasharray': [0.5, 2.0],
+          'line-opacity': 0.75,
+          'line-width': 3,
+        },
+      },
+      DIRECTION_TRIP_PRIMARY_LAYER_ID,
+    )
+
+    onCleanupCallbacks.push(
+      watchEffect(() => {
+        map.setLayoutProperty(
+          DIRECTION_TRIP_PRIMARY_CONNECTOR_LAYER_ID,
+          'visibility',
+          slideoverOpen.value === SlideoverTab.Directions ? 'visible' : 'none',
+        )
+      }).stop,
+    )
+
     // Direction Stops Layer
 
-    void registerDirectionStopImage(map)
+    registerDirectionStopImage(map).catch(console.error)
 
     map.addSource(DIRECTION_STOPS_SOURCE_ID, {
       type: 'geojson',
@@ -693,6 +855,16 @@ watchDefinedOnce(
       },
     })
 
+    onCleanupCallbacks.push(
+      watchEffect(() => {
+        map.setLayoutProperty(
+          DIRECTION_STOPS_SHADOW_LAYER_ID,
+          'visibility',
+          slideoverOpen.value === SlideoverTab.Directions ? 'visible' : 'none',
+        )
+      }).stop,
+    )
+
     map.addLayer({
       id: DIRECTION_STOPS_LAYER_ID,
       source: DIRECTION_STOPS_SOURCE_ID,
@@ -717,6 +889,18 @@ watchDefinedOnce(
         'text-halo-width': 2,
       },
     })
+
+    onCleanupCallbacks.push(
+      watchEffect(() => {
+        map.setLayoutProperty(
+          DIRECTION_STOPS_LAYER_ID,
+          'visibility',
+          slideoverOpen.value === SlideoverTab.Directions ? 'visible' : 'none',
+        )
+      }).stop,
+    )
+
+    //
 
     selectableLayers.value = map
       .getLayersOrder()

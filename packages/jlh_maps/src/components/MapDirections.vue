@@ -64,7 +64,7 @@ import ValhallaTripLegCardSkeleton from '@/components/directions/ValhallaTripLeg
 import { useAsyncReactiveRequest } from '@/composables/async-reactive-request.ts'
 import { valhallaClient } from '@/external/valhalla.ts'
 import { useVModel } from '@vueuse/core'
-import { CostingModel, type RouteResponse } from 'valhalla_client'
+import { CostingModel, type RouteResponse, type Trip } from 'valhalla_client'
 import { computed, watch, watchEffect } from 'vue'
 
 const props = defineProps<{
@@ -73,6 +73,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:stops': [value: (GeoLocation | null)[]]
+  'update:trip-primary': [value: Trip | null]
+  'update:trip-alternates': [value: Trip[]]
 }>()
 
 const stops = useVModel(props, 'stops', emit)
@@ -114,7 +116,10 @@ watch(route, (value) => {
   if (value) {
     console.log('Valhalla route result', value)
   }
-})
+
+  emit('update:trip-primary', value?.trip ?? null)
+  emit('update:trip-alternates', value?.alternates?.map((alternate) => alternate.trip) ?? [])
+}, { immediate: true })
 
 const getStopIconName = (idx: number) =>
   idx === 0 || idx === stops.value.length - 1

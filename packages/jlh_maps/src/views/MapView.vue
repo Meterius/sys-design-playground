@@ -306,9 +306,6 @@ const onSlideoverClose = () => {
     case SlideoverTab.Details:
       selection.value.splice(0)
       break
-
-    case SlideoverTab.Settings:
-      break
   }
 
   slideoverOpen.value = null

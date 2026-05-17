@@ -36,10 +36,6 @@ export function useMapSelection(options: {
   let lastTargetLayerClick: MapMouseEvent | undefined
   let clearSelectionTimeout: ReturnType<typeof setTimeout> | undefined
 
-  const clearSelection = () => {
-    selection.value.splice(0)
-  }
-
   const clicksMatch = (click: MapMouseEvent, targetLayerClick: MapMouseEvent | undefined) => {
     if (!targetLayerClick) {
       return false
@@ -61,23 +57,24 @@ export function useMapSelection(options: {
     const selectedFeature = features[0]
 
     if (selectedFeature) {
-      clearSelection()
-      selection.value.push({
-        coords:
-          selectedFeature.geometry.type === 'Point'
-            ? new LngLat(
-                selectedFeature.geometry.coordinates[0] ?? 0,
-                selectedFeature.geometry.coordinates[1] ?? 0,
-              )
-            : e.lngLat,
-        feature: selectedFeature,
-        osm_id:
-          typeof selectedFeature.id === 'number'
-            ? (extractOsmIdFromOmtFeatureId(selectedFeature.id) ?? undefined)
-            : undefined,
-      })
+      selection.value = [
+        {
+          coords:
+            selectedFeature.geometry.type === 'Point'
+              ? new LngLat(
+                  selectedFeature.geometry.coordinates[0] ?? 0,
+                  selectedFeature.geometry.coordinates[1] ?? 0,
+                )
+              : e.lngLat,
+          feature: selectedFeature,
+          osm_id:
+            typeof selectedFeature.id === 'number'
+              ? (extractOsmIdFromOmtFeatureId(selectedFeature.id) ?? undefined)
+              : undefined,
+        },
+      ]
     } else {
-      clearSelection()
+      selection.value = []
     }
   }
 
@@ -91,7 +88,7 @@ export function useMapSelection(options: {
       clearSelectionTimeout = undefined
 
       if (!clicksMatch(e, lastTargetLayerClick)) {
-        clearSelection()
+        selection.value = []
       }
     }, CLICK_LAYER_SYNC_BUFFER_MS)
   }

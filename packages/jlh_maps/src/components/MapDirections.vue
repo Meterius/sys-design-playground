@@ -112,14 +112,18 @@ const { data: route, loading } = useAsyncReactiveRequest<
     })
 })
 
-watch(route, (value) => {
-  if (value) {
-    console.log('Valhalla route result', value)
-  }
+watch(
+  route,
+  (value) => {
+    if (value) {
+      console.log('Valhalla route result', value)
+    }
 
-  emit('update:trip-primary', value?.trip ?? null)
-  emit('update:trip-alternates', value?.alternates?.map((alternate) => alternate.trip) ?? [])
-}, { immediate: true })
+    emit('update:trip-primary', value?.trip ?? null)
+    emit('update:trip-alternates', value?.alternates?.map((alternate) => alternate.trip) ?? [])
+  },
+  { immediate: true },
+)
 
 const getStopIconName = (idx: number) =>
   idx === 0 || idx === stops.value.length - 1

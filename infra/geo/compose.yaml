@@ -100,7 +100,13 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.valhalla.rule=Host(`valhalla.jlh_maps.localhost`)"
       - "traefik.http.routers.valhalla.entrypoints=web"
+      - "traefik.http.routers.valhalla.middlewares=valhalla_cors"
       - "traefik.http.services.valhalla.loadbalancer.server.port=8002"
+      - "traefik.http.middlewares.valhalla_cors.headers.accesscontrolallowmethods=GET,POST,OPTIONS"
+      - "traefik.http.middlewares.valhalla_cors.headers.accesscontrolallowheaders=Origin,Accept,Content-Type,X-Client-Id"
+      - "traefik.http.middlewares.valhalla_cors.headers.accesscontrolalloworiginlistregex=^https?://.+"
+      - "traefik.http.middlewares.valhalla_cors.headers.accesscontrolmaxage=86400"
+      - "traefik.http.middlewares.valhalla_cors.headers.addvaryheader=true"
 
 volumes:
   postgres_osm_data:

@@ -23,8 +23,8 @@ import type {
   TraceRouteRequest,
   TraceRouteResponse,
   ValhallaClientOptions,
-} from './types'
-import { HttpMethod } from './types'
+} from './types/index.js'
+import { HttpMethod } from './types/index.js'
 import {
   buildJsonUrl,
   createTransportOptions,
@@ -32,7 +32,7 @@ import {
   requestJson,
   requestRaw,
   type TransportOptions,
-} from './transport'
+} from './transport.js'
 
 export class ValhallaClient {
   readonly baseUrl: string

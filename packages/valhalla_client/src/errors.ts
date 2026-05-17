@@ -1,4 +1,4 @@
-import type { ValhallaErrorPayload } from './types/index'
+import type { ValhallaErrorPayload } from './types/index.js'
 
 export class ValhallaHttpError extends Error {
   readonly response: Response

@@ -1,5 +1,5 @@
-import { ValhallaHttpError, ValhallaRequestError } from './errors'
-import { HttpMethod, type RequestOptions, type ValhallaClientOptions } from './types/index'
+import { ValhallaHttpError, ValhallaRequestError } from './errors.js'
+import { HttpMethod, type RequestOptions, type ValhallaClientOptions } from './types/index.js'
 
 export interface TransportOptions extends ValhallaClientOptions {
   defaultMethod: HttpMethod

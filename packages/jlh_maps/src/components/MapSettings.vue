@@ -1,7 +1,7 @@
 <template>
   <div class="grid overflow-auto overflow-x-hidden w-full">
     <div class="row p-4">
-      <h1>Map Settings</h1>
+      <h1 class="font-semibold">Map Settings</h1>
     </div>
     <div class="row">
       <USeparator />

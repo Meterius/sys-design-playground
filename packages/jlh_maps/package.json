@@ -23,7 +23,6 @@
     "@primeuix/themes": "^2.0.3",
     "@turf/turf": "^7.3.5",
     "@types/sortablejs": "^1.15.9",
-    "@valhallajs/valhallajs": "^3.7.0",
     "@vueuse/core": "^14.2.1",
     "@vueuse/integrations": "^14.2.1",
     "earcut": "^3.0.2",

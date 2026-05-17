@@ -1,7 +1,7 @@
 <template>
   <div class="grid overflow-auto overflow-x-hidden w-full">
     <div class="row p-4">
-      <h1>{{ title }}</h1>
+      <h1 class="font-semibold">{{ title }}</h1>
     </div>
     <div v-if="props.osm_id" class="row">
       <USeparator />

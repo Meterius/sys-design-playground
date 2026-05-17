@@ -9,6 +9,7 @@
         :center="[13.35203105083487, 52.499757263332086]"
         :zoom="14"
         :canvas-context-attributes="{ antialias: true }"
+        @map:contextmenu="onMapContextMenu"
       >
         <mgl-custom-control position="top-right">
           <button
@@ -20,6 +21,22 @@
           >
             <UIcon
               name="material-symbols:settings-outline-rounded"
+              class="size-6"
+              style="margin: auto"
+            />
+          </button>
+        </mgl-custom-control>
+
+        <mgl-custom-control position="top-right">
+          <button
+            class="map-custom-control"
+            type="button"
+            title="Navigation"
+            aria-label="Navigation"
+            @click="slideoverOpen = SlideoverTab.Directions"
+          >
+            <UIcon
+              name="material-symbols:signpost-outline-rounded"
               class="size-6"
               style="margin: auto"
             />
@@ -72,10 +89,20 @@
       ></canvas>
     </div>
 
+    <UContextMenu :items="contextMenuItems" :modal="false">
+      <div
+        ref="mapContextMenuTarget"
+        class="h-full w-full absolute"
+        style="pointer-events: none"
+        @contextmenu="console.log"
+      ></div>
+    </UContextMenu>
+
     <USlideover
       side="left"
       :modal="false"
       :overlay="false"
+      :dismissible="false"
       :open="slideoverOpen !== null"
       @update:open="
         (value: boolean) => {
@@ -84,18 +111,39 @@
       "
     >
       <template #content>
-        <map-details
-          v-if="slideoverOpen === SlideoverTab.Details"
-          :osm_id="selection[0]?.osm_id"
-          :feature="selection[0]?.feature"
-        />
+        <div class="relative h-full">
+          <UButton
+            class="absolute right-3 top-3 z-10 rounded-full cursor-pointer"
+            icon="material-symbols:close-rounded"
+            title="Close"
+            aria-label="Close"
+            variant="ghost"
+            color="neutral"
+            size="md"
+            square
+            :ui="{ leadingIcon: 'size-6' }"
+            @click="onSlideoverClose"
+          />
 
-        <map-settings
-          v-if="slideoverOpen === SlideoverTab.Settings && mapInstance.map"
-          :map="mapInstance.map"
-          :bevy-settings="mapViewSettings"
-          :bevy-camera-settings="mapViewCameraSettings"
-        />
+          <map-directions
+            v-show="slideoverOpen === SlideoverTab.Directions"
+            v-model:stops="directionStops"
+          />
+
+          <map-details
+            v-show="slideoverOpen === SlideoverTab.Details"
+            :osm_id="selection[0]?.osm_id"
+            :feature="selection[0]?.feature"
+          />
+
+          <map-settings
+            v-if="mapInstance.map"
+            v-show="slideoverOpen === SlideoverTab.Settings"
+            :map="mapInstance.map"
+            :bevy-settings="mapViewSettings"
+            :bevy-camera-settings="mapViewCameraSettings"
+          />
+        </div>
       </template>
     </USlideover>
   </div>
@@ -103,8 +151,14 @@
 
 <script setup lang="ts">
 import { MglMap } from '@indoorequal/vue-maplibre-gl'
-import { computed, onWatcherCleanup, ref, watch, watchEffect } from 'vue'
-import { GeoJSONSource, GeolocateControl, GlobeControl, NavigationControl } from 'maplibre-gl'
+import { computed, nextTick, onWatcherCleanup, ref, shallowRef, watch, watchEffect } from 'vue'
+import {
+  GeoJSONSource,
+  GeolocateControl,
+  GlobeControl,
+  NavigationControl,
+  type MapMouseEvent,
+} from 'maplibre-gl'
 import { center } from '@turf/turf'
 import type { FeatureCollection } from 'geojson'
 import {
@@ -119,6 +173,9 @@ import { watchDefinedOnce } from '@/composables/helper.ts'
 import { useMaplibreGlJsIntegration } from '@/composables/bevy-maplibre-integration.ts'
 import { useBevy } from '@/composables/bevy.ts'
 import { BevyLayer } from '../maplibre-layers/bevy-layer.ts'
+import MapDirections from '@/components/MapDirections.vue'
+import { GeoLocationType, type GeoLocation } from '@/components/types.ts'
+import type { ContextMenuItem } from '@nuxt/ui'
 
 const mapKey = makeUniqueMapKey()
 
@@ -139,9 +196,90 @@ const { syncOnRender } = useMaplibreGlJsIntegration(() => instanceId, mapKey, {
 const tilejsonUrl = TILESERVER_OMT_DEFAULT_STYLE_TILEJSON_URL.toString()
 console.debug('Using TileJson URL: ', tilejsonUrl)
 
+// Context Menu
+
+const mapContextMenuTarget = ref<HTMLElement | null>(null)
+const contextMenuLocation = shallowRef<GeoLocation | null>(null)
+
+type MglMapMouseEvent = {
+  type: string
+  event: MapMouseEvent
+}
+
+const onMapContextMenu = ({ event }: MglMapMouseEvent) => {
+  event.preventDefault()
+  event.originalEvent.preventDefault()
+
+  contextMenuLocation.value = {
+    type: GeoLocationType.Coords,
+    coords: {
+      lat: event.lngLat.lat,
+      lng: event.lngLat.lng,
+    },
+  }
+
+  mapContextMenuTarget.value?.dispatchEvent(
+    new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: event.originalEvent.clientX,
+      clientY: event.originalEvent.clientY,
+    }),
+  )
+}
+
+const setDirectionStop = (idx: number) => {
+  if (!contextMenuLocation.value) return
+
+  const stops = [...directionStops.value]
+  stops[idx] = contextMenuLocation.value
+
+  directionStops.value = stops
+  slideoverOpen.value = SlideoverTab.Directions
+}
+
+const contextMenuCoordinateLabel = computed(() => {
+  const location = contextMenuLocation.value
+  if (!location) return 'No location selected'
+
+  return `${location.coords.lat.toFixed(6)}, ${location.coords.lng.toFixed(6)}`
+})
+
+const contextMenuItems = computed((): ContextMenuItem[] => [
+  {
+    label: contextMenuCoordinateLabel.value,
+    type: 'label',
+    icon: 'material-symbols:location-on-outline-rounded',
+  },
+  {
+    type: 'separator',
+  },
+  {
+    label: 'Directions From Here',
+    icon: 'material-symbols:line-end-circle-outline-rounded',
+    ui: {
+      itemLeadingIcon: '-rotate-90',
+    },
+    onSelect: () => setDirectionStop(0),
+    disabled: directionStops.value.length < 1,
+  },
+  {
+    label: 'Directions To Here',
+    icon: 'material-symbols:line-end-circle-outline-rounded',
+    ui: {
+      itemLeadingIcon: 'rotate-90',
+    },
+    onSelect: () => setDirectionStop(directionStops.value.length - 1),
+    disabled: directionStops.value.length < 2,
+  },
+])
+
+// Slideover
+
 enum SlideoverTab {
   Details,
   Settings,
+  Directions,
 }
 
 const slideoverOpen = ref<SlideoverTab | null>(null)
@@ -158,6 +296,12 @@ const onSlideoverClose = () => {
 
   slideoverOpen.value = null
 }
+
+// Directions
+
+const directionStops = shallowRef<(GeoLocation | null)[]>([null, null])
+
+// Selection
 
 const selectableLayers = ref<string[]>([])
 
@@ -181,6 +325,8 @@ const highlightGeoJsonData = computed(
   }),
 )
 
+//
+
 const showBevyCanvas = ref(false)
 
 watch(
@@ -198,6 +344,8 @@ const useRaster = false
 
 const enableTrees = false
 
+// Controls
+
 watchDefinedOnce(
   () => mapInstance.map,
   (map) => {
@@ -208,6 +356,8 @@ watchDefinedOnce(
     map.setMaxPitch(85)
   },
 )
+
+// Maplibre Setup
 
 watchDefinedOnce(
   () => {
@@ -398,7 +548,8 @@ watchDefinedOnce(
           syncOnRender()
           tick()
         },
-      }), 'Water labels'
+      }),
+      'Water labels',
     )
     ;['Oneway path', 'Oneway', 'Oneway opposite'].forEach((layerId) => {
       const layer = map.getStyle().layers.find((l) => l.id === layerId)!

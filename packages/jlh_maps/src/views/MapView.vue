@@ -262,7 +262,7 @@ const contextMenuItems = computed((): ContextMenuItem[] => [
     icon: 'material-symbols:line-end-circle-outline-rounded',
     ui: {
       itemLeadingIcon: '-rotate-90',
-    },
+    } as unknown as ContextMenuItem['ui'],
     onSelect: () => setDirectionStop(0),
     disabled: directionStops.value.length < 1,
   },
@@ -271,7 +271,7 @@ const contextMenuItems = computed((): ContextMenuItem[] => [
     icon: 'material-symbols:line-end-circle-outline-rounded',
     ui: {
       itemLeadingIcon: 'rotate-90',
-    },
+    } as unknown as ContextMenuItem['ui'],
     onSelect: () => setDirectionStop(directionStops.value.length - 1),
     disabled: directionStops.value.length < 2,
   },

@@ -1,13 +1,13 @@
 import { useMap } from '@indoorequal/vue-maplibre-gl'
 import { extractOsmIdFromOmtFeatureId, type OsmId } from '@/utils/osm.ts'
 import {
-  GeoJSONFeature,
+  type GeoJSONFeature,
   LngLat,
   type MapLayerMouseEvent,
   type MapMouseEvent,
   type Subscription,
 } from 'maplibre-gl'
-import { onUnmounted, onWatcherCleanup, ref, watch, type WatchSource } from 'vue'
+import { onUnmounted, onWatcherCleanup, ref, shallowRef, watch, type WatchSource } from 'vue'
 import { get } from '@vueuse/core'
 import { watchDefinedOnce } from '@/composables/helper.ts'
 
@@ -32,7 +32,7 @@ export function useMapSelection(options: {
 }) {
   const mapInstance = useMap(options.key)
 
-  const selection = ref<SelectionItem[]>([])
+  const selection = shallowRef<SelectionItem[]>([])
   let lastTargetLayerClick: MapMouseEvent | undefined
   let clearSelectionTimeout: ReturnType<typeof setTimeout> | undefined
 

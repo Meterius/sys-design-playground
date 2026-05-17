@@ -8,7 +8,14 @@
 
     // Path mapping for cleaner imports.
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "maplibre-gl/src/index.ts": ["./src/types/maplibre-gl-internals/index.d.ts"],
+      "maplibre-gl/src/data/dem_data.ts": ["./src/types/maplibre-gl-internals/dem_data.d.ts"],
+      "maplibre-gl/src/render/terrain.ts": ["./src/types/maplibre-gl-internals/terrain.d.ts"],
+      "maplibre-gl/src/tile/tile_id": ["./src/types/maplibre-gl-internals/tile_id.d.ts"],
+      "maplibre-gl/src/tile/tile_id_to_lng_lat_bounds.ts": [
+        "./src/types/maplibre-gl-internals/tile_id_to_lng_lat_bounds.d.ts"
+      ]
     },
 
     // `vue-tsc --build` produces a .tsbuildinfo file for incremental type-checking.

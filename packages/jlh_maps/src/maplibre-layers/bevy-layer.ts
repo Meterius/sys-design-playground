@@ -99,7 +99,9 @@ export class BevyLayer implements CustomLayerInterface {
       this.tickFailed = true
     }
 
-    if (this.tickFailed) { return; }
+    if (this.tickFailed) {
+      return
+    }
 
     const textureCanvas = toValue(this.textureCanvas)
 
@@ -117,10 +119,7 @@ export class BevyLayer implements CustomLayerInterface {
     gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE)
 
     // Recreate texture if dimensions have changed
-    if (
-      textureCanvas.width !== this.textureWidth ||
-      textureCanvas.height !== this.textureHeight
-    ) {
+    if (textureCanvas.width !== this.textureWidth || textureCanvas.height !== this.textureHeight) {
       this.textureWidth = textureCanvas.width
       this.textureHeight = textureCanvas.height
 

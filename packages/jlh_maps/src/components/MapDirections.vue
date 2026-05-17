@@ -84,7 +84,7 @@ const clearStop = (idx: number) => {
 
 watchEffect(() => {
   if (stops.value.length >= 2) return
-  stops.value = [...stops.value, ...new Array(Math.max(0, 2 - stops.value.length)).fill(null)]
+  stops.value = [...stops.value, ...Array.from({ length: Math.max(0, 2 - stops.value.length) }).fill(null)]
 })
 </script>
 

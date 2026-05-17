@@ -11,7 +11,7 @@ import ui from '@nuxt/ui/vue-plugin'
 import App from './App.vue'
 import router from './router'
 
-Promise.all([initApp()])
+initApp()
   .catch((err) => {
     console.error('WASM Initialization Failure: ', err)
   })

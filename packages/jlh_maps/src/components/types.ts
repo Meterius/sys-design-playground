@@ -3,6 +3,6 @@ export enum GeoLocationType {
 }
 
 export type GeoLocation = {
-  type: GeoLocationType.Coords,
-  coords: { lat: number, lng: number }
+  type: GeoLocationType.Coords
+  coords: { lat: number; lng: number }
 }

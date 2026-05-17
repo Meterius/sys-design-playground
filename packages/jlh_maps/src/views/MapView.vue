@@ -151,16 +151,18 @@
 
 <script setup lang="ts">
 import { MglMap } from '@indoorequal/vue-maplibre-gl'
-import { computed, nextTick, onWatcherCleanup, ref, shallowRef, watch, watchEffect } from 'vue'
+import { computed, onWatcherCleanup, ref, shallowRef, watch, watchEffect } from 'vue'
 import {
   GeoJSONSource,
   GeolocateControl,
   GlobeControl,
+  type Map as MaplibreMap,
   NavigationControl,
   type MapMouseEvent,
 } from 'maplibre-gl'
 import { center } from '@turf/turf'
-import type { FeatureCollection } from 'geojson'
+import mapPinIconSvg from 'lucide-static/icons/map-pin.svg?raw'
+import type { FeatureCollection, Point } from 'geojson'
 import {
   TILESERVER_OMT_DEFAULT_STYLE_TILEJSON_URL,
   TILESERVER_RASTER_SEN2_TILEJSON_URL,
@@ -176,6 +178,7 @@ import { BevyLayer } from '../maplibre-layers/bevy-layer.ts'
 import MapDirections from '@/components/MapDirections.vue'
 import { GeoLocationType, type GeoLocation } from '@/components/types.ts'
 import type { ContextMenuItem } from '@nuxt/ui'
+import { svgToImage } from '@/utils/svg-to-image.ts'
 
 const mapKey = makeUniqueMapKey()
 
@@ -324,6 +327,62 @@ const highlightGeoJsonData = computed(
     features: selection.value.map((item) => center(item.feature.geometry)),
   }),
 )
+
+// Direction Stops Layer
+
+type DirectionStopProperties = {
+  label: string
+  sortKey: number
+}
+
+const DIRECTION_STOPS_SOURCE_ID = 'direction-stops'
+const DIRECTION_STOPS_SHADOW_LAYER_ID = 'direction-stops-shadow'
+const DIRECTION_STOPS_LAYER_ID = 'direction-stops'
+const DIRECTION_STOP_ICON_ID = 'lucide:map-pin'
+
+const directionStopsGeoJsonData = computed(
+  (): FeatureCollection<Point, DirectionStopProperties> => {
+    const lastIdx = directionStops.value.length - 1
+
+    return {
+      type: 'FeatureCollection',
+      features: directionStops.value.flatMap((stop, idx) => {
+        if (!stop) return []
+
+        const isStart = idx === 0
+        const isEnd = idx === lastIdx
+
+        return [
+          {
+            type: 'Feature',
+            geometry: {
+              type: 'Point',
+              coordinates: [stop.coords.lng, stop.coords.lat],
+            },
+            properties: {
+              label: isStart ? 'S' : isEnd ? 'E' : String(idx),
+              sortKey: idx,
+            },
+          },
+        ]
+      }),
+    }
+  },
+)
+
+const registerDirectionStopImage = async (map: MaplibreMap) => {
+  if (!map.hasImage(DIRECTION_STOP_ICON_ID)) {
+    const { image } = await svgToImage(mapPinIconSvg, {
+      width: 24,
+      pixelRatio: 2,
+      color: '#2563eb',
+    })
+
+    map.addImage(DIRECTION_STOP_ICON_ID, image, {
+      pixelRatio: 2,
+    })
+  }
+}
 
 //
 
@@ -602,9 +661,68 @@ watchDefinedOnce(
       },
     })
 
+    // Direction Stops Layer
+
+    void registerDirectionStopImage(map)
+
+    map.addSource(DIRECTION_STOPS_SOURCE_ID, {
+      type: 'geojson',
+      data: directionStopsGeoJsonData.value,
+    })
+
+    onCleanupCallbacks.push(
+      watchEffect(() => {
+        map
+          .getSource<GeoJSONSource>(DIRECTION_STOPS_SOURCE_ID)
+          ?.setData(directionStopsGeoJsonData.value)
+      }).stop,
+    )
+
+    map.addLayer({
+      id: DIRECTION_STOPS_SHADOW_LAYER_ID,
+      source: DIRECTION_STOPS_SOURCE_ID,
+      type: 'circle',
+      paint: {
+        'circle-radius': 16,
+        'circle-blur': 0.4,
+        'circle-color': '#000000',
+        'circle-opacity': 0.3,
+        'circle-translate': [0, 0],
+        'circle-translate-anchor': 'viewport',
+        'circle-pitch-alignment': 'map',
+      },
+    })
+
+    map.addLayer({
+      id: DIRECTION_STOPS_LAYER_ID,
+      source: DIRECTION_STOPS_SOURCE_ID,
+      type: 'symbol',
+      layout: {
+        'icon-image': DIRECTION_STOP_ICON_ID,
+        'icon-size': 1.5,
+        'icon-anchor': 'bottom',
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+        'text-field': ['get', 'label'],
+        'text-anchor': 'bottom',
+        'text-offset': [0, -2.25],
+        'text-size': 16,
+        'text-allow-overlap': true,
+        'text-ignore-placement': true,
+        'symbol-sort-key': ['get', 'sortKey'],
+      },
+      paint: {
+        'text-color': '#111827',
+        'text-halo-color': '#ffffff',
+        'text-halo-width': 2,
+      },
+    })
+
     selectableLayers.value = map
       .getLayersOrder()
-      .filter((layer) => map.getLayer(layer)?.type === 'symbol')
+      .filter(
+        (layer) => map.getLayer(layer)?.type === 'symbol' && layer !== DIRECTION_STOPS_LAYER_ID,
+      )
 
     // Clean-Up
 

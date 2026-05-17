@@ -38,5 +38,7 @@ export interface Map {
       properties?: Record<string, unknown> | null
     }
   }>
-  coveringTiles(options: { tileSize: number }): Array<{ canonical: import('./tile_id').CanonicalTileID }>
+  coveringTiles(options: {
+    tileSize: number
+  }): Array<{ canonical: import('./tile_id').CanonicalTileID }>
 }

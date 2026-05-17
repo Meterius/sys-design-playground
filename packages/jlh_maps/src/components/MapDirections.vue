@@ -34,6 +34,24 @@
             </UInput>
           </div>
         </div>
+
+        <USeparator />
+
+        <div v-if="loading" class="grid gap-3">
+          <ValhallaTripLegCardSkeleton />
+        </div>
+
+        <div v-else-if="route" class="grid gap-3">
+          <ValhallaTripLegCard
+            v-for="(leg, idx) in route.trip.legs"
+            :key="`leg-${idx}`"
+            :name="`Route ${idx + 1}`"
+            :leg="leg"
+            class=""
+          />
+        </div>
+
+        <USeparator />
       </div>
     </div>
   </div>
@@ -41,8 +59,13 @@
 
 <script setup lang="ts">
 import type { GeoLocation } from '@/components/types.ts'
+import ValhallaTripLegCard from '@/components/directions/ValhallaTripLegCard.vue'
+import ValhallaTripLegCardSkeleton from '@/components/directions/ValhallaTripLegCardSkeleton.vue'
+import { useAsyncReactiveRequest } from '@/composables/async-reactive-request.ts'
+import { valhallaClient } from '@/external/valhalla.ts'
 import { useVModel } from '@vueuse/core'
-import { watchEffect } from 'vue'
+import { CostingModel, type RouteResponse } from 'valhalla_client'
+import { computed, watch, watchEffect } from 'vue'
 
 const props = defineProps<{
   stops: (GeoLocation | null)[]
@@ -53,6 +76,45 @@ const emit = defineEmits<{
 }>()
 
 const stops = useVModel(props, 'stops', emit)
+
+const hasCompleteStops = (value: (GeoLocation | null)[]): value is GeoLocation[] =>
+  value.length >= 2 && value.every((stop): stop is GeoLocation => stop !== null)
+
+const routeStops = computed(() => {
+  const value = stops.value
+  return hasCompleteStops(value) ? [...value] : null
+})
+
+const { data: route, loading } = useAsyncReactiveRequest<
+  GeoLocation[] | null,
+  RouteResponse | null
+>(routeStops, async (value, abortSignal) => {
+  if (!value) return null
+
+  return valhallaClient
+    .route(
+      {
+        locations: value.map((stop) => ({
+          lat: stop.coords.lat,
+          lon: stop.coords.lng,
+        })),
+        costing: CostingModel.Auto,
+      },
+      {
+        signal: abortSignal,
+      },
+    )
+    .catch((err) => {
+      console.error('Valhalla route error', err)
+      throw err
+    })
+})
+
+watch(route, (value) => {
+  if (value) {
+    console.log('Valhalla route result', value)
+  }
+})
 
 const getStopIconName = (idx: number) =>
   idx === 0 || idx === stops.value.length - 1
@@ -84,7 +146,10 @@ const clearStop = (idx: number) => {
 
 watchEffect(() => {
   if (stops.value.length >= 2) return
-  stops.value = [...stops.value, ...Array.from<null>({ length: Math.max(0, 2 - stops.value.length) }).fill(null)]
+  stops.value = [
+    ...stops.value,
+    ...Array.from<null>({ length: Math.max(0, 2 - stops.value.length) }).fill(null),
+  ]
 })
 </script>
 

@@ -3,6 +3,7 @@ import { type OsmId, OsmType } from '../utils/osm.ts'
 export const TILESERVER_URL = new URL(import.meta.env.VITE_TILESERVER_OMT_URL)
 export const RASTER_TILESERVER_URL = new URL(import.meta.env.VITE_TILESERVER_RASTER_URL)
 export const API_URL = new URL(import.meta.env.VITE_API_URL)
+export const VALHALLA_URL = new URL(import.meta.env.VITE_VALHALLA_URL)
 
 export const TILESERVER_OMT_DEFAULT_STYLE_TILEJSON_URL = new URL(
   'styles/omt_default/style.json',

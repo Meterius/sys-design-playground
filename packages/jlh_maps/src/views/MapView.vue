@@ -154,12 +154,7 @@
 <script setup lang="ts">
 import { MglMap } from '@indoorequal/vue-maplibre-gl'
 import { computed, onWatcherCleanup, ref, shallowRef, watch, watchEffect } from 'vue'
-import {
-  GeolocateControl,
-  GlobeControl,
-  NavigationControl,
-  type MapMouseEvent,
-} from 'maplibre-gl'
+import { GeolocateControl, GlobeControl, NavigationControl, type MapMouseEvent } from 'maplibre-gl'
 import { center } from '@turf/turf'
 import type { FeatureCollection } from 'geojson'
 import {
@@ -182,7 +177,6 @@ import {
   DIRECTION_STOPS_LAYER_ID,
   useDirectionsLayers,
 } from '@/maplibre-layers/directions-layers.ts'
-import { guardArray, isNonNullable } from '@/utils/type-helpers.ts'
 import { useHighlightLayer } from '@/maplibre-layers/highlight-layer.ts'
 
 const mapKey = makeUniqueMapKey()

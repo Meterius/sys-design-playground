@@ -252,8 +252,6 @@ pub fn update_feature_tiles(
 ) -> Result<(), String> {
     let feature_tiles = parse_feature_tiles(feature_tiles)?;
 
-    info!("updated {}", feature_tiles.iter().map(|f| format!("{:?} {}", f.tile_id, f.features.iter().count())).join(", "));
-
     enqueue_instance_command(&instance_id, move |world| {
         with_map_data_mut(world, integration_id, |map_data| {
             for feature_tile in feature_tiles {
@@ -276,8 +274,6 @@ pub fn remove_feature_tiles(
     feature_tiles: JsValue,
 ) -> Result<(), String> {
     let feature_tiles = parse_feature_tile_removals(feature_tiles)?;
-
-    info!("removed {}", feature_tiles.iter().map(|f| format!("{:?} {}", f.tile_key, f.feature_ids.len())).join(", "));
 
     enqueue_instance_command(&instance_id, move |world| {
         with_map_data_mut(world, integration_id, |map_data| {

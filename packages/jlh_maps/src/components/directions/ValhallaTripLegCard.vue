@@ -10,9 +10,13 @@
           <UIcon :name="travelModeIcon" class="size-6" />
         </div>
 
-        <div>
-          <h3>{{ name }}</h3>
-        </div>
+        <UButton
+          color="neutral"
+          variant="link"
+          class="min-w-0 cursor-pointer px-0 text-base font-semibold"
+          :label="name"
+          @click="emit('focus-trip')"
+        />
 
         <div class="grid min-w-0 justify-items-end gap-0.5 text-right">
           <div class="text-sm font-semibold text-highlighted">{{ formattedTime }}</div>
@@ -28,6 +32,9 @@
             variant="link"
             label="Instructions"
             trailing-icon="lucide:chevron-down"
+            :ui="{
+              label: 'font-thin',
+            }"
           />
 
           <template #content>
@@ -44,6 +51,9 @@
             variant="link"
             label="Info"
             trailing-icon="lucide:chevron-down"
+            :ui="{
+              label: 'font-thin',
+            }"
           />
 
           <template #content>
@@ -64,6 +74,10 @@ import { TravelMode, type TripLeg } from 'valhalla_client'
 const props = defineProps<{
   name: string
   leg: TripLeg
+}>()
+
+const emit = defineEmits<{
+  'focus-trip': []
 }>()
 
 const majorityTravelMode = computed(() => {

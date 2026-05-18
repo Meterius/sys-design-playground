@@ -111,7 +111,7 @@
       "
     >
       <template #content>
-        <div class="relative h-full">
+        <div ref="slideoverContent" class="relative h-full">
           <UButton
             class="absolute right-3 top-3 z-10 rounded-full cursor-pointer"
             icon="material-symbols:close-rounded"
@@ -130,6 +130,7 @@
             v-model:stops="directionStops"
             @update:trip-primary="directionsTripPrimary = $event"
             @update:trip-alternates="directionsTripAlternates = $event"
+            @focus-trip="focusTrip"
           />
 
           <map-details
@@ -178,6 +179,7 @@ import {
   useDirectionsLayers,
 } from '@/maplibre-layers/directions-layers.ts'
 import { useHighlightLayer } from '@/maplibre-layers/highlight-layer.ts'
+import { getTripBounds } from '@/utils/valhalla.ts'
 
 const mapKey = makeUniqueMapKey()
 
@@ -285,6 +287,7 @@ enum SlideoverTab {
 }
 
 const slideoverOpen = ref<SlideoverTab | null>(null)
+const slideoverContent = ref<HTMLElement | null>(null)
 
 const onSlideoverClose = () => {
   switch (slideoverOpen.value) {
@@ -308,6 +311,39 @@ const directionsLayers = useDirectionsLayers({
   tripPrimary: directionsTripPrimary,
   visible: computed(() => slideoverOpen.value === SlideoverTab.Directions),
 })
+
+const getSlideoverCoveredWidth = () => {
+  if (slideoverOpen.value !== SlideoverTab.Directions) return 0
+
+  const rect = slideoverContent.value?.getBoundingClientRect()
+  return rect ? Math.max(0, rect.right) : 0
+}
+
+const getRouteFitPadding = () => {
+  const basePadding = 80
+  const slideoverPadding = getSlideoverCoveredWidth()
+
+  return {
+    top: basePadding,
+    right: basePadding,
+    bottom: basePadding,
+    left: slideoverPadding > 0 ? Math.ceil(slideoverPadding + 32) : basePadding,
+  }
+}
+
+const focusTrip = (trip: Trip) => {
+  const map = mapInstance.map
+  if (!map) return
+
+  const bounds = getTripBounds(trip)
+  if (!bounds) return
+
+  map.fitBounds(bounds, {
+    padding: getRouteFitPadding(),
+    maxZoom: 17,
+    duration: 700,
+  })
+}
 
 // Selection
 

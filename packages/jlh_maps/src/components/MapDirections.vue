@@ -67,6 +67,7 @@
             :name="`Route ${idx + 1}`"
             :leg="leg"
             class=""
+            @focus-trip="emit('focus-trip', route.trip)"
           />
         </div>
 
@@ -95,6 +96,7 @@ const emit = defineEmits<{
   'update:stops': [value: (GeoLocation | null)[]]
   'update:trip-primary': [value: Trip | null]
   'update:trip-alternates': [value: Trip[]]
+  'focus-trip': [value: Trip]
 }>()
 
 const stops = useVModel(props, 'stops', emit)

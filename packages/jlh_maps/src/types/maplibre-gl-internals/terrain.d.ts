@@ -1,10 +1,10 @@
 import type { DEMData } from './dem_data'
-import type { Tile } from './index'
+import type { RenderableTerrainTile, Tile } from './index'
 import type { OverscaledTileID } from './tile_id'
 
 export interface Terrain {
   tileManager: {
-    getRenderableTiles(): Array<{ tileID: OverscaledTileID }> | undefined
+    getRenderableTiles(): RenderableTerrainTile[] | undefined
   }
   getTerrainData(tileId: OverscaledTileID): {
     tile?: (Tile & { dem?: DEMData }) | null

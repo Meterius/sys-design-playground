@@ -1,21 +1,22 @@
 import {
+  LngLat,
+  LngLatBounds,
   MercatorCoordinate,
+  OverscaledTileID,
   type CustomLayerInterface,
   type CustomRenderMethodInput,
   type GeoJSONFeature,
   type Map as MapLibreMap,
   type StyleLayer,
   type Subscription,
-  LngLat,
 } from 'maplibre-gl'
-import { OverscaledTileID } from 'maplibre-gl/src/tile/tile_id'
+import type { CanonicalTileID } from '@/types/maplibre-gl-internals/tile_id'
 import * as THREE from 'three'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { area, bbox, booleanPointInPolygon, point } from '@turf/turf'
 import type { Feature, Geometry, MultiPolygon, Polygon, Position } from 'geojson'
 import treeCollectionUrl from '../assets/tree-models/source/Lowpoly_Trees_Collection.fbx?url'
 import treePaletteUrl from '../assets/tree-models/textures/palette.png?url'
-import { tileIdToLngLatBounds } from 'maplibre-gl/src/tile/tile_id_to_lng_lat_bounds.ts'
 
 type TileKey = string
 
@@ -55,6 +56,20 @@ const DEFAULT_TREES_PER_SQUARE_KM = 1200
 const DEFAULT_MIN_ZOOM = 14
 const DEFAULT_SCALE_METERS: [number, number] = [3.5, 3.5]
 const MAX_SAMPLE_ATTEMPTS_PER_TREE = 40
+
+function tileIdToLngLatBounds(tileId: CanonicalTileID) {
+  const scale = 2 ** tileId.z
+  const west = (tileId.x / scale) * 360 - 180
+  const east = ((tileId.x + 1) / scale) * 360 - 180
+  const north = mercatorYToLat(tileId.y / scale)
+  const south = mercatorYToLat((tileId.y + 1) / scale)
+
+  return new LngLatBounds([west, south], [east, north])
+}
+
+function mercatorYToLat(y: number) {
+  return (Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) * 180) / Math.PI
+}
 
 export class TreeMeshLayer implements CustomLayerInterface {
   id = 'tree-meshes'

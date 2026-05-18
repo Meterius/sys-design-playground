@@ -1,21 +1,13 @@
-export class CanonicalTileID {
-  constructor(z: number, x: number, y: number)
+import type { OverscaledTileID as MapLibreOverscaledTileID } from 'maplibre-gl'
 
+export interface CanonicalTileID {
   z: number
   x: number
   y: number
-  key: string
-
-  toString(): string
+  key?: string
+  toString?: () => string
 }
 
-export class OverscaledTileID {
-  constructor(overscaledZ: number, wrap: number, z: number, x: number, y: number)
-
-  overscaledZ: number
-  wrap: number
+export type OverscaledTileID = MapLibreOverscaledTileID & {
   canonical: CanonicalTileID
-  key: string
-
-  toString(): string
 }

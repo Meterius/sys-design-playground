@@ -76,7 +76,7 @@ pub struct FeatureTileBucketPlaneMesh {
     mesh_handle: Option<Handle<Mesh>>,
     mesh_dirty: bool,
     terrain_hash: Option<String>,
-    meshed_feature_ids: HashSet<String>,
+    meshed_feature_ids: HashSet<u64>,
     buffers: FeaturePlaneMeshBuffers,
 }
 
@@ -93,7 +93,7 @@ impl Default for FeatureTileBucketPlaneMesh {
 }
 
 impl FeatureTileBucketPlaneMesh {
-    fn handle_removed_features(&mut self, current_features: &HashMap<String, SourceLayerFeature>) {
+    fn handle_removed_features(&mut self, current_features: &HashMap<u64, SourceLayerFeature>) {
         let removed_meshed_feature = self
             .meshed_feature_ids
             .iter()
@@ -119,7 +119,7 @@ pub struct FeatureTileBucketEdgeDistanceTexture {
     resolution: UVec2,
     data: Vec<f32>,
     dirty: bool,
-    rasterized_feature_ids: HashSet<String>,
+    rasterized_feature_ids: HashSet<u64>,
 }
 
 impl FeatureTileBucketEdgeDistanceTexture {
@@ -137,7 +137,7 @@ impl FeatureTileBucketEdgeDistanceTexture {
         }
     }
 
-    fn handle_removed_features(&mut self, current_features: &HashMap<String, SourceLayerFeature>) {
+    fn handle_removed_features(&mut self, current_features: &HashMap<u64, SourceLayerFeature>) {
         let removed_rasterized_feature = self
             .rasterized_feature_ids
             .iter()
@@ -388,7 +388,7 @@ fn setup_feature_tile_bucket_edge_distance_textures(
 fn feature_tile_features<'a>(
     map_int: &'a MaplibreMapIntegration,
     bucket: &FeatureTileBucket,
-) -> Option<&'a HashMap<String, SourceLayerFeature>> {
+) -> Option<&'a HashMap<u64, SourceLayerFeature>> {
     map_int
         .features
         .sources
@@ -857,7 +857,7 @@ fn edge_distance_image(resolution: UVec2, data: &[f32]) -> Image {
 
 fn calculate_edge_distance_texture(
     bounds: (bevy::math::DVec2, bevy::math::DVec2),
-    features: &HashMap<String, SourceLayerFeature>,
+    features: &HashMap<u64, SourceLayerFeature>,
     edge_texture: &mut FeatureTileBucketEdgeDistanceTexture,
 ) {
     edge_texture.rasterized_feature_ids.clear();
@@ -877,7 +877,7 @@ fn calculate_edge_distance_texture(
 
 fn edge_segments_uv(
     bounds: (bevy::math::DVec2, bevy::math::DVec2),
-    features: &HashMap<String, SourceLayerFeature>,
+    features: &HashMap<u64, SourceLayerFeature>,
 ) -> Vec<f32> {
     let mut edges = Vec::new();
     for feature in features.values() {

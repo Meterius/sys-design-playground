@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use crate::app::instance_management::commands::enqueue_instance_command;
 use crate::app::maplibre_gl_js::integration::{
     MaplibreMapIntegration, NEXT_INTEGRATION_ID, find_map_integration, with_map_data_mut,
@@ -13,52 +14,74 @@ use bevy::prelude::{Name, default};
 use geojson::Geometry;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
-use tracing::error;
-use wasm_bindgen::prelude::wasm_bindgen;
+use tracing::info;
+use wasm_bindgen::prelude::{JsValue, wasm_bindgen};
 
 #[derive(Deserialize)]
-struct EncodedFeature {
-    source_id: String,
-    source_layer_id: String,
-    tile_key: CanonicalTileId,
-    feature_id: String,
+struct EncodedTileFeature {
+    feature_id: u64,
     geometry: Geometry,
     #[serde(default)]
     properties: HashMap<String, serde_json::Value>,
 }
 
-struct ParsedFeature {
-    source_id: String,
-    source_layer_id: String,
-    tile_id: CanonicalTileId,
-    feature: SourceLayerFeature,
-}
-
 #[derive(Deserialize)]
-struct EncodedFeatureKey {
+struct EncodedFeatureTile {
     source_id: String,
     source_layer_id: String,
     tile_key: CanonicalTileId,
-    feature_id: String,
+    #[serde(default)]
+    features: Vec<EncodedTileFeature>,
 }
 
-fn parse_features(encoded_features: &str) -> Vec<ParsedFeature> {
-    serde_json::from_str::<Vec<EncodedFeature>>(encoded_features)
-        .inspect_err(|err| error!("Failed to parse features: {}", err))
-        .unwrap_or_default()
-        .into_iter()
-        .map(|feature| ParsedFeature {
-            source_id: feature.source_id,
-            source_layer_id: feature.source_layer_id,
-            tile_id: feature.tile_key,
-            feature: SourceLayerFeature {
-                tile_id: feature.tile_key,
-                id: feature.feature_id,
-                geometry: feature.geometry,
-                properties: feature.properties,
-            },
-        })
-        .collect()
+struct ParsedFeatureTile {
+    source_id: String,
+    source_layer_id: String,
+    tile_id: CanonicalTileId,
+    features: Vec<SourceLayerFeature>,
+}
+
+#[derive(Deserialize)]
+struct EncodedFeatureTileRemoval {
+    source_id: String,
+    source_layer_id: String,
+    tile_key: CanonicalTileId,
+    #[serde(default)]
+    feature_ids: Vec<u64>,
+}
+
+fn parse_feature_tiles(feature_tiles: JsValue) -> Result<Vec<ParsedFeatureTile>, String> {
+    Ok(
+        serde_wasm_bindgen::from_value::<Vec<EncodedFeatureTile>>(feature_tiles)
+            .map_err(|err| format!("Failed to parse feature tiles: {err}"))?
+            .into_iter()
+            .map(|tile| {
+                let tile_id = tile.tile_key;
+                ParsedFeatureTile {
+                    source_id: tile.source_id,
+                    source_layer_id: tile.source_layer_id,
+                    tile_id,
+                    features: tile
+                        .features
+                        .into_iter()
+                        .map(|feature| SourceLayerFeature {
+                            tile_id,
+                            id: feature.feature_id,
+                            geometry: feature.geometry,
+                            properties: feature.properties,
+                        })
+                        .collect(),
+                }
+            })
+            .collect(),
+    )
+}
+
+fn parse_feature_tile_removals(
+    feature_tiles: JsValue,
+) -> Result<Vec<EncodedFeatureTileRemoval>, String> {
+    serde_wasm_bindgen::from_value(feature_tiles)
+        .map_err(|err| format!("Failed to parse removed feature tiles: {err}"))
 }
 
 fn parse_tile_key(tile: &str) -> anyhow::Result<CanonicalTileId> {
@@ -129,9 +152,14 @@ pub fn sync_view(
     bearing: f64,
     center_lng: f64,
     center_lat: f64,
-    main_matrix_json: String,
+    main_matrix: Vec<f64>,
 ) -> Result<(), String> {
-    let main_matrix = serde_json::from_str(&main_matrix_json).unwrap_or_default();
+    if main_matrix.len() != 16 {
+        return Err(format!(
+            "Expected 16 main matrix values, got {}",
+            main_matrix.len()
+        ));
+    }
 
     let view = MaplibreMapViewData {
         width,
@@ -217,21 +245,23 @@ pub fn remove_terrain_tile_data(
 }
 
 #[wasm_bindgen]
-pub fn update_features(
+pub fn update_feature_tiles(
     instance_id: String,
     integration_id: u32,
-    encoded_features: String,
+    feature_tiles: JsValue,
 ) -> Result<(), String> {
-    let features = parse_features(&encoded_features);
+    let feature_tiles = parse_feature_tiles(feature_tiles)?;
+
+    info!("updated {}", feature_tiles.iter().map(|f| format!("{:?} {}", f.tile_id, f.features.iter().count())).join(", "));
 
     enqueue_instance_command(&instance_id, move |world| {
         with_map_data_mut(world, integration_id, |map_data| {
-            for feature in features {
-                map_data.features.insert(
-                    feature.source_id,
-                    feature.source_layer_id,
-                    feature.tile_id,
-                    feature.feature,
+            for feature_tile in feature_tiles {
+                map_data.features.insert_tile_features(
+                    feature_tile.source_id,
+                    feature_tile.source_layer_id,
+                    feature_tile.tile_id,
+                    feature_tile.features,
                 );
             }
         });
@@ -240,23 +270,23 @@ pub fn update_features(
 }
 
 #[wasm_bindgen]
-pub fn remove_features(
+pub fn remove_feature_tiles(
     instance_id: String,
     integration_id: u32,
-    encoded_feature_keys: String,
+    feature_tiles: JsValue,
 ) -> Result<(), String> {
-    let feature_keys = serde_json::from_str::<Vec<EncodedFeatureKey>>(&encoded_feature_keys)
-        .inspect_err(|err| error!("Failed to parse removed feature keys: {}", err))
-        .unwrap_or_default();
+    let feature_tiles = parse_feature_tile_removals(feature_tiles)?;
+
+    info!("removed {}", feature_tiles.iter().map(|f| format!("{:?} {}", f.tile_key, f.feature_ids.len())).join(", "));
 
     enqueue_instance_command(&instance_id, move |world| {
         with_map_data_mut(world, integration_id, |map_data| {
-            for feature_key in feature_keys {
-                map_data.features.remove(
-                    &feature_key.source_id,
-                    &feature_key.source_layer_id,
-                    &feature_key.tile_key,
-                    &feature_key.feature_id,
+            for feature_tile in feature_tiles {
+                map_data.features.remove_tile_features(
+                    &feature_tile.source_id,
+                    &feature_tile.source_layer_id,
+                    &feature_tile.tile_key,
+                    &feature_tile.feature_ids,
                 );
             }
         });

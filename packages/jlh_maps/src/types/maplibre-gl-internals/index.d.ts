@@ -1,44 +1,62 @@
+import type {
+  GeoJSONFeature,
+  Map as MapLibreMap,
+  QuerySourceFeatureOptions,
+  Tile as MapLibreTile,
+} from 'maplibre-gl'
+import type { DEMData } from './dem_data'
 import type { Terrain } from './terrain'
-import type { OverscaledTileID } from './tile_id'
+import type { CanonicalTileID, OverscaledTileID } from './tile_id'
 
-export interface Tile {
-  tileID?: OverscaledTileID | { key?: string; toString?: () => string }
+export type { DEMData } from './dem_data'
+export type { Terrain } from './terrain'
+export type { CanonicalTileID, OverscaledTileID } from './tile_id'
+
+export interface Tile extends Partial<MapLibreTile> {
+  tileID?: OverscaledTileID
   rtt?: unknown[] | null
   rttFingerprint?: Record<string, string | number | boolean | null | undefined> | null
-  dem?: unknown
+  dem?: DEMData
 }
 
-export interface Map {
-  transform: {
-    zoom: number
-    getProjectionDataForCustomLayer?: () => { mainMatrix?: ArrayLike<number> }
-    projectionData?: { mainMatrix?: ArrayLike<number> }
-    modelViewProjectionMatrix?: ArrayLike<number>
+export interface MapProjectionTransform {
+  getProjectionDataForCustomLayer?: (applyGlobeMatrix?: boolean) => {
+    mainMatrix?: ArrayLike<number>
   }
-  terrain: Terrain | null
-  on(type: string, callback: () => void): unknown
-  off(type: string, callback: () => void): unknown
-  getCenter(): { lng: number; lat: number }
-  getCanvas(): HTMLCanvasElement
-  getPitch(): number
-  getBearing(): number
-  querySourceFeatures(
-    sourceId: string,
-    options?: { sourceLayer?: string },
-  ): Array<{
-    id?: unknown
-    geometry?: import('geojson').Geometry
-    properties?: Record<string, unknown> | null
-    _z?: number
-    _x?: number
-    _y?: number
-    _vectorTileFeature?: { id?: unknown }
-    toJSON(): {
-      geometry?: import('geojson').Geometry | null
-      properties?: Record<string, unknown> | null
-    }
-  }>
-  coveringTiles(options: {
-    tileSize: number
-  }): Array<{ canonical: import('./tile_id').CanonicalTileID }>
+  projectionData?: { mainMatrix?: ArrayLike<number> }
+  modelViewProjectionMatrix?: ArrayLike<number>
+}
+
+export interface TileManager {
+  getRenderableIds(): string[]
+  getTileByID(id: string): MapLibreTile | undefined
+}
+
+export interface TileManagerContainer {
+  tileManagers?: Record<string, TileManager | undefined>
+}
+
+export type Map = MapLibreMap & {
+  transform: MapProjectionTransform
+  style?: TileManagerContainer
+  styleManager?: TileManagerContainer
+  terrain?: Terrain | null
+}
+
+export interface SourceFeatureRecord {
+  id?: unknown
+}
+
+export interface TileSourceFeatureQuery {
+  querySourceFeatures(result: GeoJSONFeature[], params?: QuerySourceFeatureOptions): void
+}
+
+export interface RenderableTerrainTile extends Tile {
+  tileID: OverscaledTileID
+}
+
+export interface TileCoordLike {
+  z: number
+  x: number
+  y: number
 }

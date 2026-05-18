@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<project version="4">
-  <component name="DataSourcePerFileMappings">
-    <file url="file://$PROJECT_DIR$/infra/geo/postgres_osm/init/init.sql" value="a02493e0-c56d-4f04-814b-9108cb593e19" />
-  </component>
-</project>

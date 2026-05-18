@@ -1,4 +1,4 @@
-# Geo Infrastructure
+# Infrastructure
 
 Docker Compose stack for the local map data services used by `jlh_maps`.
 Run commands in this directory unless noted otherwise.

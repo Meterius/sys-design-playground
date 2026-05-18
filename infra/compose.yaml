@@ -74,8 +74,8 @@ services:
 
   core_service:
     build:
-      context: ../../
-      dockerfile: infra/geo/core_service/Dockerfile
+      context: ../
+      dockerfile: infra/core_service/Dockerfile
     restart: unless-stopped
 
     environment:
@@ -94,7 +94,7 @@ services:
     image: ghcr.io/valhalla/valhalla-scripted:latest
 
     volumes:
-      - ./valhalla/custom_files:/custom_files
+      - ${VALHALLA_CUSTOM_FILES_DIR}:/custom_files
 
     labels:
       - "traefik.enable=true"

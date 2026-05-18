@@ -1,18 +1,27 @@
-### Datasets
+# jlh-maps
 
-#### OSM
-- Link: https://download.geofabrik.de
-- Format: `.osm.pbf`
+Simple map application.
 
-- TODO: add sentinel 2 copernicus links
+## Structure
 
-### Structure
+```text
+├── crates/       Rust workspace crates.
+├── infra/        Docker Compose and service infrastructure. See infra/README.md.
+└── packages/     Frontend and TypeScript packages.
+```
 
-- TODO: Add list of significant folder structure (stop when folder has own readme)
+## Crates
 
-#### Crates
-- TODO: Add short-description for each crate in crates/
+- `jlh_maps_app` - Rust/Bevy code built for the map frontend through WASM.
+- `jlh_maps_core_service` - Actix/Juniper backend service for map data APIs.
+- `sat_ingest` - Sentinel/satellite ingestion and conversion tooling.
+- `utilities` - Shared Rust geometry, image, and data utilities.
 
-#### Packages
-- TODO: Add short-description for each package in packages/
+## Packages
 
+- `jlh_maps` - Vue/Vite map frontend.
+- `valhalla_client` - Typed TypeScript client for Valhalla API endpoints.
+
+## Datasets
+
+- OSM extracts: https://download.geofabrik.de, usually as `.osm.pbf`.
